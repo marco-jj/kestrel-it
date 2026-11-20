@@ -1,0 +1,20 @@
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Dependencies & Build
+node_modules/
+dist/
+build/
+.angular/
+coverage/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Large local REA full AST dump (summary is tracked in docs/rea-evidence-summary.json)
+docs/rea-evidence-bundle.json
