@@ -33,7 +33,7 @@ stateDiagram-v2
 
 ---
 
-### 1.2 Flusso Transazionale di Checkout Asset ([`AssetCheckoutService.php`](file:///Users/thor/development/snipe-it/app/Services/AssetCheckoutService.php))
+### 1.2 Flusso Transazionale di Checkout Asset ([`AssetCheckoutService.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/AssetCheckoutService.php))
 
 Quando viene invocato `POST /api/v1/hardware/{id}/checkout` (o `/bytag/{tag}/checkout` o Bulk Checkout):
 
@@ -74,7 +74,7 @@ Quando viene invocato `POST /api/v1/hardware/{id}/checkout` (o `/bytag/{tag}/che
 ### 1.3 Flusso Transazionale di Checkin Asset (`AssetCheckinController` / `Api\AssetsController::checkin`)
 
 Quando viene invocato `POST /api/v1/hardware/{id}/checkin`:
-1. **Lock & Pre-condizioni:** L'asset deve essere attualmente assegnato (`assigned_to IS NOT NULL`).
+1. **Lock & Pre-condizioni:** L'API blocca la riga e distingue il rientro di un asset assegnato dall'aggiornamento di un asset già rientrato. Quickscan può aggiornare un asset già rientrato quando la richiesta include `status_id`, `location_id`, `name` o `clear_name=1`. L'API risponde con successo senza emettere l'evento di check-in né incrementare il contatore. Se la richiesta non specifica aggiornamenti, restituisce l'errore «già rientrato». I passaggi di pulizia e registrazione del rientro sotto si applicano al rientro effettivo. [`AssetsController::checkin()`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Controllers/Api/AssetsController.php#L1463-L1604)
 2. **Pulizia Acceptance Pendenti:** Se esiste una `CheckoutAcceptance` con `accepted_at IS NULL AND declined_at IS NULL` per questo asset, viene eliminata (soft-delete).
 3. **Ripristino Posizione (`location_id`):**
    - `asset.locationId = request.locationId ?? asset.rtdLocationId`
@@ -95,8 +95,8 @@ Quando viene invocato `POST /api/v1/hardware/{id}/checkin`:
 ## 2. EULA & Flusso di Accettazione / Rifiuto (`CheckoutAcceptance`)
 
 1. **Risoluzione del testo EULA:**
-   - Se `category.useDefaultEula === true`, usa `settings.defaultEulaText`.
-   - Altrimenti usa `category.eulaText`.
+   - Per un asset, la categoria arriva dal modello. Con `use_default_eula` attivo, si usa il testo globale. Altrimenti si usa il testo della categoria, se presente.
+   - Per un articolo con categoria diretta, il testo della categoria ha la precedenza. Il testo globale è usato come ripiego se disponibile e abilitato. [`SnipeModel::getEula()`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/SnipeModel.php#L228-L251)
 2. **Stati di `CheckoutAcceptance`:**
    - **Pending:** `accepted_at IS NULL AND declined_at IS NULL`
    - **Accepted:** `accepted_at IS NOT NULL`
@@ -116,29 +116,32 @@ Quando viene invocato `POST /api/v1/hardware/{id}/checkin`:
 
 ---
 
-## 3. Checkout di Predefined Kits ([`PredefinedKitCheckoutService.php`](file:///Users/thor/development/snipe-it/app/Services/PredefinedKitCheckoutService.php))
+## 3. Checkout di Predefined Kits ([`PredefinedKitCheckoutService.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/PredefinedKitCheckoutService.php))
 
-Un `PredefinedKit` raggruppata quantità predefinite di:
+Un `PredefinedKit` raggruppa quantità predefinite dei seguenti articoli.
 - **Asset Models** (`kits_models`: seleziona automaticamente `N` asset RTD disponibili di quel modello compatibili per FMCS con l'utente target)
 - **Licenses** (`kits_licenses`: seleziona `N` `freeSeats` disponibili compatibili per FMCS)
 - **Consumables** (`kits_consumables`: verifica che `numRemaining() >= quantity` e che sia compatibile per FMCS)
 - **Accessories** (`kits_accessories`: verifica che `numRemaining() >= quantity` e che sia compatibile per FMCS)
 
-**Regola di Concorrenza (Transazione con `SELECT ... FOR UPDATE`):**
-1. Fase di pre-validazione: raccoglie tutti i candidati e accumula tutti gli errori (stock insufficiente o mismatch FMCS `error_checkout_company_mismatch`). Se c'è anche un solo errore, interrompe prima di modificare il DB.
-2. Fase di commit in transazione Drizzle:
-   - Ri-acquisisce ogni `Asset`, `LicenseSeat`, `Consumable` e `Accessory` con **lock pessimistico `FOR UPDATE`** per prevenire race condition tra due operatori che fanno checkout dello stesso kit contemporaneamente.
-   - Esegue i checkout, scrive i rispettivi `action_logs` e crea eventuali `CheckoutAcceptance`.
+**Comportamento Snipe-IT**
+
+1. La pre-validazione raccoglie i candidati e gli errori di giacenza o di compatibilità FMCS. Se ci sono errori, il servizio termina prima di scrivere. [Pre-validazione](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/PredefinedKitCheckoutService.php#L43-L52)
+2. La transazione rilegge i candidati sotto lock e ricontrolla disponibilità e quantità. Quando un candidato è diventato indisponibile, il servizio registra l'errore, salta quella voce e continua. Le altre assegnazioni possono essere confermate anche quando l'esito contiene errori. [Commit e concorrenza](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/PredefinedKitCheckoutService.php#L225-L341)
+
+**Comportamento previsto in Kestrel-IT (Piano 3.1).** Il checkout del kit è atomico. Il servizio acquisisce i lock `SELECT ... FOR UPDATE` sulle righe coinvolte in ordine stabile e rivalida disponibilità, quantità e compatibilità FMCS nella stessa transazione. Se una voce risulta indisponibile o un'assegnazione fallisce, il servizio annulla l'intera transazione e restituisce il motivo del fallimento. Assegnazioni, contatori e audit log si confermano insieme. Le notifiche di successo partono dopo il commit. [Piano 3.1](../PLAN.md)
+
+Il rollback dell'intero kit è una differenza intenzionale rispetto alla conferma parziale osservata upstream. Il test di concorrenza dovrà coprire due checkout che competono per l'ultima unità e verificare che la richiesta perdente termini senza assegnazioni o log di checkout residui.
 
 ---
 
-## 4. Motore Matematico di Ammortamento ([`Depreciable.php`](file:///Users/thor/development/snipe-it/app/Models/Depreciable.php))
+## 4. Motore Matematico di Ammortamento ([`Depreciable.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Depreciable.php))
 
 Applicabile sia agli **Asset** (tramite `asset.model.depreciation`) sia alle **Licenze** (tramite `license.depreciation`).
 Richiede `purchaseCost > 0`, `purchaseDate != null` e `depreciation.months > 0`.
 
 ### 4.1 Calcolo del Valore Minimo Residuo (`floorValue`)
-Dalla funzione `calculateDepreciation()` in [`Depreciable.php`](file:///Users/thor/development/snipe-it/app/Models/Depreciable.php#L294-L306):
+Dalla funzione `calculateDepreciation()` in [`Depreciable.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Depreciable.php#L294-L306):
 - Se `depreciation.depreciationType === 'percent'`:
   $$\text{floorValue} = \text{purchaseCost} \times \left(\frac{\text{depreciationMin}}{100}\right)$$
 - Se `depreciation.depreciationType === 'amount'` (default):
@@ -147,7 +150,7 @@ Dalla funzione `calculateDepreciation()` in [`Depreciable.php`](file:///Users/th
 ### 4.2 I 4 Metodi di Ammortamento (`settings.depreciation_method`)
 
 1. **`default` (Ammortamento Lineare Mensile — `getLinearDepreciatedValue`)**:
-   - $\text{monthsPassed} = (\text{now.year} - \text{purchaseDate.year}) \times 12 + (\text{now.month} - \text{purchaseDate.month})$
+   - `monthsPassed` somma gli anni e i mesi interi restituiti da `purchaseDate.diff(now)` (`years × 12 + months`). Un cambio di mese nel calendario può precedere il completamento del primo mese di ammortamento. [Calcolo upstream](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Depreciable.php#L76-L95)
    - Se $\text{monthsPassed} \ge \text{depreciation.months}$:
      $$\text{currentValue} = \text{floorValue}$$
    - Altrimenti:

@@ -32,7 +32,7 @@ export function createDatatableResponseSchema<T extends z.ZodTypeAny>(rowSchema:
     rows: z.array(rowSchema),
     current_page: z.number().int().positive(),
     per_page: z.number().int().positive(),
-    total_pages: z.number().int().positive(),
+    total_pages: z.number().int().nonnegative(),
     prev_page_url: z.string().nullable(),
     next_page_url: z.string().nullable(),
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   ALL_PERMISSIONS,
   FmcsCompanyAssignmentError,
@@ -7,6 +8,7 @@ import {
   buildFieldsetZodSchema,
   canAccessCompanyRecord,
   canEncryptFor,
+  createDatatableResponseSchema,
   elementRequiresFieldValues,
   generateCustomFieldDbColumn,
   hasAccess,
@@ -15,6 +17,25 @@ import {
   resolveAssignedCompanyId,
   resolveEffectivePermissions,
 } from '../index.js';
+
+describe('Datatable response schema', () => {
+  it('accepts zero pages for an empty list and rejects negative or fractional page counts', () => {
+    const schema = createDatatableResponseSchema(z.object({ id: z.number().int() }));
+    const emptyPage = {
+      total: 0,
+      rows: [],
+      current_page: 1,
+      per_page: 50,
+      total_pages: 0,
+      prev_page_url: null,
+      next_page_url: null,
+    };
+
+    expect(schema.parse(emptyPage)).toEqual(emptyPage);
+    expect(schema.safeParse({ ...emptyPage, total_pages: -1 }).success).toBe(false);
+    expect(schema.safeParse({ ...emptyPage, total_pages: 0.5 }).success).toBe(false);
+  });
+});
 
 describe('RBAC permissions & evaluator', () => {
   it('contains all 87 unique Snipe-IT permissions', () => {
