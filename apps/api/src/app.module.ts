@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { CryptoModule } from './common/crypto/crypto.module.js';
 import { JwtOrPatAuthGuard } from './common/guards/jwt-or-pat-auth.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
+import { StorageModule } from './common/storage/storage.module.js';
 import { validateEnv } from './config/env.schema.js';
 import { DatabaseModule } from './db/database.module.js';
 import { HealthController } from './health/health.controller.js';
@@ -20,6 +21,7 @@ import { SetupModule } from './modules/setup/setup.module.js';
     ScheduleModule.forRoot(),
     DatabaseModule,
     CryptoModule,
+    StorageModule,
     AuthModule,
     SetupModule,
   ],
