@@ -12,7 +12,7 @@ Snipe-IT has proven, battle-tested ITAM workflows, but its PHP/Laravel monolith 
 
 - **Modern Decoupled Stack:** TypeScript end-to-end with a **Node.js** backend and an **Angular** SPA frontend.
 - **PostgreSQL-First:** Powered by **Drizzle ORM**, using `JSONB` for dynamic custom fields instead of runtime `ALTER TABLE` schema mutations.
-- **OIDC Authentication:** Native **OpenID Connect (OIDC)** support (Keycloak, Authentik, Entra ID, Okta, Nextcloud, Google) replacing legacy SAML, alongside local auth + TOTP 2FA.
+- **Modern Authentication (OIDC, OAuth 2.0/2.1 & Better Auth):** Native **OpenID Connect (OIDC)**, **OAuth 2.0 / OAuth 2.1 (PKCE)** and **Better Auth** support (Keycloak, Authentik, Entra ID, Okta, Nextcloud, Google, GitHub, WebAuthn/Passkeys) replacing legacy SAML, alongside local auth + TOTP 2FA and PAT.
 - **Pluggable Storage:** Unified storage abstraction supporting **Local**, **Native S3** (AWS S3, MinIO, Cloudflare R2, etc.), and **Nextcloud** (WebDAV).
 - **Kubernetes-Ready:** Deployed via a **single Helm chart** covering both backend and frontend (plus optional PostgreSQL dependency).
 
@@ -25,7 +25,7 @@ Snipe-IT has proven, battle-tested ITAM workflows, but its PHP/Laravel monolith 
 | **Backend** | Node.js, TypeScript (NestJS / Fastify) |
 | **ORM / Database** | Drizzle ORM, PostgreSQL |
 | **Frontend** | Angular (standalone components, Signals) |
-| **Auth** | OpenID Connect (OIDC) + Local / TOTP 2FA |
+| **Auth** | OpenID Connect (OIDC), OAuth 2.0 / 2.1 (PKCE), Better Auth, Local / TOTP 2FA & PAT |
 | **Storage** | Local FS, Native S3 (`@aws-sdk/client-s3`), Nextcloud (WebDAV) |
 | **Deployment** | Docker, single Helm Chart (Kubernetes) |
 

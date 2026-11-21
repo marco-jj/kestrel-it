@@ -25,7 +25,7 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
 4. [`docs/03-rbac-policies-and-fmcs.md`](file:///Users/thor/development/kestrel-it/docs/03-rbac-policies-and-fmcs.md) — Matrice permessi (`config/permissions.php`), 24 Policy, precedenza (`Superuser > Admin > User > Group`) e isolamento Multi-Company (**FMCS**).
 5. [`docs/04-domain-workflows-and-state.md`](file:///Users/thor/development/kestrel-it/docs/04-domain-workflows-and-state.md) — Macchine a stati e logica transazionale: Checkout/Checkin polimorfico, propagazione License Seats, EULA/Firme, Predefined Kits, Ammortamenti (Linear / Half-Year / Diminishing), Audit & Manutenzioni.
 6. [`docs/05-api-contracts-and-modules.md`](file:///Users/thor/development/kestrel-it/docs/05-api-contracts-and-modules.md) — Mappatura dei 36 Controller API e 39 Transformer di Snipe-IT in moduli NestJS, contratti `/api/v1/*`, formato Datatables/Selectlist e calcolo `available_actions`.
-7. [`docs/06-storage-auth-and-jobs.md`](file:///Users/thor/development/kestrel-it/docs/06-storage-auth-and-jobs.md) — Autenticazione OIDC + Local/TOTP 2FA + PAT, Pluggable Storage (`Local`, `S3`, `Nextcloud WebDAV`), 14 Importer CSV, 26 Notifiche e Cron Jobs.
+7. [`docs/06-storage-auth-and-jobs.md`](file:///Users/thor/development/kestrel-it/docs/06-storage-auth-and-jobs.md) — Autenticazione OIDC, OAuth 2.0/2.1, Better Auth, Local/TOTP 2FA e PAT, Pluggable Storage (`Local`, `S3`, `Nextcloud WebDAV`), 14 Importer CSV, 26 Notifiche e Cron Jobs.
 8. [`docs/07-frontend-angular-map.md`](file:///Users/thor/development/kestrel-it/docs/07-frontend-angular-map.md) — Architettura Angular SPA, mappatura schermate/rotte, DataGrid server-side, selettori asincroni company-aware e sostituzione dei 18 widget Livewire e di `snipeit.js`.
 
 ---
@@ -54,14 +54,18 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - Configurare `drizzle-orm` + `postgres` (`postgres.js`) e `drizzle-kit`.
   - Implementare tutti i file di schema Drizzle in `apps/api/src/db/schema/` (46 tabelle) come specificato in [`docs/01-database-schema-drizzle.md`](file:///Users/thor/development/kestrel-it/docs/01-database-schema-drizzle.md).
   - Generare la migrazione iniziale PostgreSQL (`apps/api/drizzle/0000_breezy_archangel.sql`) + implementare `DatabaseBootstrapService` per **Headless Bootstrap** (`BOOTSTRAP_ADMIN_*`), **Setup Wizard `/setup`** (`isSetupCompleted`) e seed `status_labels` base.
-- [ ] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT) & `SetupModule`**
-  - Implementare login locale (Argon2id/bcrypt), sessioni/JWT + refresh token, TOTP 2FA (`otplib` + QR Code enrollment).
-  - Implementare **OpenID Connect (OIDC)** (`openid-client`) superando il limite di `OidcUserResolver.php` di Snipe-IT:
+- [x] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT) & `SetupModule`**
+  - Implementare login locale (`scrypt` + verifica retrocompatibile `bcryptjs` `$2y$` di Snipe-IT), sessioni JWT + refresh token (`jose`), TOTP 2FA RFC 6238 con segreti cifrati AES-256-GCM.
+  - Implementare **OpenID Connect (OIDC PKCE)** con `OidcUserProvisioningService`:
     - **Just-In-Time (JIT) User Auto-Provisioning**: creazione automatica dell'utente al primo login OIDC se non esiste già nel DB (`oidc_auto_provision_users = true`).
     - **Account Linking & Pinning `(oidc_issuer, oidc_subject)`**: aggancio automatico agli utenti pre-esistenti/migrati al primo login SSO.
-    - **Sync ad ogni login (`oidc_sync_on_login`)**: aggiornamento attributi profilo (`first_name`, `last_name`, `email`, `jobtitle`, `employee_num`), sincronizzazione gruppi da claim OIDC (`groups` / `roles` → `users_groups` + `oidc_default_group_id`), assegnazione company (`company_user`) e auto-assegnazione licenze.
-  - Implementare **Personal Access Tokens (PAT)** (`/api/v1/account/personal-access-tokens`, gate `self.api`) compatibili con gli header `Authorization: Bearer <token>` di Snipe-IT.
+    - **Sync ad ogni login (`oidc_sync_on_login`)**: aggiornamento attributi profilo (`first_name`, `last_name`, `email`, `jobtitle`, `employee_num`), sincronizzazione gruppi da claim OIDC (`groups` / `roles` → `users_groups` + `oidc_default_group_id`) e assegnazione company (`company_user`).
+  - Implementare **Personal Access Tokens (PAT)** (`/api/v1/account/personal-access-tokens`, prefisso `kst_`, SHA-256, gate `self.api` + 2FA verificato) e guard globali (`JwtOrPatAuthGuard`, `PermissionsGuard`).
   - Implementare **`SetupModule`** (`GET /api/v1/setup/status`, `POST /api/v1/setup/complete`) con blocco permanente post-setup (`SetupNotCompletedGuard` → `403 Forbidden`).
+- [x] **Piano 1.4b — Estensione Auth: OAuth 2.0 / OAuth 2.1 (PKCE S256) & Better Auth Adapter (`apps/api/src/modules/auth`)**
+  - Supporto provider **OAuth 2.0 / OAuth 2.1** puri (senza `id_token` OIDC, tramite introspezione / endpoint `/userinfo` normalizzato) con **PKCE `S256` obbligatorio** e Refresh Token Rotation secondo le specifiche OAuth 2.1.
+  - Integrazione opzionale/pluggable di **Better Auth** (`better-auth` con `drizzleAdapter(db, { provider: 'pg' })`) per abilitare provider social/enterprise (`genericOAuth`), **Passkeys (WebAuthn/FIDO2)** e gestione sessioni multi-device, più supporto come external Better Auth IdP federato.
+  - Implementazione di `BetterAuthProvisioningBridge` (`databaseHooks`) per collegare gli hook di Better Auth a `OidcUserProvisioningService` (JIT User Auto-Provisioning, sync `users_groups`, sync `company_user` FMCS e matrice RBAC a 87 permessi).
 - [ ] **Piano 1.5 — Pluggable Storage Layer (`apps/api/src/common/storage`)**
   - Implementare l'interfaccia `StorageProvider` e i 3 adapter: `LocalStorageAdapter`, `S3StorageAdapter` (`@aws-sdk/client-s3`), `NextcloudWebDavAdapter`.
 - [ ] **Piano 1.6 — Scaffolding Frontend Angular (`apps/web`) & Helm Chart (`deploy/helm`)**

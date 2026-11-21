@@ -12,7 +12,7 @@
 | **Database & ORM** | MySQL / MariaDB + Eloquent ORM (513 migrazioni) | **PostgreSQL 16+** + **Drizzle ORM** | Query SQL type-safe, performance elevate, transazioni con lock espliciti e supporto nativo `JSONB` + indici `GIN`. |
 | **Custom Fields** | Mutazioni DDL a runtime (`ALTER TABLE assets ADD _snipeit_*`) | Colonna **`custom_fields JSONB`** su `assets` + validazione dinamica **Zod** | Nessuna mutazione dello schema DB a runtime; indicizzazione GIN istantanea e zero lock DDL su tabelle grandi. |
 | **Frontend UI** | Blade + AdminLTE 2 + Bootstrap 3 + jQuery (`snipeit.js`) + 18 widget Livewire | **Angular** (Standalone Components, Signals, Reactive Forms) | SPA reattiva, accessibile, disaccoppiata dal backend e senza dipendenza da jQuery/Bootstrap 3. |
-| **Autenticazione** | Sessioni Laravel, Passport OAuth, LDAP, SAML 2.0, Google OAuth, TOTP | **OIDC Nativo** + **Local Auth / TOTP 2FA** + **Personal Access Tokens (PAT)** | Integrazione standard con Keycloak, Authentik, Microsoft Entra ID, Okta, Nextcloud, Google. |
+| **Autenticazione** | Sessioni Laravel, Passport OAuth, LDAP, SAML 2.0, Google OAuth, TOTP | **OIDC Nativo** + **OAuth 2.0 / 2.1 (PKCE)** + **Better Auth** + **Local Auth / TOTP 2FA** + **Personal Access Tokens (PAT)** | Integrazione standard con Keycloak, Authentik, Entra ID, Okta, Nextcloud, Google, GitHub, provider OAuth 2.0/2.1 e supporto `better-auth` (`drizzleAdapter` PostgreSQL + Passkeys/WebAuthn). |
 | **File Storage** | Laravel Filesystem (`local` / `s3`) | **Pluggable Storage Adapter** (`Local`, `Native S3`, `Nextcloud WebDAV`) | Supporto nativo per filesystem locale, S3/MinIO/R2 e istanze aziendali Nextcloud via WebDAV. |
 | **Deployment** | VM / Docker monolitico Apache/PHP-FPM | **Docker Multi-Stage + Single Helm Chart** (`deploy/helm`) | Cloud-native, pronto per Kubernetes con un unico chart che orchestra API, Web e dipendenze opzionali. |
 
@@ -84,11 +84,11 @@ flowchart TB
 
     subgraph Backend["Application & Domain Layer (apps/api - NestJS)"]
         Controllers["REST Controllers (/api/v1/*)"]
-        Guards["AuthGuard (JWT/OIDC/PAT) + PermissionsGuard + FmcsGuard"]
+        Guards["AuthGuard (JWT/OIDC/OAuth2.1/BetterAuth/PAT) + PermissionsGuard + FmcsGuard"]
         Transformers["Response Serializers (Datatables, Selectlist, available_actions)"]
         Services["Domain Services (AssetCheckoutService, KitCheckoutService, DepreciableService, ImporterService)"]
         Events["Event Bus & ActionLogObserver (Immutable Audit Trail)"]
-        Adapters["Pluggable Adapters (Local/S3/Nextcloud Storage, OIDC, Email/Webhook Notifications)"]
+        Adapters["Pluggable Adapters (Local/S3/Nextcloud Storage, OIDC/OAuth2.1/BetterAuth, Email/Webhook Notifications)"]
     end
 
     subgraph Data["Persistence Layer (PostgreSQL 16+ / Drizzle ORM)"]

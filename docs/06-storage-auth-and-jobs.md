@@ -1,37 +1,45 @@
-# 06 — Authentication (OIDC + 2FA), Pluggable Storage, CSV Importers & Scheduled Jobs
+# 06 — Authentication (OIDC, OAuth 2.0/2.1, Better Auth, 2FA & PAT), Pluggable Storage, CSV Importers & Scheduled Jobs
 
-Questo documento definisce le specifiche per i layer infrastrutturali e operativi di Kestrel-IT: **Autenticazione moderna**, **Storage Pluggable**, il **Motore di Importazione CSV (14 entità)**, il **Generatore di Etichette PDF** e le **26 Notifiche & Cron Jobs**.
+Questo documento definisce le specifiche per i layer infrastrutturali e operativi di Kestrel-IT: **Autenticazione moderna** (**OIDC**, **OAuth 2.0 / 2.1**, **Better Auth**, **Local Auth + TOTP 2FA** e **PAT**), **Storage Pluggable**, il **Motore di Importazione CSV (14 entità)**, il **Generatore di Etichette PDF** e le **26 Notifiche & Cron Jobs**.
 
 ---
 
-## 1. Autenticazione: OIDC Nativo + Local Auth + TOTP 2FA + PAT
+## 1. Autenticazione: OIDC + OAuth 2.0 / 2.1 + Better Auth + Local Auth + TOTP 2FA + PAT
 
-Kestrel-IT sostituisce le implementazioni legacy SAML/LDAP di Snipe-IT con **OpenID Connect (OIDC)** nativo, affiancato dall'autenticazione locale con **TOTP 2FA** e dai **Personal Access Tokens (PAT)**.
+Kestrel-IT sostituisce le implementazioni legacy SAML/LDAP di Snipe-IT con un'architettura di autenticazione moderna basata su tre pilastri interoperabili:
+1. **OpenID Connect (OIDC 1.0)** e **OAuth 2.0 / OAuth 2.1** (con Authorization Code + **PKCE `S256` obbligatorio**).
+2. **Better Auth (`better-auth`)**, supportato sia come **motore di autenticazione embedded** su PostgreSQL (`drizzleAdapter(db, { provider: 'pg' })`) sia come **Identity Provider esterno** federato OIDC/OAuth 2.1.
+3. **Autenticazione Locale + TOTP 2FA** (con verifica retrocompatibile degli hash Bcrypt `$2y$` migrati da Snipe-IT) e **Personal Access Tokens (PAT)**.
 
 ```mermaid
 sequenceDiagram
     participant User as Utente / SPA Angular
-    participant API as NestJS AuthModule
-    participant IdP as OIDC Provider (Keycloak / Entra ID / Okta / Nextcloud)
+    participant API as NestJS AuthModule (Native / Better Auth)
+    participant IdP as OIDC / OAuth 2.0-2.1 Provider (Keycloak / Entra ID / Okta / GitHub / Better Auth Server)
     participant DB as PostgreSQL (users / personal_access_tokens)
 
-    alt Flusso 1: OIDC Authorization Code + PKCE
-        User->>API: GET /api/v1/auth/oidc/login
-        API-->>User: Redirect to IdP Authorization Endpoint (state, nonce, code_challenge)
+    alt Flusso 1: OIDC / OAuth 2.0-2.1 Authorization Code + PKCE (S256)
+        User->>API: GET /api/v1/auth/oidc/login (o Better Auth genericOAuth/sso)
+        API-->>User: Redirect to IdP Authorization Endpoint (state, nonce, code_challenge S256)
         User->>IdP: Login & Consent
         IdP-->>API: GET /api/v1/auth/oidc/callback?code=...&state=...
-        API->>IdP: Exchange Code for ID Token & UserInfo
-        API->>DB: Upsert User by (oidc_issuer, oidc_subject) or email + sync Groups
+        API->>IdP: Exchange Code + code_verifier for ID Token (OIDC) & Access Token + UserInfo
+        API->>DB: Upsert User by (oidc_issuer, oidc_subject) or email + sync Groups & Companies
         API-->>User: Issue Session / JWT + Refresh Token Cookie
-    else Flusso 2: Local Login + TOTP 2FA
+    else Flusso 2: Better Auth Embedded Engine (Optional Passkey / Social / SSO)
+        User->>API: Auth request via Better Auth handler (/api/auth/*)
+        API->>API: BetterAuthProvisioningBridge (databaseHooks)
+        API->>DB: OidcUserProvisioningService.resolveAndProvisionUser() + RBAC/FMCS sync
+        API-->>User: Issue Session / JWT Token
+    else Flusso 3: Local Login + TOTP 2FA
         User->>API: POST /api/v1/auth/login { username, password }
-        API->>DB: Verify Argon2id / Bcrypt hash & activated = true
+        API->>DB: Verify Scrypt / Legacy Bcrypt ($2y$) hash & activated = true
         opt two_factor_enrolled = true (o forzato da settings.two_factor_enabled)
             API-->>User: 202 Accepted { requiresTwoFactor: true, challengeToken }
             User->>API: POST /api/v1/auth/2fa/verify { challengeToken, totpCode }
         end
         API-->>User: Issue Session / JWT + Refresh Token Cookie
-    else Flusso 3: API Personal Access Token (PAT)
+    else Flusso 4: API Personal Access Token (PAT)
         User->>API: Request with Header "Authorization: Bearer <pat_token>"
         API->>DB: Lookup SHA-256 hash in personal_access_tokens (check expires_at & revoked_at)
         API-->>User: Execute authorized API call & update last_used_at
@@ -85,6 +93,17 @@ sequenceDiagram
      - Alla creazione JIT di un nuovo utente, se nel sistema esistono licenze con auto-assegnazione attiva, esegue il checkout automatico di un `LicenseSeat` libero esattamente come avviene nella creazione manuale di un utente.
    - **Audit Log:** Registra in `action_logs` l'evento `create` con `action_source = 'oidc_jit'`.
 
+### 1.2.1 Conformità OAuth 2.0 e OAuth 2.1 (PKCE S256 & UserInfo Normalization)
+Oltre ad OpenID Connect 1.0 completo (`id_token` JWT firmato JWKS + `/.well-known/openid-configuration`), il modulo Auth supporta **OAuth 2.0** e le specifiche **OAuth 2.1**:
+- **Requisiti OAuth 2.1 Enforced by Default:**
+  - **PKCE `S256` obbligatorio** (`code_challenge` + `code_challenge_method=S256` + `code_verifier`) su tutti i flussi Authorization Code.
+  - **Divieto dei flussi deprecati:** I grant type *Implicit* (`response_type=token`) e *Resource Owner Password Credentials (ROPC)* sono disabilitati per specifica OAuth 2.1.
+  - **Validazione rigorosa delle Redirect URI:** Exact string matching su `redirect_uri` registrate.
+  - **Refresh Token Rotation:** Rotazione con revoca preventiva in caso di riuso dei refresh token.
+- **Provider OAuth 2.0 / 2.1 Puri (senza `id_token` OIDC):**
+  - Supporto nativo per IdP e piattaforme che espongono OAuth 2.0 / 2.1 puro senza `id_token` (es. GitHub, GitLab, Nextcloud OAuth2, provider aziendali custom) tramite **Token Introspection** e/o chiamata autenticata all'endpoint **`/userinfo`**.
+  - Un normalizzatore dedicato mappa la risposta JSON di `/userinfo` sullo stesso contratto `OidcClaimsInput` consumato da `OidcUserProvisioningService`, riutilizzando invariato l'intero flusso di JIT Auto-Provisioning, pinning `(issuer, subject)` e sync gruppi/company.
+
 ### 1.3 First-Run Pre-Flight & Setup Wizard (`/setup`) + Headless Bootstrap
 Mappato da [`SetupController.php`](file:///Users/thor/development/snipe-it/app/Http/Controllers/SetupController.php), [`CheckForSetup.php`](file:///Users/thor/development/snipe-it/app/Http/Middleware/CheckForSetup.php) e [`Setting::setupCompleted()`](file:///Users/thor/development/snipe-it/app/Models/Setting.php#L147-L160).
 
@@ -102,6 +121,16 @@ Mappato da [`SetupController.php`](file:///Users/thor/development/snipe-it/app/H
 
 #### Modalità B — Headless / Helm Zero-Touch Bootstrap (Opzionale via `.env` / `values.yaml`)
 Se all'avvio del backend `setupCompleted === false` e sono valorizzate le variabili `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` (e opzionalmente `BOOTSTRAP_SITE_NAME`), NestJS esegue automaticamente il bootstrap in una transazione atomica all'avvio del pod (creando Superuser, `settings` e `status_labels` base), rendendo l'istanza immediatamente operativa per deploy GitOps/ArgoCD senza passare dal wizard web.
+
+### 1.4 Integrazione Better Auth (`better-auth` + Drizzle Adapter & Federated SSO)
+Kestrel-IT supporta **Better Auth** (`better-auth`) in due modalità complementari, mantenendo intatti il modello RBAC a 87 permessi e il multi-company scoping FMCS di Snipe-IT:
+
+- **Modalità A — Embedded Better Auth Engine (`AUTH_PROVIDER=native | better-auth`):**
+  - Configura `betterAuth({ database: drizzleAdapter(db, { provider: 'pg' }), ... })` montato sull'adapter Fastify/NestJS per sfruttare lo stack nativo PostgreSQL + Drizzle ORM.
+  - **Plugin supportati:** `genericOAuth` (provider OIDC, OAuth 2.0 e OAuth 2.1 con PKCE), `twoFactor` (TOTP), `passkey` (WebAuthn / FIDO2 passwordless), `apiKey` / `bearer`.
+  - **`BetterAuthProvisioningBridge` (`databaseHooks`):** Intercetta la creazione e il login degli utenti/sessioni OAuth/SSO in Better Auth e invoca `OidcUserProvisioningService.resolveAndProvisionUser()`, assicurando che il Just-In-Time (JIT) Auto-Provisioning, la sincronizzazione dei gruppi (`users_groups`), l'assegnazione company FMCS (`company_user`, `company_id`), l'auto-assegnazione licenze e la matrice RBAC di Kestrel-IT restino l'unica fonte di verità.
+- **Modalità B — External Better Auth Identity Server (SSO Federato):**
+  - Quando un'organizzazione utilizza un server di autenticazione centralizzato basato su Better Auth (es. con plugin `oidcProvider` / OAuth 2.1), Kestrel-IT si collega nativamente via flusso standard **OIDC / OAuth 2.1 + PKCE** con JIT Auto-Provisioning e sync automatico dei claims.
 
 ---
 
