@@ -1,6 +1,7 @@
 import { Controller, Get, Inject, Optional } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { sql } from 'drizzle-orm';
+import { Public } from '../common/decorators/auth.decorators.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../db/database.module.js';
 
 @ApiTags('System')
@@ -8,6 +9,7 @@ import { DRIZZLE_DB, type DrizzleDb } from '../db/database.module.js';
 export class HealthController {
   constructor(@Optional() @Inject(DRIZZLE_DB) private readonly db?: DrizzleDb) {}
 
+  @Public()
   @Get('health')
   @ApiOperation({ summary: 'Health check endpoint for Kubernetes probes' })
   async getHealth() {
@@ -29,6 +31,7 @@ export class HealthController {
     };
   }
 
+  @Public()
   @Get('version')
   @ApiOperation({ summary: 'Application version metadata' })
   getVersion() {

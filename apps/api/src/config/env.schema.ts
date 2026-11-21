@@ -32,7 +32,7 @@ export const EnvSchema = z.object({
     .regex(/^[0-9a-fA-F]{64}$/, 'APP_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)')
     .default('0'.repeat(64)),
 
-  // OIDC & JIT Auto-Provisioning
+  // OIDC, OAuth 2.0/2.1 & JIT Auto-Provisioning
   OIDC_ENABLED: booleanFromEnv(false),
   OIDC_ISSUER_URL: z.string().optional().default(''),
   OIDC_CLIENT_ID: z.string().optional().default(''),
@@ -45,6 +45,18 @@ export const EnvSchema = z.object({
   OIDC_SYNC_GROUPS: booleanFromEnv(true),
   OIDC_USERNAME_CLAIM: z.string().default('preferred_username'),
   OIDC_GROUPS_CLAIM: z.string().default('groups'),
+  OAUTH_PROTOCOL: z.enum(['oidc', 'oauth2', 'oauth2.1']).default('oidc'),
+  OAUTH_AUTHORIZATION_URL: z.string().optional().default(''),
+  OAUTH_TOKEN_URL: z.string().optional().default(''),
+  OAUTH_USERINFO_URL: z.string().optional().default(''),
+
+  // Better Auth Integration (disabled | embedded | federated)
+  BETTER_AUTH_ENABLED: booleanFromEnv(false),
+  BETTER_AUTH_MODE: z.enum(['disabled', 'embedded', 'federated']).default('disabled'),
+  BETTER_AUTH_SECRET: z.string().optional().default(''),
+  BETTER_AUTH_URL: z.string().optional().default(''),
+  BETTER_AUTH_PASSKEY_ENABLED: booleanFromEnv(false),
+  BETTER_AUTH_PROVIDERS: z.string().default('oidc,oauth2.1'),
 
   // Pluggable Storage
   STORAGE_DRIVER: z.enum(STORAGE_DRIVERS).default('local'),
