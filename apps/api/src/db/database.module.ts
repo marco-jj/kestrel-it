@@ -1,15 +1,13 @@
 import { Global, Inject, Module, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import type { EnvConfig } from '../config/env.schema.js';
 import { DatabaseBootstrapService } from './bootstrap.service.js';
+import { DRIZZLE_DB, POSTGRES_CLIENT, type DrizzleDb } from './database.tokens.js';
 import * as schema from './schema/index.js';
 
-export const POSTGRES_CLIENT = Symbol('POSTGRES_CLIENT');
-export const DRIZZLE_DB = Symbol('DRIZZLE_DB');
-
-export type DrizzleDb = PostgresJsDatabase<typeof schema>;
+export { DRIZZLE_DB, POSTGRES_CLIENT, type DrizzleDb } from './database.tokens.js';
 
 @Global()
 @Module({

@@ -3,8 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { count } from 'drizzle-orm';
 import { randomBytes, scryptSync } from 'node:crypto';
 import type { EnvConfig } from '../config/env.schema.js';
-import type { DrizzleDb } from './database.module.js';
-import { DRIZZLE_DB } from './database.module.js';
+import { DRIZZLE_DB, type DrizzleDb } from './database.tokens.js';
 import { settings, statusLabels, users } from './schema/index.js';
 
 type DbOrTx = Pick<DrizzleDb, 'select' | 'insert'>;
