@@ -1,0 +1,92 @@
+import { STORAGE_DRIVERS } from '@kestrel-it/shared';
+import { z } from 'zod';
+
+const booleanFromEnv = (defaultValue: boolean) =>
+  z
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0', ''])])
+    .optional()
+    .transform((val) => {
+      if (val === undefined || val === '') {
+        return defaultValue;
+      }
+      return val === true || val === 'true' || val === '1';
+    });
+
+export const EnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  APP_NAME: z.string().min(1).default('Kestrel-IT'),
+  APP_URL: z.string().url().default('http://localhost:4200'),
+  API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  API_PREFIX: z.string().min(1).default('api/v1'),
+
+  DATABASE_URL: z
+    .string()
+    .min(1)
+    .default('postgresql://kestrel:kestrel_dev_password@localhost:5432/kestrel_it'),
+
+  JWT_SECRET: z.string().min(16).default('dev-only-jwt-secret-change-me-in-production'),
+  JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
+  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+  APP_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, 'APP_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)')
+    .default('0'.repeat(64)),
+
+  // OIDC & JIT Auto-Provisioning
+  OIDC_ENABLED: booleanFromEnv(false),
+  OIDC_ISSUER_URL: z.string().optional().default(''),
+  OIDC_CLIENT_ID: z.string().optional().default(''),
+  OIDC_CLIENT_SECRET: z.string().optional().default(''),
+  OIDC_REDIRECT_URI: z.string().optional().default(''),
+  OIDC_SCOPES: z.string().default('openid profile email groups'),
+  OIDC_AUTO_PROVISION_USERS: booleanFromEnv(true),
+  OIDC_LINK_EXISTING_USERS: booleanFromEnv(true),
+  OIDC_SYNC_ON_LOGIN: booleanFromEnv(true),
+  OIDC_SYNC_GROUPS: booleanFromEnv(true),
+  OIDC_USERNAME_CLAIM: z.string().default('preferred_username'),
+  OIDC_GROUPS_CLAIM: z.string().default('groups'),
+
+  // Pluggable Storage
+  STORAGE_DRIVER: z.enum(STORAGE_DRIVERS).default('local'),
+  STORAGE_LOCAL_ROOT: z.string().default('./storage'),
+  S3_ENDPOINT: z.string().optional().default(''),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_BUCKET: z.string().optional().default(''),
+  S3_ACCESS_KEY_ID: z.string().optional().default(''),
+  S3_SECRET_ACCESS_KEY: z.string().optional().default(''),
+  S3_FORCE_PATH_STYLE: booleanFromEnv(true),
+  NEXTCLOUD_URL: z.string().optional().default(''),
+  NEXTCLOUD_USERNAME: z.string().optional().default(''),
+  NEXTCLOUD_APP_PASSWORD: z.string().optional().default(''),
+  NEXTCLOUD_BASE_PATH: z.string().default('/kestrel-it'),
+
+  // SMTP
+  SMTP_HOST: z.string().default('localhost'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  SMTP_SECURE: booleanFromEnv(false),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASSWORD: z.string().optional().default(''),
+  SMTP_FROM_NAME: z.string().default('Kestrel-IT'),
+  SMTP_FROM_ADDRESS: z.string().default('noreply@kestrel.example.com'),
+
+  // Optional First-Run Headless Bootstrap
+  BOOTSTRAP_SITE_NAME: z.string().optional().default(''),
+  BOOTSTRAP_ADMIN_USERNAME: z.string().optional().default(''),
+  BOOTSTRAP_ADMIN_EMAIL: z.string().optional().default(''),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().optional().default(''),
+  BOOTSTRAP_ADMIN_FIRST_NAME: z.string().optional().default('Admin'),
+  BOOTSTRAP_ADMIN_LAST_NAME: z.string().optional().default('User'),
+});
+
+export type EnvConfig = z.infer<typeof EnvSchema>;
+
+export function validateEnv(config: Record<string, unknown>): EnvConfig {
+  const parsed = EnvSchema.safeParse(config);
+  if (!parsed.success) {
+    const formatted = parsed.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
+    throw new Error(`Invalid environment configuration: ${formatted}`);
+  }
+  return parsed.data;
+}
