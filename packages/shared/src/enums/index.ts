@@ -147,6 +147,31 @@ export const STORAGE_DRIVERS = ['local', 's3', 'nextcloud'] as const;
 export type StorageDriver = (typeof STORAGE_DRIVERS)[number];
 
 /**
+ * Storage bucket categories mapped from Snipe-IT App\Enums\FileStorage.
+ */
+export const STORAGE_BUCKET_CATEGORIES = [
+  'assets',
+  'models',
+  'licenses',
+  'users',
+  'locations',
+  'companies',
+  'departments',
+  'suppliers',
+  'maintenances',
+  'accessories',
+  'consumables',
+  'components',
+  'audits',
+  'signatures',
+  'eulas',
+  'imports',
+  'barcodes',
+  'branding',
+] as const;
+export type StorageBucketCategory = (typeof STORAGE_BUCKET_CATEGORIES)[number];
+
+/**
  * Global 2FA policy values (0 = Disabled, 1 = Opt-in, 2 = Required for all).
  */
 export const TWO_FACTOR_POLICY = {
