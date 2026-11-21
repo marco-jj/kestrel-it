@@ -10,7 +10,7 @@
 - **Package Manager:** `pnpm@12.21.0` (`packageManager: "pnpm@12.21.0"` con `pnpm-workspace.yaml`)
 - **Backend (`apps/api`):** **NestJS** (con Fastify adapter `@nestjs/platform-fastify`), **Drizzle ORM**, **PostgreSQL 16+**, **In-Memory Cache**, **Scheduler (`@nestjs/schedule` + PostgreSQL Advisory Locks)**, **OpenAPI / Swagger**
 - **Shared (`packages/shared`):** **TypeScript**, **Zod** (contratti DTO, validazione dinamica Custom Fields), **RBAC Enums & Matrix**
-- **Frontend (`apps/web`):** **Angular** (Standalone Components, Signals, Reactive Forms, Server-Side DataGrid)
+- **Frontend (`apps/web`):** **Angular 19** (Standalone Components, Signals, Reactive Forms, **Tailwind CSS v4**, **Angular CDK (`@angular/cdk`)**, primitive stile **Spartan/shadcn**, Server-Side DataGrid)
 - **Deploy (`deploy/helm`):** **Single Helm Chart** Kubernetes + Docker multi-stage builds
 
 ---
@@ -28,6 +28,7 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
 7. [`docs/06-storage-auth-and-jobs.md`](docs/06-storage-auth-and-jobs.md) — Autenticazione locale/TOTP, OIDC, OAuth con PKCE, bridge Better Auth e PAT, Pluggable Storage (`Local`, `S3`, `Nextcloud WebDAV`), 12 tipi di importazione CSV, 26 Notifiche e Cron Jobs.
 8. [`docs/07-frontend-angular-map.md`](docs/07-frontend-angular-map.md) — Architettura Angular SPA, mappatura schermate/rotte, DataGrid server-side, selettori asincroni company-aware e sostituzione dei 18 widget Livewire e di `snipeit.js`.
 9. [`docs/08-upstream-feature-map.md`](docs/08-upstream-feature-map.md) — Comportamenti Snipe-IT, fonti, corrispondenze Kestrel-IT e stato di parità.
+10. [`DESIGN.md`](DESIGN.md) — Visual Design System *"Precision Enterprise"* (Dual Theme Zinc Light/Dark + Kestrel Teal `#0D9488`, `Geist`/`Plus Jakarta Sans` + `JetBrains Mono`, regole `stitch-design-taste` e `design-taste-frontend`, Shared UI Kit).
 
 ---
 
@@ -55,17 +56,22 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - Configurare `drizzle-orm` + `postgres` (`postgres.js`) e `drizzle-kit`.
   - Implementare tutti i file di schema Drizzle in `apps/api/src/db/schema/` (46 tabelle) come specificato in [`docs/01-database-schema-drizzle.md`](docs/01-database-schema-drizzle.md).
   - Generare la migrazione iniziale PostgreSQL (`apps/api/drizzle/0000_breezy_archangel.sql`) + implementare `DatabaseBootstrapService` per **Headless Bootstrap** (`BOOTSTRAP_ADMIN_*`), **Setup Wizard `/setup`** (`isSetupCompleted`) e seed `status_labels` base.
-- [ ] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT) & `SetupModule`**
+- [x] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT) & `SetupModule`**
   - [x] Implementare login locale (`scrypt` e verifica degli hash bcrypt `$2y$` di Snipe-IT), JWT (`jose`), TOTP con segreti cifrati, flusso OIDC con PKCE e provisioning JIT, PAT e rotte API di setup.
-  - [ ] Verificare avvio dell'API compilata e flussi HTTP con PostgreSQL. Completare la verifica del collegamento OIDC, dell'applicazione della policy MFA ai flussi federati e della gestione delle sessioni.
-- [ ] **Piano 1.4b — Estensione Auth: OAuth con PKCE S256 e Better Auth (`apps/api/src/modules/auth`)**
+  - [x] Verificare avvio dell'API compilata (`storage.spec.ts`) e flussi HTTP Fastify E2E (`auth-http-e2e.spec.ts`), pinning anti-rebinding `(oidc_issuer, oidc_subject)`, applicazione della policy MFA ai flussi federati (`amr` / `2fa_required`) e gestione delle sessioni.
+- [x] **Piano 1.4b — Estensione Auth: OAuth con PKCE S256 e Better Auth (`apps/api/src/modules/auth`)**
   - [x] Implementare il flusso Authorization Code con PKCE S256 e normalizzazione del profilo OAuth, il bridge di scambio Better Auth e i contratti condivisi.
-  - [ ] Completare e verificare il bridge federato, la rotazione persistente dei refresh token e l'integrazione embedded di Better Auth con Drizzle, provider social/enterprise e passkey.
+  - [x] Completare e verificare il bridge federato HTTP, la rotazione persistente e revoca su logout dei refresh token (`personal_access_tokens` L1+L2 JTI markers) e la configurazione/hook Drizzle di Better Auth con provider OAuth 2.1 PKCE e passkey (`auth-http-e2e.spec.ts`, `auth-and-setup.spec.ts`).
 - [x] **Piano 1.5 — Pluggable Storage Layer (`apps/api/src/common/storage`)**
   - Implementare l'interfaccia `StorageProvider` e i 3 adapter: `LocalStorageAdapter`, `S3StorageAdapter` (AWS Signature V4 & Presigned URLs), `NextcloudWebDavAdapter`.
 - [x] **Piano 1.6 — Scaffolding Frontend Angular (`apps/web`) & Helm Chart (`deploy/helm`)**
   - Inizializzare Angular (Standalone, Signals, Routing, HttpClient con Auth Interceptor, Layout shell sidebar/topbar/breadcrumbs, rotta `/setup` con `SetupWizardComponent` e `setupGuard`).
   - Creare lo scheletro del singolo Helm Chart in `deploy/helm/kestrel-it` (`Chart.yaml`, `values.yaml`, deployment API & Web, Ingress, Secret, ConfigMap).
+- [x] **Piano 1.7 — Visual Design System ("Precision Enterprise") & Shared Angular UI Kit (`DESIGN.md`, `apps/web/src/app/shared/ui`)**
+  - Definire in [`DESIGN.md`](DESIGN.md) il Visual Design System dual-theme (Zinc Light/Dark + Kestrel Teal `#0D9488`, `Geist`/`Plus Jakarta Sans` + `JetBrains Mono`, regole `stitch-design-taste` e `design-taste-frontend`).
+  - Configurare **Tailwind CSS v4** (`.postcssrc.json`, `@import "tailwindcss"`, `@theme` tokens) e **`@angular/cdk`** (`A11yModule` `cdkTrapFocus`) in `apps/web`.
+  - Implementare `ThemeStore` (`light`/`dark`/`system`), token CSS Light/Dark in `apps/web/src/styles.css` e i componenti UI riutilizzabili in `apps/web/src/app/shared/ui/`: `<kestrel-data-grid>`, `<kestrel-async-select>` (company-aware FMCS), `<kestrel-slide-drawer>`, `<kestrel-command-palette>` (`⌘K`), `<kestrel-status-badge>`.
+  - Aggiornare `AppShellComponent` (sidebar collassabile, switcher Light/Dark, `⌘K`), `DashboardComponent`, `LoginComponent` e `SetupWizardComponent` al nuovo Design System.
 
 ---
 
