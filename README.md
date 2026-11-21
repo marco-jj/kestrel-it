@@ -14,7 +14,7 @@ Snipe-IT has proven, battle-tested ITAM workflows, but its PHP/Laravel monolith 
 - **PostgreSQL-First:** Powered by **Drizzle ORM**, using `JSONB` for dynamic custom fields instead of runtime `ALTER TABLE` schema mutations.
 - **OIDC Authentication:** Native **OpenID Connect (OIDC)** support (Keycloak, Authentik, Entra ID, Okta, Nextcloud, Google) replacing legacy SAML, alongside local auth + TOTP 2FA.
 - **Pluggable Storage:** Unified storage abstraction supporting **Local**, **Native S3** (AWS S3, MinIO, Cloudflare R2, etc.), and **Nextcloud** (WebDAV).
-- **Kubernetes-Ready:** Deployed via a **single Helm chart** covering both backend and frontend (plus optional PostgreSQL/Redis dependencies).
+- **Kubernetes-Ready:** Deployed via a **single Helm chart** covering both backend and frontend (plus optional PostgreSQL dependency).
 
 ---
 
@@ -41,7 +41,7 @@ kestrel-it/
 ├── packages/
 │   └── shared/         # Shared TypeScript types, validation schemas, & RBAC enums
 └── deploy/
-    └── helm/           # Single Helm chart for API, Web, & optional DB/Redis
+    └── helm/           # Single Helm chart for API, Web, & optional PostgreSQL
 ```
 
 ---

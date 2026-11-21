@@ -85,6 +85,24 @@ sequenceDiagram
      - Alla creazione JIT di un nuovo utente, se nel sistema esistono licenze con auto-assegnazione attiva, esegue il checkout automatico di un `LicenseSeat` libero esattamente come avviene nella creazione manuale di un utente.
    - **Audit Log:** Registra in `action_logs` l'evento `create` con `action_source = 'oidc_jit'`.
 
+### 1.3 First-Run Pre-Flight & Setup Wizard (`/setup`) + Headless Bootstrap
+Mappato da [`SetupController.php`](file:///Users/thor/development/snipe-it/app/Http/Controllers/SetupController.php), [`CheckForSetup.php`](file:///Users/thor/development/snipe-it/app/Http/Middleware/CheckForSetup.php) e [`Setting::setupCompleted()`](file:///Users/thor/development/snipe-it/app/Models/Setting.php#L147-L160).
+
+- **Condizione di Attivazione (`setupCompleted`):**
+  $$\text{COUNT(users)} > 0 \quad \text{AND} \quad \text{COUNT(settings)} > 0$$
+  Finché questa condizione è falsa, tutte le rotte applicative Angular reindirizzano a `/setup`. Appena `setupCompleted === true`, tutti gli endpoint di scrittura `/api/v1/setup/*` vengono disattivati in modo permanente rispondendo **`403 Forbidden`** (protetti da `SetupNotCompletedGuard`).
+
+#### Modalità A — Interactive Web Setup Wizard (`/setup`, default)
+1. **Step 1 — Pre-Flight Check (`GET /api/v1/setup/status`):**
+   Verifica in tempo reale lo stato dell'ambiente: connessione a PostgreSQL, stato delle migrazioni Drizzle, permessi di lettura/scrittura del `StorageProvider` (`local` / `s3` / `nextcloud`), coerenza di `APP_URL`, stato configurazione OIDC e SMTP.
+2. **Step 2 — Configurazione Istanza & Seed Iniziale:**
+   Raccoglie `site_name`, `full_multiple_companies_support` (FMCS), `locale`, `default_currency`, `email_domain`, `email_format` e le impostazioni di numerazione automatica degli Asset Tag (`auto_increment_assets`, `auto_increment_prefix`, `zerofill_count`, `next_auto_tag_base = 1`). Durante il commit vengono popolati automaticamente gli `status_labels` di base (*Ready to Deploy*, *Pending*, *Archived*).
+3. **Step 3 — Creazione Primo Superuser (`POST /api/v1/setup/complete`):**
+   Crea il primo account (`first_name`, `last_name`, `username`, `email`, `password` con `permissions: { superuser: 1 }`, `activated: true`, invio opzionale di `FirstAdminNotification`), salva la riga singleton `settings`, effettua l'**auto-login** e reindirizza a `/dashboard`.
+
+#### Modalità B — Headless / Helm Zero-Touch Bootstrap (Opzionale via `.env` / `values.yaml`)
+Se all'avvio del backend `setupCompleted === false` e sono valorizzate le variabili `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` (e opzionalmente `BOOTSTRAP_SITE_NAME`), NestJS esegue automaticamente il bootstrap in una transazione atomica all'avvio del pod (creando Superuser, `settings` e `status_labels` base), rendendo l'istanza immediatamente operativa per deploy GitOps/ArgoCD senza passare dal wizard web.
+
 ---
 
 ## 2. Pluggable Storage Layer (`Local`, `Native S3`, `Nextcloud WebDAV`)
@@ -168,8 +186,12 @@ Mappato da [`LabelsController.php`](file:///Users/thor/development/snipe-it/app/
 - **Alerts Schedulati (`5`):** `ExpectedCheckinNotification` (all'utente), `ExpectedCheckinAdminNotification` (agli admin), `ExpiringAssetsNotification` (garanzie/EOL in scadenza), `ExpiringLicenseNotification` (licenze in scadenza), `InventoryAlert` (scorte sotto `min_amt`).
 - **Account & Utility (`4`):** `WelcomeNotification`, `FirstAdminNotification`, `CurrentInventory` (invio lista asset a un utente), `MailTest`.
 
-### 5.3 Cron Schedule (`apps/api/src/jobs/scheduler.service.ts`)
+### 5.3 Cron Schedule & Cache In-Memory (`apps/api/src/jobs/scheduler.service.ts`)
 Mappato da [`app/Console/Kernel.php`](file:///Users/thor/development/snipe-it/app/Console/Kernel.php):
+
+> [!NOTE]
+> **Architettura senza Redis:** La cache (`settings`, chiavi JWKS OIDC) è gestita **In-Memory** (con invalidazione multi-pod opzionale tramite PostgreSQL `LISTEN/NOTIFY`) e i cron job utilizzano `@nestjs/schedule` coordinato tramite **PostgreSQL Advisory Locks** (`pg_try_advisory_lock`), senza alcuna dipendenza da Redis.
+
 - **Ogni 15 minuti:** Pulizia token di reset password e challenge 2FA scaduti (`auth:clear-resets`).
 - **Ogni giorno (se `settings.alerts_enabled === true`):**
   1. `inventory-alerts`: Controlla tutti gli `AssetModel`, `Accessory`, `Consumable`, `Component`, `License` la cui disponibilità residua è $\le \text{min\_amt}$ (o `settings.alert_threshold`) e invia `InventoryAlert`.

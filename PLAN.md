@@ -8,7 +8,7 @@
 
 - **Node.js Runtime:** `v26.13.1` (LTS `lithium`, fissato in [`.nvmrc`](file:///Users/thor/development/kestrel-it/.nvmrc))
 - **Package Manager:** `pnpm@12.21.0` (`packageManager: "pnpm@12.21.0"` con `pnpm-workspace.yaml`)
-- **Backend (`apps/api`):** **NestJS** (con Fastify adapter `@nestjs/platform-fastify`), **Drizzle ORM**, **PostgreSQL 16+**, **BullMQ** (o scheduler in-process `@nestjs/schedule`), **OpenAPI / Swagger**
+- **Backend (`apps/api`):** **NestJS** (con Fastify adapter `@nestjs/platform-fastify`), **Drizzle ORM**, **PostgreSQL 16+**, **In-Memory Cache**, **Scheduler (`@nestjs/schedule` + PostgreSQL Advisory Locks)**, **OpenAPI / Swagger**
 - **Shared (`packages/shared`):** **TypeScript**, **Zod** (contratti DTO, validazione dinamica Custom Fields), **RBAC Enums & Matrix**
 - **Frontend (`apps/web`):** **Angular** (Standalone Components, Signals, Reactive Forms, Server-Side DataGrid)
 - **Deploy (`deploy/helm`):** **Single Helm Chart** Kubernetes + Docker multi-stage builds
@@ -42,29 +42,30 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
 ### 🧱 FASE 1 — Foundation (Monorepo, Drizzle Schema, Auth, Storage, Helm Skeleton)
 > **Riferimenti:** [`docs/00`](file:///Users/thor/development/kestrel-it/docs/00-architecture-overview.md), [`docs/01`](file:///Users/thor/development/kestrel-it/docs/01-database-schema-drizzle.md), [`docs/03`](file:///Users/thor/development/kestrel-it/docs/03-rbac-policies-and-fmcs.md), [`docs/06`](file:///Users/thor/development/kestrel-it/docs/06-storage-auth-and-jobs.md)
 
-- [ ] **Piano 1.1 — Setup Monorepo `pnpm`**
-  - Creare `package.json` root (`"packageManager": "pnpm@12.21.0"`, `"engines": { "node": ">=26.13.0" }`), `pnpm-workspace.yaml`, `tsconfig.base.json`, `.gitignore`, `.prettierrc`, `eslint.config.mjs`.
-  - Creare `docker-compose.yml` di sviluppo (PostgreSQL 16, Redis/Valkey opzionale, MinIO per test S3).
-- [ ] **Piano 1.2 — Pacchetto Condiviso (`packages/shared`)**
-  - Definire tutti gli enum di dominio (`StatusType`, `CheckoutTargetType`, `ActionType`, `CustomFieldElement`, `CustomFieldFormat`, `DepreciationMethod`, `DepreciationType`, `CheckoutRequestState`).
-  - Definire la matrice completa dei permessi RBAC (`PermissionKey`) e la funzione pura `resolveUserPermission(user, groups, permission)` in modo che sia usabile sia da NestJS che da Angular.
-  - Definire gli schemi Zod base per paginazione (`DatatableQuerySchema`, `DatatableResponseSchema`, `SelectlistQuerySchema`, `SelectlistResponseSchema`).
+- [x] **Piano 1.1 — Setup Monorepo `pnpm`**
+  - Creare `package.json` root (`"packageManager": "pnpm@12.21.0"`, `"engines": { "node": ">=22.0.0", "pnpm": ">=10.0.0" }`), `pnpm-workspace.yaml`, `tsconfig.base.json`, `.gitignore`, `.prettierrc`, `.prettierignore`, `.env.example`.
+  - Creare `docker-compose.yml` di sviluppo (PostgreSQL 16 e MinIO per test S3, senza dipendenza da Redis).
+- [x] **Piano 1.2 — Pacchetto Condiviso (`packages/shared`)**
+  - Definire tutti gli enum di dominio (`StatusMetaType`, `CheckoutTargetType`, `ActionType`, `CustomFieldElement`, `CustomFieldFormat`, `DepreciationMethod`, `DepreciationType`, `CheckoutRequestState`, ecc.).
+  - Definire la matrice completa dei permessi RBAC (`PermissionKey`, 87 permessi) e le funzioni pure (`hasAccess`, `resolveEffectivePermissions`, `canAccessCompanyRecord`, `resolveAssignedCompanyId`) usabili sia da NestJS che da Angular.
+  - Definire gli schemi Zod base per paginazione (`DatatableQuerySchema`, `DatatableResponse`, `SelectlistQuerySchema`, `SelectlistResponseSchema`, `StandardApiResponse`, `AvailableActions`) e il compilatore dinamico Custom Fields (`buildCustomFieldZodSchema`, `buildFieldsetZodSchema`).
 - [ ] **Piano 1.3 — Scaffolding Backend NestJS + Drizzle ORM (`apps/api`)**
   - Inizializzare NestJS con `@nestjs/platform-fastify`, `@nestjs/config`, `@nestjs/swagger`.
   - Configurare `drizzle-orm` + `postgres` (`postgres.js` o `pg`) e `drizzle-kit`.
   - Implementare tutti i file di schema Drizzle in `apps/api/src/db/schema/` come specificato in [`docs/01-database-schema-drizzle.md`](file:///Users/thor/development/kestrel-it/docs/01-database-schema-drizzle.md).
-  - Generare ed eseguire la migrazione iniziale PostgreSQL + script di seed (`CreateAdmin`, impostazioni default `settings`, status labels base).
-- [ ] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT)**
+  - Generare ed eseguire la migrazione iniziale PostgreSQL + supporto sia al **Headless Bootstrap** (se `BOOTSTRAP_ADMIN_*` è configurato) sia allo stato iniziale per il **Setup Wizard `/setup`** (`status_labels` base).
+- [ ] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT) & `SetupModule`**
   - Implementare login locale (Argon2id/bcrypt), sessioni/JWT + refresh token, TOTP 2FA (`otplib` + QR Code enrollment).
   - Implementare **OpenID Connect (OIDC)** (`openid-client`) superando il limite di `OidcUserResolver.php` di Snipe-IT:
     - **Just-In-Time (JIT) User Auto-Provisioning**: creazione automatica dell'utente al primo login OIDC se non esiste già nel DB (`oidc_auto_provision_users = true`).
     - **Account Linking & Pinning `(oidc_issuer, oidc_subject)`**: aggancio automatico agli utenti pre-esistenti/migrati al primo login SSO.
     - **Sync ad ogni login (`oidc_sync_on_login`)**: aggiornamento attributi profilo (`first_name`, `last_name`, `email`, `jobtitle`, `employee_num`), sincronizzazione gruppi da claim OIDC (`groups` / `roles` → `users_groups` + `oidc_default_group_id`), assegnazione company (`company_user`) e auto-assegnazione licenze.
   - Implementare **Personal Access Tokens (PAT)** (`/api/v1/account/personal-access-tokens`, gate `self.api`) compatibili con gli header `Authorization: Bearer <token>` di Snipe-IT.
+  - Implementare **`SetupModule`** (`GET /api/v1/setup/status`, `POST /api/v1/setup/complete`) con blocco permanente post-setup (`SetupNotCompletedGuard` → `403 Forbidden`).
 - [ ] **Piano 1.5 — Pluggable Storage Layer (`apps/api/src/common/storage`)**
   - Implementare l'interfaccia `StorageProvider` e i 3 adapter: `LocalStorageAdapter`, `S3StorageAdapter` (`@aws-sdk/client-s3`), `NextcloudWebDavAdapter`.
 - [ ] **Piano 1.6 — Scaffolding Frontend Angular (`apps/web`) & Helm Chart (`deploy/helm`)**
-  - Inizializzare Angular (Standalone, Signals, Routing, HttpClient con Auth Interceptor, Layout shell sidebar/topbar/breadcrumbs).
+  - Inizializzare Angular (Standalone, Signals, Routing, HttpClient con Auth Interceptor, Layout shell sidebar/topbar/breadcrumbs, rotta `/setup` con `SetupWizardComponent` e `setupGuard`).
   - Creare lo scheletro del singolo Helm Chart in `deploy/helm/kestrel-it` (`Chart.yaml`, `values.yaml`, deployment API & Web, Ingress, Secret, ConfigMap).
 
 ---

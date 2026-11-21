@@ -40,9 +40,11 @@ Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 
 
 ## 3. Albero Completa delle Rotte Angular (`apps/web/src/app/app.routes.ts`)
 
-Tutte le rotte UI di [`../snipe-it/routes/web.php`](file:///Users/thor/development/snipe-it/routes/web.php) e [`../snipe-it/routes/web/*`](file:///Users/thor/development/snipe-it/routes/web) sono mappate con breadcrumb automatico e `canActivate: [authGuard, permissionGuard]`:
+Tutte le rotte UI di [`../snipe-it/routes/web.php`](file:///Users/thor/development/snipe-it/routes/web.php) e [`../snipe-it/routes/web/*`](file:///Users/thor/development/snipe-it/routes/web) sono mappate con breadcrumb automatico, `setupCompletedGuard` (che redirige a `/setup` finché `setupCompleted === false`) e `canActivate: [authGuard, permissionGuard]`:
 
 ```text
+/setup                                  # SetupWizardComponent a 3 step (protetto da setupIncompleteGuard):
+                                        #   1) Pre-Flight Check, 2) Instance & Asset Tag Settings, 3) First Superuser Account
 /login                                  # Local Login + pulsante "Sign in with SSO (OIDC)"
 /login/2fa                              # Verifica TOTP 2FA o enrollment iniziale
 /auth/oidc/callback                     # Callback OIDC PKCE
