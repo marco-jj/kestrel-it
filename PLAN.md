@@ -49,11 +49,11 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - Definire tutti gli enum di dominio (`StatusMetaType`, `CheckoutTargetType`, `ActionType`, `CustomFieldElement`, `CustomFieldFormat`, `DepreciationMethod`, `DepreciationType`, `CheckoutRequestState`, ecc.).
   - Definire la matrice completa dei permessi RBAC (`PermissionKey`, 87 permessi) e le funzioni pure (`hasAccess`, `resolveEffectivePermissions`, `canAccessCompanyRecord`, `resolveAssignedCompanyId`) usabili sia da NestJS che da Angular.
   - Definire gli schemi Zod base per paginazione (`DatatableQuerySchema`, `DatatableResponse`, `SelectlistQuerySchema`, `SelectlistResponseSchema`, `StandardApiResponse`, `AvailableActions`) e il compilatore dinamico Custom Fields (`buildCustomFieldZodSchema`, `buildFieldsetZodSchema`).
-- [ ] **Piano 1.3 — Scaffolding Backend NestJS + Drizzle ORM (`apps/api`)**
-  - Inizializzare NestJS con `@nestjs/platform-fastify`, `@nestjs/config`, `@nestjs/swagger`.
-  - Configurare `drizzle-orm` + `postgres` (`postgres.js` o `pg`) e `drizzle-kit`.
-  - Implementare tutti i file di schema Drizzle in `apps/api/src/db/schema/` come specificato in [`docs/01-database-schema-drizzle.md`](file:///Users/thor/development/kestrel-it/docs/01-database-schema-drizzle.md).
-  - Generare ed eseguire la migrazione iniziale PostgreSQL + supporto sia al **Headless Bootstrap** (se `BOOTSTRAP_ADMIN_*` è configurato) sia allo stato iniziale per il **Setup Wizard `/setup`** (`status_labels` base).
+- [x] **Piano 1.3 — Scaffolding Backend NestJS + Drizzle ORM (`apps/api`)**
+  - Inizializzare NestJS con `@nestjs/platform-fastify`, `@nestjs/config`, `@nestjs/swagger`, `@nestjs/schedule`, `@fastify/cookie`, `@fastify/multipart`.
+  - Configurare `drizzle-orm` + `postgres` (`postgres.js`) e `drizzle-kit`.
+  - Implementare tutti i file di schema Drizzle in `apps/api/src/db/schema/` (46 tabelle) come specificato in [`docs/01-database-schema-drizzle.md`](file:///Users/thor/development/kestrel-it/docs/01-database-schema-drizzle.md).
+  - Generare la migrazione iniziale PostgreSQL (`apps/api/drizzle/0000_breezy_archangel.sql`) + implementare `DatabaseBootstrapService` per **Headless Bootstrap** (`BOOTSTRAP_ADMIN_*`), **Setup Wizard `/setup`** (`isSetupCompleted`) e seed `status_labels` base.
 - [ ] **Piano 1.4 — Modulo Auth (Local + TOTP 2FA + OIDC con JIT Auto-Provisioning + PAT) & `SetupModule`**
   - Implementare login locale (Argon2id/bcrypt), sessioni/JWT + refresh token, TOTP 2FA (`otplib` + QR Code enrollment).
   - Implementare **OpenID Connect (OIDC)** (`openid-client`) superando il limite di `OidcUserResolver.php` di Snipe-IT:
