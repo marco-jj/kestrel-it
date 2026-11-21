@@ -1,58 +1,319 @@
-:root {
-  color-scheme: light;
-  --kestrel-bg: #f4f6f9;
-  --kestrel-surface: #ffffff;
-  --kestrel-border: #dce2ec;
-  --kestrel-text: #162033;
-  --kestrel-muted: #5b677a;
-  --kestrel-primary: #0f4c81;
-  --kestrel-primary-hover: #0a3860;
-  --kestrel-accent: #10b981;
-  --kestrel-danger: #dc2626;
-}
+@import 'tailwindcss';
 
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  min-height: 100%;
-  background: var(--kestrel-bg);
-  color: var(--kestrel-text);
-  font-family:
-    'Inter',
+@theme {
+  --font-sans:
+    'Geist',
+    'Plus Jakarta Sans',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
-    Roboto,
     sans-serif;
+  --font-mono:
+    'JetBrains Mono',
+    'Geist Mono',
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  --color-kestrel-canvas: var(--kestrel-canvas);
+  --color-kestrel-surface: var(--kestrel-surface);
+  --color-kestrel-surface-subtle: var(--kestrel-surface-subtle);
+  --color-kestrel-border: var(--kestrel-border);
+  --color-kestrel-ink: var(--kestrel-ink);
+  --color-kestrel-muted: var(--kestrel-muted);
+  --color-kestrel-accent: var(--kestrel-accent);
+  --color-kestrel-accent-hover: var(--kestrel-accent-hover);
+  --color-kestrel-success: var(--kestrel-success);
+  --color-kestrel-info: var(--kestrel-info);
+  --color-kestrel-warning: var(--kestrel-warning);
+  --color-kestrel-danger: var(--kestrel-danger);
 }
 
-.kestrel-card {
+:root {
+  color-scheme: light;
+  --kestrel-canvas: #fafafa;
+  --kestrel-bg: #fafafa;
+  --kestrel-surface: #ffffff;
+  --kestrel-surface-subtle: #f4f4f5;
+  --kestrel-surface-elevated: #ffffff;
+  --kestrel-border: #e4e4e7;
+  --kestrel-border-strong: #d4d4d8;
+  --kestrel-ink: #18181b;
+  --kestrel-text: #18181b;
+  --kestrel-muted: #71717a;
+  --kestrel-accent: #0d9488;
+  --kestrel-accent-hover: #0f766e;
+  --kestrel-accent-fg: #ffffff;
+  --kestrel-accent-subtle: rgba(13, 148, 136, 0.1);
+  --kestrel-primary: #0d9488;
+  --kestrel-primary-hover: #0f766e;
+  --kestrel-ring: rgba(13, 148, 136, 0.28);
+
+  --kestrel-success: #10b981;
+  --kestrel-success-subtle: rgba(16, 185, 129, 0.12);
+  --kestrel-info: #0284c7;
+  --kestrel-info-subtle: rgba(2, 132, 199, 0.12);
+  --kestrel-warning: #d97706;
+  --kestrel-warning-subtle: rgba(217, 119, 6, 0.12);
+  --kestrel-danger: #e11d48;
+  --kestrel-danger-subtle: rgba(225, 29, 72, 0.11);
+
+  --kestrel-shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.04);
+  --kestrel-shadow-lg: 0 18px 42px -12px rgba(24, 24, 27, 0.14);
+
+  --kestrel-font-sans:
+    'Geist',
+    'Plus Jakarta Sans',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  --kestrel-font-mono:
+    'JetBrains Mono',
+    'Geist Mono',
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+
+  --kestrel-radius-sm: 6px;
+  --kestrel-radius-md: 8px;
+  --kestrel-radius-lg: 12px;
+  --kestrel-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-theme='dark'],
+.dark {
+  color-scheme: dark;
+  --kestrel-canvas: #09090b;
+  --kestrel-bg: #09090b;
+  --kestrel-surface: #18181b;
+  --kestrel-surface-subtle: #27272a;
+  --kestrel-surface-elevated: #1f1f23;
+  --kestrel-border: rgba(255, 255, 255, 0.09);
+  --kestrel-border-strong: rgba(255, 255, 255, 0.18);
+  --kestrel-ink: #f4f4f5;
+  --kestrel-text: #f4f4f5;
+  --kestrel-muted: #a1a1aa;
+  --kestrel-accent: #14b8a6;
+  --kestrel-accent-hover: #2dd4bf;
+  --kestrel-accent-fg: #042f2e;
+  --kestrel-accent-subtle: rgba(20, 184, 166, 0.15);
+  --kestrel-primary: #14b8a6;
+  --kestrel-primary-hover: #2dd4bf;
+  --kestrel-ring: rgba(20, 184, 166, 0.32);
+
+  --kestrel-success: #34d399;
+  --kestrel-success-subtle: rgba(52, 211, 153, 0.15);
+  --kestrel-info: #38bdf8;
+  --kestrel-info-subtle: rgba(56, 189, 248, 0.15);
+  --kestrel-warning: #fbbf24;
+  --kestrel-warning-subtle: rgba(251, 191, 36, 0.15);
+  --kestrel-danger: #fb7185;
+  --kestrel-danger-subtle: rgba(251, 113, 133, 0.15);
+
+  --kestrel-shadow-sm: 0 1px 2px rgba(9, 9, 11, 0.35);
+  --kestrel-shadow-lg: 0 22px 48px -12px rgba(9, 9, 11, 0.65);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    min-height: 100dvh;
+    background: var(--kestrel-canvas);
+    color: var(--kestrel-ink);
+    font-family: var(--kestrel-font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.k-mono {
+  font-family: var(--kestrel-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.kestrel-card,
+.k-card {
   background: var(--kestrel-surface);
   border: 1px solid var(--kestrel-border);
-  border-radius: 10px;
+  border-radius: var(--kestrel-radius-lg);
+  box-shadow: var(--kestrel-shadow-sm);
   padding: 1.25rem;
 }
 
-.kestrel-btn-primary {
-  background: var(--kestrel-primary);
-  color: #fff;
+.k-divider {
   border: 0;
-  border-radius: 8px;
-  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--kestrel-border);
+  margin: 0;
+}
+
+.k-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
   font-weight: 600;
+  color: var(--kestrel-ink);
+}
+
+.k-helper {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--kestrel-muted);
+}
+
+.k-error {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--kestrel-danger);
+}
+
+.k-input,
+.k-select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--kestrel-border-strong);
+  border-radius: var(--kestrel-radius-md);
+  background: var(--kestrel-surface);
+  color: var(--kestrel-ink);
+  font-family: inherit;
+  font-size: 0.875rem;
+  transition:
+    border-color 140ms var(--kestrel-ease-spring),
+    box-shadow 140ms var(--kestrel-ease-spring);
+}
+
+.k-input:focus,
+.k-select:focus {
+  outline: none;
+  border-color: var(--kestrel-accent);
+  box-shadow: 0 0 0 3px var(--kestrel-ring);
+}
+
+.k-btn,
+.kestrel-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--kestrel-radius-md);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition:
+    transform 120ms var(--kestrel-ease-spring),
+    background-color 150ms var(--kestrel-ease-spring),
+    border-color 150ms var(--kestrel-ease-spring),
+    opacity 150ms var(--kestrel-ease-spring);
 }
 
-.kestrel-btn-primary:hover:not(:disabled) {
-  background: var(--kestrel-primary-hover);
+.k-btn:active:not(:disabled),
+.kestrel-btn-primary:active:not(:disabled) {
+  transform: scale(0.985);
 }
 
+.k-btn:disabled,
 .kestrel-btn-primary:disabled {
-  opacity: 0.5;
+  opacity: 0.52;
   cursor: not-allowed;
+}
+
+.k-btn-primary,
+.kestrel-btn-primary {
+  background: var(--kestrel-accent);
+  color: var(--kestrel-accent-fg);
+}
+
+.k-btn-primary:hover:not(:disabled),
+.kestrel-btn-primary:hover:not(:disabled) {
+  background: var(--kestrel-accent-hover);
+}
+
+.k-btn-secondary {
+  background: var(--kestrel-surface);
+  color: var(--kestrel-ink);
+  border-color: var(--kestrel-border-strong);
+}
+
+.k-btn-secondary:hover:not(:disabled) {
+  background: var(--kestrel-surface-subtle);
+}
+
+.k-btn-ghost {
+  background: transparent;
+  color: var(--kestrel-muted);
+}
+
+.k-btn-ghost:hover:not(:disabled) {
+  background: var(--kestrel-surface-subtle);
+  color: var(--kestrel-ink);
+}
+
+.k-btn-danger {
+  background: var(--kestrel-danger-subtle);
+  color: var(--kestrel-danger);
+  border-color: rgba(225, 29, 72, 0.25);
+}
+
+.k-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.38rem;
+  border-radius: 5px;
+  border: 1px solid var(--kestrel-border-strong);
+  background: var(--kestrel-surface-subtle);
+  color: var(--kestrel-muted);
+  font-family: var(--kestrel-font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.k-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--kestrel-radius-sm);
+  background: var(--kestrel-surface-subtle);
+  opacity: 0.85;
+  animation: kestrel-pulse 1.5s var(--kestrel-ease-spring) infinite;
+}
+
+@keyframes kestrel-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

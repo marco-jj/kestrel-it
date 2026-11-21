@@ -12,131 +12,312 @@ import {
 } from '@kestrel-it/shared';
 import { firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { ThemeStore } from '../../core/theme/theme.store.js';
 
 @Component({
   selector: 'kestrel-login',
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule],
   template: `
-    <section class="login-page">
-      <div class="kestrel-card login-card">
-        <h1>Sign in to Kestrel-IT</h1>
+    <section class="split-auth">
+      <aside class="brand-column">
+        <div class="brand-header">
+          <span class="brand-mark">K</span>
+          <span class="brand-name">Kestrel-IT</span>
+        </div>
 
-        @if (errorMessage()) {
-          <div class="error-banner" role="alert">{{ errorMessage() }}</div>
-        }
+        <div class="brand-body">
+          <p class="k-mono tag-line">PRECISION IT ASSET MANAGEMENT</p>
+          <h1>Zero-drift hardware, license &amp; security telemetry.</h1>
+          <p class="lead">
+            Enterprise inventory tracking with PostgreSQL JSONB custom fields, strict RBAC, and multi-company isolation.
+          </p>
 
-        @if (step() === 'credentials') {
-          <form class="form-stack" [formGroup]="loginForm" (ngSubmit)="submitCredentials()">
-            <label>
-              Username
-              <input type="text" formControlName="username" autocomplete="username" />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                formControlName="password"
-                autocomplete="current-password"
-              />
-            </label>
-            <button type="submit" class="kestrel-btn-primary" [disabled]="submitting()">
-              {{ submitting() ? 'Signing in...' : 'Sign In' }}
-            </button>
-          </form>
+          <dl class="spec-grid k-mono">
+            <div>
+              <dt>AUTH PROTOCOLS</dt>
+              <dd>Local · TOTP · OIDC · PKCE</dd>
+            </div>
+            <div>
+              <dt>DATA LAYER</dt>
+              <dd>PostgreSQL 16 + JSONB GIN</dd>
+            </div>
+          </dl>
+        </div>
 
-          @if (ssoEnabled()) {
-            <div class="sso-divider">or continue with SSO</div>
-            <a class="sso-button" [href]="ssoLoginPath()">
-              Sign in with {{ ssoLabel() }}
-            </a>
+        <div class="brand-footer k-mono">
+          <span>Self-hosted Kubernetes Ready</span>
+          <span>WCAG AA Dual Theme</span>
+        </div>
+      </aside>
+
+      <main class="form-column">
+        <div class="top-controls">
+          <button
+            type="button"
+            class="k-btn k-btn-secondary theme-toggle k-mono"
+            (click)="toggleTheme()"
+          >
+            {{ themeStore.isDark() ? 'DARK MODE' : 'LIGHT MODE' }}
+          </button>
+        </div>
+
+        <div class="auth-panel k-card">
+          <div class="panel-head">
+            <h2>{{ step() === 'credentials' ? 'Sign in to workspace' : 'Verify two-factor code' }}</h2>
+            <p class="panel-sub">
+              {{
+                step() === 'credentials'
+                  ? 'Authenticate with local credentials or configured SSO broker.'
+                  : 'Enter the 6-digit TOTP code from your authenticator.'
+              }}
+            </p>
+          </div>
+
+          @if (errorMessage()) {
+            <div class="error-banner" role="alert">{{ errorMessage() }}</div>
           }
-        }
 
-        @if (step() === '2fa') {
-          <form class="form-stack" [formGroup]="totpForm" (ngSubmit)="submitTwoFactor()">
-            <h2>Two-Factor Authentication</h2>
-            @if (totpEnrollment()) {
-              <div class="enroll-box">
-                <p>Scan this TOTP URI in your authenticator app:</p>
-                <code>{{ totpEnrollment()!.otpauthUri }}</code>
+          @if (step() === 'credentials') {
+            <form class="form-stack" [formGroup]="loginForm" (ngSubmit)="submitCredentials()">
+              <label class="k-label">
+                <span>Username</span>
+                <input
+                  type="text"
+                  class="k-input"
+                  formControlName="username"
+                  autocomplete="username"
+                />
+              </label>
+
+              <label class="k-label">
+                <span>Password</span>
+                <input
+                  type="password"
+                  class="k-input"
+                  formControlName="password"
+                  autocomplete="current-password"
+                />
+              </label>
+
+              <button type="submit" class="k-btn k-btn-primary submit-btn" [disabled]="submitting()">
+                {{ submitting() ? 'Signing in...' : 'Sign In' }}
+              </button>
+            </form>
+
+            @if (ssoEnabled()) {
+              <div class="sso-divider">
+                <span>or continue with SSO</span>
               </div>
+              <a class="k-btn k-btn-secondary sso-btn" [href]="ssoLoginPath()">
+                Sign in with {{ ssoLabel() }}
+              </a>
             }
-            <label>
-              6-Digit Verification Code
-              <input type="text" formControlName="code" maxlength="6" autocomplete="one-time-code" />
-            </label>
-            <button type="submit" class="kestrel-btn-primary" [disabled]="submitting()">
-              Verify Code
-            </button>
-          </form>
-        }
-      </div>
+          }
+
+          @if (step() === '2fa') {
+            <form class="form-stack" [formGroup]="totpForm" (ngSubmit)="submitTwoFactor()">
+              @if (totpEnrollment()) {
+                <div class="enroll-box">
+                  <span class="k-label">Provision Authenticator TOTP URI</span>
+                  <code class="k-mono uri-code">{{ totpEnrollment()!.otpauthUri }}</code>
+                </div>
+              }
+
+              <label class="k-label">
+                <span>6-Digit Verification Code</span>
+                <input
+                  type="text"
+                  class="k-input k-mono code-input"
+                  formControlName="code"
+                  maxlength="6"
+                  autocomplete="one-time-code"
+                />
+              </label>
+
+              <button type="submit" class="k-btn k-btn-primary submit-btn" [disabled]="submitting()">
+                Verify Code
+              </button>
+            </form>
+          }
+        </div>
+      </main>
     </section>
   `,
   styles: [
     `
-      .login-page {
-        min-height: 100vh;
+      .split-auth {
+        min-height: 100dvh;
+        display: grid;
+        grid-template-columns: 5fr 7fr;
+        background: var(--kestrel-canvas);
+      }
+      .brand-column {
+        background: var(--kestrel-surface);
+        border-right: 1px solid var(--kestrel-border);
+        padding: 2.25rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 2rem;
+      }
+      .brand-header {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+      }
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 7px;
+        background: var(--kestrel-accent);
+        color: var(--kestrel-accent-fg);
         display: grid;
         place-items: center;
-        padding: 2rem;
+        font-weight: 700;
       }
-      .login-card {
+      .brand-name {
+        font-weight: 700;
+        font-size: 1rem;
+        letter-spacing: -0.02em;
+      }
+      .tag-line {
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+        color: var(--kestrel-accent);
+        margin: 0 0 0.75rem;
+      }
+      .brand-body h1 {
+        margin: 0;
+        font-size: clamp(1.65rem, 2.5vw, 2.2rem);
+        line-height: 1.15;
+        letter-spacing: -0.03em;
+      }
+      .lead {
+        margin: 1rem 0 0;
+        color: var(--kestrel-muted);
+        max-width: 46ch;
+      }
+      .spec-grid {
+        margin: 2rem 0 0;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--kestrel-border);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+      .spec-grid dt {
+        font-size: 0.68rem;
+        color: var(--kestrel-muted);
+      }
+      .spec-grid dd {
+        margin: 0.2rem 0 0;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+      .brand-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        font-size: 0.72rem;
+        color: var(--kestrel-muted);
+      }
+      .form-column {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem;
+        position: relative;
+      }
+      .top-controls {
+        position: absolute;
+        top: 1.25rem;
+        right: 1.25rem;
+      }
+      .theme-toggle {
+        min-height: 32px;
+        font-size: 0.72rem;
+      }
+      .auth-panel {
         width: 100%;
         max-width: 420px;
+        padding: 1.75rem;
+      }
+      .panel-head h2 {
+        margin: 0;
+        font-size: 1.2rem;
+        letter-spacing: -0.02em;
+      }
+      .panel-sub {
+        margin: 0.3rem 0 1.25rem;
+        color: var(--kestrel-muted);
+        font-size: 0.84rem;
       }
       .form-stack {
         display: flex;
         flex-direction: column;
-        gap: 0.9rem;
+        gap: 0.95rem;
       }
-      label {
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
-        font-size: 0.875rem;
-        font-weight: 600;
-      }
-      input {
-        padding: 0.55rem 0.7rem;
-        border: 1px solid var(--kestrel-border);
-        border-radius: 6px;
+      .submit-btn,
+      .sso-btn {
+        min-height: 44px;
+        width: 100%;
       }
       .sso-divider {
+        margin: 1.15rem 0 0.9rem;
         text-align: center;
-        margin: 1rem 0 0.75rem;
+        font-size: 0.78rem;
         color: var(--kestrel-muted);
-        font-size: 0.825rem;
-      }
-      .sso-button {
-        display: block;
-        text-align: center;
-        padding: 0.6rem 1rem;
-        border: 1px solid var(--kestrel-border);
-        border-radius: 8px;
-        text-decoration: none;
-        color: var(--kestrel-text);
-        font-weight: 600;
+        border-top: 1px solid var(--kestrel-border);
+        padding-top: 0.85rem;
       }
       .enroll-box {
-        background: #f8fafc;
+        background: var(--kestrel-surface-subtle);
         border: 1px solid var(--kestrel-border);
-        padding: 0.75rem;
-        border-radius: 6px;
+        padding: 0.85rem;
+        border-radius: var(--kestrel-radius-md);
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+      }
+      .uri-code {
+        font-size: 0.74rem;
         overflow-wrap: anywhere;
       }
+      .code-input {
+        letter-spacing: 0.25em;
+        font-size: 1.05rem;
+      }
       .error-banner {
-        background: #fee2e2;
-        color: #991b1b;
-        padding: 0.75rem;
-        border-radius: 6px;
+        background: var(--kestrel-danger-subtle);
+        color: var(--kestrel-danger);
+        border: 1px solid rgba(225, 29, 72, 0.28);
+        padding: 0.65rem 0.85rem;
+        border-radius: var(--kestrel-radius-md);
         margin-bottom: 1rem;
+        font-size: 0.84rem;
+        font-weight: 500;
+      }
+      @media (max-width: 768px) {
+        .split-auth {
+          grid-template-columns: 1fr;
+        }
+        .brand-column {
+          border-right: 0;
+          border-bottom: 1px solid var(--kestrel-border);
+          padding: 1.5rem;
+        }
+        .spec-grid,
+        .brand-footer {
+          display: none;
+        }
       }
     `,
   ],
 })
 export class LoginComponent implements OnInit {
+  readonly themeStore: ThemeStore;
   readonly step = signal<'credentials' | '2fa'>('credentials');
   readonly submitting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
@@ -167,7 +348,14 @@ export class LoginComponent implements OnInit {
     @Inject(AuthStore) private readonly authStore: AuthStore,
     @Optional() @Inject(HttpClient) private readonly http?: HttpClient,
     @Optional() @Inject(Router) private readonly router?: Router,
-  ) {}
+    @Optional() @Inject(ThemeStore) themeStore?: ThemeStore,
+  ) {
+    this.themeStore = themeStore ?? new ThemeStore();
+  }
+
+  toggleTheme(): void {
+    this.themeStore.toggleTheme();
+  }
 
   async ngOnInit(): Promise<void> {
     await this.loadProviders();
