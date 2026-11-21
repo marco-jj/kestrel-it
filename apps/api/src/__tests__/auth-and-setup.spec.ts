@@ -911,3 +911,131 @@ describe('BetterAuthService & BetterAuthProvisioningBridge', () => {
     );
   });
 });
+
+describe('OIDC Subject Pinning & Federated MFA Policy Enforcement', () => {
+  it('blocks subject rebinding when a candidate user on the same issuer already has a different oidcSubject', async () => {
+    const alreadyPinnedUser = {
+      id: 77,
+      username: 'mario',
+      email: 'mario@example.com',
+      activated: true,
+      oidcIssuer: 'https://idp.example.com',
+      oidcSubject: 'original-sub-1',
+    };
+
+    let whereCalls = 0;
+    const dbMock = {
+      select: () => ({
+        from: (table: unknown) => ({
+          limit: async () =>
+            table === settings
+              ? [
+                  {
+                    oidcAutoProvisionUsers: true,
+                    oidcLinkExistingUsers: true,
+                    oidcSyncOnLogin: false,
+                    oidcSyncGroups: false,
+                    oidcUsernameClaim: 'preferred_username',
+                    oidcGroupsClaim: 'groups',
+                    oidcDefaultGroupId: null,
+                    oidcDefaultCompanyId: null,
+                    oidcGroupMapping: {},
+                    locale: 'en-US',
+                  },
+                ]
+              : [],
+          where: () => ({
+            limit: async () => {
+              whereCalls += 1;
+              // 1st query: direct (issuer, subject) lookup -> no match
+              // 2nd query: username fallback -> returns user already pinned to original-sub-1
+              return whereCalls === 2 ? [alreadyPinnedUser] : [];
+            },
+          }),
+        }),
+      }),
+    } as unknown as ConstructorParameters<typeof OidcUserProvisioningService>[0];
+
+    const svc = new OidcUserProvisioningService(dbMock, makeConfigMock());
+    await expect(
+      svc.resolveOrProvisionUser({
+        iss: 'https://idp.example.com',
+        sub: 'attacker-different-sub',
+        preferred_username: 'mario',
+        email: 'mario@example.com',
+        email_verified: true,
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('evaluates hasFederatedMfaClaim and enforces 2fa_required in completeUserAuthentication when MFA is absent', async () => {
+    expect(AuthService.hasFederatedMfaClaim({})).toBe(false);
+    expect(AuthService.hasFederatedMfaClaim({ amr: ['pwd'] })).toBe(false);
+    expect(AuthService.hasFederatedMfaClaim({ amr: ['pwd', 'MFA'] })).toBe(true);
+    expect(AuthService.hasFederatedMfaClaim({ amr: ['passkey'] })).toBe(true);
+    expect(AuthService.hasFederatedMfaClaim({ two_factor_verified: true })).toBe(true);
+
+    const config = makeConfigMock();
+    const crypto = new CryptoService(config);
+    const jwt = new JwtService(config);
+
+    const dbMock = {
+      select: () => ({
+        from: () => ({
+          limit: async () => [{ twoFactorEnabled: 2 }],
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: async () => undefined,
+        }),
+      }),
+    } as unknown as ConstructorParameters<typeof AuthService>[0];
+
+    const authService = new AuthService(
+      dbMock,
+      config,
+      crypto,
+      jwt,
+      new OidcUserProvisioningService(dbMock, config),
+    );
+
+    vi.spyOn(authService, 'issueSessionForUser').mockResolvedValue({
+      status: 'authenticated',
+      accessToken: 'acc-mfa',
+      refreshToken: 'ref-mfa',
+      user: {
+        id: 12,
+        username: 'mfa-user',
+        email: 'mfa@example.com',
+        displayName: 'MFA User',
+        isSuperUser: false,
+        isAdmin: false,
+        userCompanyIds: [],
+        groupIds: [],
+        effectivePermissions: makePermissionsMap([]),
+        twoFactorEnrolled: true,
+        twoFactorVerified: true,
+        authMethod: 'jwt',
+      },
+    });
+
+    // Without federated MFA claim under global policy REQUIRED -> must demand 2FA challenge
+    const challengeRes = await authService.completeUserAuthentication(
+      { id: 12, twoFactorEnrolled: true },
+      { federatedMfaSatisfied: false },
+    );
+    expect(challengeRes.status).toBe('2fa_required');
+    if (challengeRes.status === '2fa_required') {
+      expect(challengeRes.requiresTwoFactor).toBe(true);
+      expect(challengeRes.requiresEnrollment).toBe(false);
+    }
+
+    // With federated MFA claim satisfied -> issues session directly
+    const sessionRes = await authService.completeUserAuthentication(
+      { id: 12, twoFactorEnrolled: true },
+      { federatedMfaSatisfied: true },
+    );
+    expect(sessionRes.status).toBe('authenticated');
+  });
+});
