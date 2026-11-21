@@ -141,6 +141,9 @@ export class OidcUserProvisioningService {
         if (candidate.oidcIssuer && candidate.oidcIssuer !== issuer) {
           throw new UnauthorizedException('User is already pinned to a different OIDC issuer');
         }
+        if (candidate.oidcSubject && candidate.oidcSubject !== subject) {
+          throw new UnauthorizedException('User is already pinned to a different OIDC subject');
+        }
 
         const [pinned] = await this.db
           .update(users)

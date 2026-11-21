@@ -263,10 +263,20 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @Post('logout')
+  @Post(['logout', 'auth/logout'])
   @HttpCode(200)
-  @ApiOperation({ summary: 'Clear session cookies and log out' })
-  logout(@Res({ passthrough: true }) reply: HttpCookieReply): StandardApiResponse<null> {
+  @ApiOperation({ summary: 'Clear session cookies and revoke refresh token' })
+  async logout(
+    @Body() body: unknown,
+    @Req() request: HttpCookieRequest,
+    @Res({ passthrough: true }) reply: HttpCookieReply,
+  ): Promise<StandardApiResponse<null>> {
+    const parsed = RefreshTokenRequestSchema.safeParse(body ?? {});
+    const refreshToken =
+      (parsed.success ? parsed.data.refreshToken : undefined) ??
+      request.cookies?.[REFRESH_TOKEN_COOKIE];
+    await this.authService.revokeRefreshToken(refreshToken);
+
     reply.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
     reply.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/' });
     return {
@@ -277,7 +287,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @Get('users/me')
+  @Get(['users/me', 'auth/me'])
   @ApiOperation({ summary: 'Return authenticated user context, companies, and RBAC permissions' })
   getMe(@CurrentUser() user: AuthenticatedUserContext): AuthenticatedUserContext {
     return user;

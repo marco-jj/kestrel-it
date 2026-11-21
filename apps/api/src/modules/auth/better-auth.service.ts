@@ -195,11 +195,6 @@ export class BetterAuthService {
     );
     const provisionedUser = await this.oidcProvisioning.resolveOrProvisionUser(claims);
 
-    await this.db
-      .update(users)
-      .set({ lastLogin: new Date(), updatedAt: new Date() })
-      .where(eq(users.id, provisionedUser.id));
-
     await this.db.insert(loginAttempts).values({
       username: provisionedUser.username,
       remoteIp: meta.remoteIp ?? null,
@@ -207,6 +202,17 @@ export class BetterAuthService {
       successful: true,
       loginVia: 'better-auth',
     });
+
+    if (typeof this.authService.completeUserAuthentication === 'function') {
+      return this.authService.completeUserAuthentication(provisionedUser, {
+        federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(claims),
+      });
+    }
+
+    await this.db
+      .update(users)
+      .set({ lastLogin: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, provisionedUser.id));
 
     return this.authService.issueSessionForUser(provisionedUser.id, true);
   }
@@ -226,6 +232,10 @@ export class BetterAuthService {
       email: baUser.email,
       email_verified: baUser.emailVerified,
       preferred_username: baUser.username || baUser.email,
+      two_factor_verified:
+        baUser.twoFactorVerified === true ||
+        providerId === 'passkey' ||
+        providerId === 'better-auth:passkey',
     };
 
     if (baUser.name) claims['name'] = baUser.name;
@@ -233,6 +243,7 @@ export class BetterAuthService {
     if (baUser.lastName) claims['family_name'] = baUser.lastName;
     if (baUser.groups) claims['groups'] = baUser.groups;
     if (baUser.company) claims['company'] = baUser.company;
+    if (baUser.amr) claims['amr'] = baUser.amr;
 
     return claims;
   }
@@ -285,6 +296,8 @@ export class BetterAuthService {
       user.lastName ?? null,
       user.groups ?? null,
       user.company ?? null,
+      user.twoFactorVerified ?? null,
+      user.amr ?? null,
     ]);
   }
 }

@@ -175,6 +175,8 @@ export const BetterAuthUserPayloadSchema = z.object({
   lastName: z.string().trim().max(255).optional(),
   groups: z.array(z.string()).optional(),
   company: z.string().trim().max(255).optional(),
+  twoFactorVerified: z.boolean().optional(),
+  amr: z.array(z.string()).optional(),
 });
 export type BetterAuthUserPayload = z.infer<typeof BetterAuthUserPayloadSchema>;
 

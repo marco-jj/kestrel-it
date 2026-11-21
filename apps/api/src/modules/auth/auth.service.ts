@@ -40,6 +40,7 @@ import {
   companyUser,
   groups,
   loginAttempts,
+  personalAccessTokens,
   settings,
   users,
   usersGroups,
@@ -51,6 +52,8 @@ import {
 } from './oauth21.util.js';
 import { OidcUserProvisioningService } from './oidc-provisioning.service.js';
 
+const REFRESH_JTI_MARKER_NAME = '__refresh_jti__';
+
 interface OidcDiscoveryDoc {
   authorization_endpoint: string;
   token_endpoint: string;
@@ -60,6 +63,34 @@ interface OidcDiscoveryDoc {
 
 @Injectable()
 export class AuthService {
+  private static readonly FEDERATED_MFA_AMR_VALUES = new Set([
+    'mfa',
+    'otp',
+    'totp',
+    'hwk',
+    'swk',
+    'fido',
+    'passkey',
+    'webauthn',
+  ]);
+
+  static hasFederatedMfaClaim(claims: Record<string, unknown>): boolean {
+    if (claims['mfa_verified'] === true || claims['two_factor_verified'] === true) {
+      return true;
+    }
+
+    const amr = claims['amr'];
+    const amrValues = Array.isArray(amr)
+      ? amr.filter((item): item is string => typeof item === 'string')
+      : typeof amr === 'string'
+        ? [amr]
+        : [];
+
+    return amrValues.some((val) =>
+      AuthService.FEDERATED_MFA_AMR_VALUES.has(val.trim().toLowerCase()),
+    );
+  }
+
   private readonly oidcDiscoveryCache = new Map<
     string,
     { expiresAt: number; doc: OidcDiscoveryDoc }
@@ -102,10 +133,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid username or password');
     }
 
-    const global2faRequired = await this.isGlobalTwoFactorRequired();
-    const userRequires2fa = global2faRequired || user.twoFactorEnrolled;
+    return this.completeUserAuthentication(user, { federatedMfaSatisfied: false });
+  }
 
-    if (userRequires2fa) {
+  async completeUserAuthentication(
+    user: { id: number; twoFactorEnrolled: boolean },
+    options: { federatedMfaSatisfied?: boolean } = {},
+  ): Promise<LoginResponse> {
+    const global2faRequired = await this.isGlobalTwoFactorRequired();
+    const userRequires2fa = global2faRequired || Boolean(user.twoFactorEnrolled);
+
+    if (userRequires2fa && !options.federatedMfaSatisfied) {
       const challengeToken = await this.jwtService.signTwoFactorChallenge({
         userId: user.id,
         requiresEnrollment: !user.twoFactorEnrolled,
@@ -219,15 +257,38 @@ export class AuthService {
     if (payload.jti) {
       const nowEpochSec = Math.floor(Date.now() / 1000);
       this.pruneExpiredConsumedJtis(nowEpochSec);
-      if (this.consumedRefreshTokenJtis.has(payload.jti)) {
+      if (await this.isRefreshJtiConsumed(payload.jti)) {
         throw new UnauthorizedException('Refresh token has already been rotated or revoked');
       }
       const expEpochSec =
         typeof payload.exp === 'number' ? payload.exp : nowEpochSec + 7 * 24 * 3600;
-      this.consumedRefreshTokenJtis.set(payload.jti, expEpochSec);
+      await this.markRefreshJtiConsumed(userId, payload.jti, expEpochSec);
     }
 
     return this.issueSessionForUser(userId, true);
+  }
+
+  async revokeRefreshToken(refreshToken?: string): Promise<void> {
+    if (!refreshToken) {
+      return;
+    }
+
+    try {
+      const payload = await this.jwtService.verifyToken<RefreshTokenPayload>(
+        refreshToken,
+        'refresh',
+      );
+      const userId = Number(payload.sub);
+      if (!Number.isInteger(userId) || userId <= 0 || !payload.jti) {
+        return;
+      }
+      const nowEpochSec = Math.floor(Date.now() / 1000);
+      const expEpochSec =
+        typeof payload.exp === 'number' ? payload.exp : nowEpochSec + 7 * 24 * 3600;
+      await this.markRefreshJtiConsumed(userId, payload.jti, expEpochSec);
+    } catch {
+      // Ignore expired or invalid refresh tokens on logout.
+    }
   }
 
   async getAuthProvidersStatus(): Promise<AuthProvidersStatusResponse> {
@@ -456,11 +517,6 @@ export class AuthService {
 
     const user = await this.oidcProvisioning.resolveOrProvisionUser(mergedClaims);
 
-    await this.db
-      .update(users)
-      .set({ lastLogin: new Date(), updatedAt: new Date() })
-      .where(eq(users.id, user.id));
-
     await this.db.insert(loginAttempts).values({
       username: user.username,
       remoteIp: params.remoteIp ?? null,
@@ -469,7 +525,9 @@ export class AuthService {
       loginVia: oidcConfig.protocol,
     });
 
-    return this.issueSessionForUser(user.id, true);
+    return this.completeUserAuthentication(user, {
+      federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(mergedClaims),
+    });
   }
 
   async issueSessionForUser(
@@ -587,6 +645,54 @@ export class AuthService {
       if (exp <= nowEpochSec) {
         this.consumedRefreshTokenJtis.delete(jti);
       }
+    }
+  }
+
+  private buildRefreshJtiHash(jti: string): string {
+    return `refresh_jti:${this.cryptoService.sha256Hex(jti)}`;
+  }
+
+  private async isRefreshJtiConsumed(jti: string): Promise<boolean> {
+    if (this.consumedRefreshTokenJtis.has(jti)) {
+      return true;
+    }
+
+    const tokenHash = this.buildRefreshJtiHash(jti);
+    const rows = await this.db
+      .select({ id: personalAccessTokens.id, expiresAt: personalAccessTokens.expiresAt })
+      .from(personalAccessTokens)
+      .where(eq(personalAccessTokens.tokenHash, tokenHash))
+      .limit(1);
+
+    const persisted = Array.isArray(rows) ? rows[0] : undefined;
+    if (!persisted) {
+      return false;
+    }
+
+    const nowEpochSec = Math.floor(Date.now() / 1000);
+    const expEpochSec = persisted.expiresAt
+      ? Math.floor(persisted.expiresAt.getTime() / 1000)
+      : nowEpochSec + 7 * 24 * 3600;
+    this.consumedRefreshTokenJtis.set(jti, expEpochSec);
+    return true;
+  }
+
+  private async markRefreshJtiConsumed(
+    userId: number,
+    jti: string,
+    expEpochSec: number,
+  ): Promise<void> {
+    this.consumedRefreshTokenJtis.set(jti, expEpochSec);
+
+    if (typeof (this.db as { insert?: unknown }).insert === 'function') {
+      await this.db.insert(personalAccessTokens).values({
+        userId,
+        name: REFRESH_JTI_MARKER_NAME,
+        tokenHash: this.buildRefreshJtiHash(jti),
+        scopes: [],
+        expiresAt: new Date(expEpochSec * 1000),
+        revokedAt: new Date(),
+      });
     }
   }
 
