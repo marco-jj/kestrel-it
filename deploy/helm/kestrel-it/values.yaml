@@ -1,0 +1,156 @@
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+api:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/marco-jj/kestrel-it-api
+    pullPolicy: IfNotPresent
+    tag: "0.1.0"
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  livenessProbe:
+    path: /api/v1/health
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    path: /api/v1/health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+web:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/marco-jj/kestrel-it-web
+    pullPolicy: IfNotPresent
+    tag: "0.1.0"
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+config:
+  nodeEnv: production
+  appName: Kestrel-IT
+  appUrl: http://kestrel.local
+  apiPrefix: api/v1
+  jwtAccessExpiresIn: 15m
+  jwtRefreshExpiresIn: 7d
+
+  existingSecret: ""
+  secrets:
+    # Override all secret values or supply config.existingSecret in production.
+    jwtSecret: change-me-in-production-min-32-characters
+    appEncryptionKey: "0000000000000000000000000000000000000000000000000000000000000000"
+    externalDatabaseUrl: ""
+
+  storage:
+    driver: local # local | s3 | nextcloud
+    localRoot: /var/lib/kestrel/storage
+    s3:
+      endpoint: ""
+      region: us-east-1
+      bucket: ""
+      forcePathStyle: true
+      accessKeyId: ""
+      secretAccessKey: ""
+    nextcloud:
+      url: ""
+      basePath: /kestrel-it
+      username: ""
+      appPassword: ""
+
+  oidc:
+    enabled: false
+    issuerUrl: ""
+    clientId: ""
+    clientSecret: ""
+    redirectUri: ""
+    scopes: "openid profile email groups"
+    autoProvisionUsers: true
+    linkExistingUsers: true
+    syncOnLogin: true
+    syncGroups: true
+    usernameClaim: preferred_username
+    groupsClaim: groups
+
+  oauth:
+    protocol: oidc # oidc | oauth2 | oauth2.1
+    authorizationUrl: ""
+    tokenUrl: ""
+    userinfoUrl: ""
+
+  betterAuth:
+    enabled: false
+    mode: disabled # disabled | embedded | federated
+    url: ""
+    secret: ""
+    passkeyEnabled: false
+    providers: "oidc,oauth2.1"
+
+  smtp:
+    host: localhost
+    port: 1025
+    secure: false
+    user: ""
+    password: ""
+    fromName: Kestrel-IT
+    fromAddress: noreply@kestrel.example.com
+
+  bootstrap:
+    siteName: ""
+    adminUsername: ""
+    adminEmail: ""
+    adminPassword: ""
+    adminFirstName: Admin
+    adminLastName: User
+
+persistence:
+  enabled: true
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: kestrel
+    password: kestrel_change_me
+    database: kestrel_it
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 20Gi
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  hosts:
+    - host: kestrel.local
+  tls: []

@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kestrel-it.fullname" . }}-config
+  labels:
+    {{- include "kestrel-it.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  APP_NAME: {{ .Values.config.appName | quote }}
+  APP_URL: {{ .Values.config.appUrl | quote }}
+  API_PORT: {{ .Values.api.service.port | quote }}
+  API_PREFIX: {{ .Values.config.apiPrefix | quote }}
+  JWT_ACCESS_EXPIRES_IN: {{ .Values.config.jwtAccessExpiresIn | quote }}
+  JWT_REFRESH_EXPIRES_IN: {{ .Values.config.jwtRefreshExpiresIn | quote }}
+
+  STORAGE_DRIVER: {{ .Values.config.storage.driver | quote }}
+  STORAGE_LOCAL_ROOT: {{ .Values.config.storage.localRoot | quote }}
+  S3_ENDPOINT: {{ .Values.config.storage.s3.endpoint | quote }}
+  S3_REGION: {{ .Values.config.storage.s3.region | quote }}
+  S3_BUCKET: {{ .Values.config.storage.s3.bucket | quote }}
+  S3_FORCE_PATH_STYLE: {{ .Values.config.storage.s3.forcePathStyle | quote }}
+  NEXTCLOUD_URL: {{ .Values.config.storage.nextcloud.url | quote }}
+  NEXTCLOUD_BASE_PATH: {{ .Values.config.storage.nextcloud.basePath | quote }}
+
+  OIDC_ENABLED: {{ .Values.config.oidc.enabled | quote }}
+  OIDC_ISSUER_URL: {{ .Values.config.oidc.issuerUrl | quote }}
+  OIDC_CLIENT_ID: {{ .Values.config.oidc.clientId | quote }}
+  OIDC_REDIRECT_URI: {{ .Values.config.oidc.redirectUri | quote }}
+  OIDC_SCOPES: {{ .Values.config.oidc.scopes | quote }}
+  OIDC_AUTO_PROVISION_USERS: {{ .Values.config.oidc.autoProvisionUsers | quote }}
+  OIDC_LINK_EXISTING_USERS: {{ .Values.config.oidc.linkExistingUsers | quote }}
+  OIDC_SYNC_ON_LOGIN: {{ .Values.config.oidc.syncOnLogin | quote }}
+  OIDC_SYNC_GROUPS: {{ .Values.config.oidc.syncGroups | quote }}
+  OIDC_USERNAME_CLAIM: {{ .Values.config.oidc.usernameClaim | quote }}
+  OIDC_GROUPS_CLAIM: {{ .Values.config.oidc.groupsClaim | quote }}
+
+  OAUTH_PROTOCOL: {{ .Values.config.oauth.protocol | quote }}
+  OAUTH_AUTHORIZATION_URL: {{ .Values.config.oauth.authorizationUrl | quote }}
+  OAUTH_TOKEN_URL: {{ .Values.config.oauth.tokenUrl | quote }}
+  OAUTH_USERINFO_URL: {{ .Values.config.oauth.userinfoUrl | quote }}
+
+  BETTER_AUTH_ENABLED: {{ .Values.config.betterAuth.enabled | quote }}
+  BETTER_AUTH_MODE: {{ .Values.config.betterAuth.mode | quote }}
+  BETTER_AUTH_URL: {{ .Values.config.betterAuth.url | quote }}
+  BETTER_AUTH_PASSKEY_ENABLED: {{ .Values.config.betterAuth.passkeyEnabled | quote }}
+  BETTER_AUTH_PROVIDERS: {{ .Values.config.betterAuth.providers | quote }}
+
+  SMTP_HOST: {{ .Values.config.smtp.host | quote }}
+  SMTP_PORT: {{ .Values.config.smtp.port | quote }}
+  SMTP_SECURE: {{ .Values.config.smtp.secure | quote }}
+  SMTP_USER: {{ .Values.config.smtp.user | quote }}
+  SMTP_FROM_NAME: {{ .Values.config.smtp.fromName | quote }}
+  SMTP_FROM_ADDRESS: {{ .Values.config.smtp.fromAddress | quote }}
+
+  BOOTSTRAP_SITE_NAME: {{ .Values.config.bootstrap.siteName | quote }}
+  BOOTSTRAP_ADMIN_USERNAME: {{ .Values.config.bootstrap.adminUsername | quote }}
+  BOOTSTRAP_ADMIN_EMAIL: {{ .Values.config.bootstrap.adminEmail | quote }}
+  BOOTSTRAP_ADMIN_FIRST_NAME: {{ .Values.config.bootstrap.adminFirstName | quote }}
+  BOOTSTRAP_ADMIN_LAST_NAME: {{ .Values.config.bootstrap.adminLastName | quote }}

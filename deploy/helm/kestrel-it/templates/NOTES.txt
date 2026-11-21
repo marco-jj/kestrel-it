@@ -1,0 +1,24 @@
+Kestrel-IT has been deployed!
+
+1. Application URL:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+   kubectl port-forward svc/{{ include "kestrel-it.fullname" . }}-web 4200:{{ .Values.web.service.port }}
+   kubectl port-forward svc/{{ include "kestrel-it.fullname" . }}-api 3000:{{ .Values.api.service.port }}
+{{- end }}
+
+2. Storage Driver: {{ .Values.config.storage.driver }}
+   - Supported drivers: local (PVC), s3 (AWS S3 / MinIO / R2), nextcloud (WebDAV)
+
+3. First-Run Setup:
+{{- if and .Values.config.bootstrap.adminUsername .Values.config.bootstrap.adminPassword }}
+   - Headless bootstrap configured for initial admin user "{{ .Values.config.bootstrap.adminUsername }}".
+{{- else }}
+   - Open /setup in your browser to complete the 3-step First-Run Setup Wizard.
+{{- end }}
+
+WARNING: Remember to override config.secrets.jwtSecret, config.secrets.appEncryptionKey,
+and postgresql.auth.password (or supply config.existingSecret) before running in production.

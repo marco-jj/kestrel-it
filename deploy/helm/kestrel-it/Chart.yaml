@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kestrel-it
+description: Single Helm chart for Kestrel-IT (NestJS Fastify API, Angular SPA, and optional PostgreSQL)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - itam
+  - asset-management
+  - snipe-it
+  - nestjs
+  - angular
+  - postgresql
+home: https://github.com/marco-jj/kestrel-it
+sources:
+  - https://github.com/marco-jj/kestrel-it

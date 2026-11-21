@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kestrel-it.fullname" . }}
+  labels:
+    {{- include "kestrel-it.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /{{ trimPrefix "/" $.Values.config.apiPrefix }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kestrel-it.fullname" $ }}-api
+                port:
+                  number: {{ $.Values.api.service.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kestrel-it.fullname" $ }}-web
+                port:
+                  number: {{ $.Values.web.service.port }}
+    {{- end }}
+{{- end -}}
