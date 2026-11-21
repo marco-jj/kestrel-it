@@ -63,7 +63,7 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - [ ] Completare e verificare il bridge federato, la rotazione persistente dei refresh token e l'integrazione embedded di Better Auth con Drizzle, provider social/enterprise e passkey.
 - [x] **Piano 1.5 — Pluggable Storage Layer (`apps/api/src/common/storage`)**
   - Implementare l'interfaccia `StorageProvider` e i 3 adapter: `LocalStorageAdapter`, `S3StorageAdapter` (AWS Signature V4 & Presigned URLs), `NextcloudWebDavAdapter`.
-- [ ] **Piano 1.6 — Scaffolding Frontend Angular (`apps/web`) & Helm Chart (`deploy/helm`)**
+- [x] **Piano 1.6 — Scaffolding Frontend Angular (`apps/web`) & Helm Chart (`deploy/helm`)**
   - Inizializzare Angular (Standalone, Signals, Routing, HttpClient con Auth Interceptor, Layout shell sidebar/topbar/breadcrumbs, rotta `/setup` con `SetupWizardComponent` e `setupGuard`).
   - Creare lo scheletro del singolo Helm Chart in `deploy/helm/kestrel-it` (`Chart.yaml`, `values.yaml`, deployment API & Web, Ingress, Secret, ConfigMap).
 
