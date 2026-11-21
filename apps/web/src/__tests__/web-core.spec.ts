@@ -18,9 +18,24 @@ import {
   evaluateSetupCompletedGuard,
   evaluateSetupIncompleteGuard,
 } from '../app/core/guards/setup.guard.js';
-import { filterNavigationItems } from '../app/core/layout/app-shell.component.js';
+import { filterNavigationItems, AppShellComponent } from '../app/core/layout/app-shell.component.js';
+import { ThemeStore } from '../app/core/theme/theme.store.js';
 import { LoginComponent } from '../app/features/auth/login.component.js';
 import { SetupWizardComponent } from '../app/features/setup/setup-wizard.component.js';
+import {
+  DEFAULT_COMMAND_ITEMS,
+  KestrelAsyncSelectComponent,
+  KestrelCommandPaletteComponent,
+  KestrelDataGridComponent,
+  KestrelSlideDrawerComponent,
+  filterAsyncSelectOptions,
+  filterCommandItems,
+  resolveAvailableRowActions,
+  resolveStatusBadgeConfig,
+  sortDataGridRows,
+  toggleRowSelectionSet,
+  type AsyncSelectOption,
+} from '../app/shared/ui/index.js';
 
 function makePermissions(grants: string[] = []): AuthenticatedUserContext['effectivePermissions'] {
   const map = {} as AuthenticatedUserContext['effectivePermissions'];
@@ -294,5 +309,151 @@ describe('LoginComponent (Local + 2FA + SSO Providers)', () => {
     expect(store.isAuthenticated()).toBe(true);
     expect(store.accessToken()).toBe('final-jwt');
     expect(routerMock.navigateByUrl).toHaveBeenCalledWith('/dashboard');
+  });
+});
+
+describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
+  it('manages Light/Dark/System themes cleanly in ThemeStore', () => {
+    const themeStore = new ThemeStore();
+    expect(themeStore.mode()).toBe('light');
+    expect(themeStore.resolvedTheme()).toBe('light');
+    expect(themeStore.isDark()).toBe(false);
+
+    themeStore.toggleTheme();
+    expect(themeStore.mode()).toBe('dark');
+    expect(themeStore.resolvedTheme()).toBe('dark');
+    expect(themeStore.isDark()).toBe(true);
+
+    themeStore.setMode('system');
+    themeStore.systemPrefersDark.set(false);
+    expect(themeStore.resolvedTheme()).toBe('light');
+    themeStore.systemPrefersDark.set(true);
+    expect(themeStore.resolvedTheme()).toBe('dark');
+  });
+
+  it('maps Snipe-IT status meta types accurately in StatusBadge', () => {
+    expect(resolveStatusBadgeConfig('deployable')).toMatchObject({
+      tone: 'deployable',
+      label: 'Ready to Deploy',
+    });
+    expect(resolveStatusBadgeConfig('deployed', 'Assigned to Alice')).toMatchObject({
+      tone: 'deployed',
+      label: 'Assigned to Alice',
+    });
+    expect(resolveStatusBadgeConfig('pending')).toMatchObject({ tone: 'pending', label: 'Pending' });
+    expect(resolveStatusBadgeConfig('undeployable')).toMatchObject({
+      tone: 'undeployable',
+      label: 'Undeployable',
+    });
+    expect(resolveStatusBadgeConfig('archived')).toMatchObject({ tone: 'archived', label: 'Archived' });
+  });
+
+  it('handles sorting, bulk selection, search, and available_actions in KestrelDataGridComponent', () => {
+    expect(
+      resolveAvailableRowActions({ checkout: true, checkin: false, update: true, delete: false }),
+    ).toEqual(['checkout', 'update']);
+
+    const unsorted = [
+      { id: 2, tag: 'KST-002', cost: 200 },
+      { id: 1, tag: 'KST-001', cost: 1500 },
+    ];
+    expect(sortDataGridRows(unsorted, 'cost', 'asc').map((r) => r.id)).toEqual([2, 1]);
+    expect(sortDataGridRows(unsorted, 'tag', 'desc').map((r) => r.id)).toEqual([2, 1]);
+
+    let selected = toggleRowSelectionSet(new Set(), 1);
+    expect([...selected]).toEqual([1]);
+    selected = toggleRowSelectionSet(selected, 1);
+    expect([...selected]).toEqual([]);
+
+    const grid = new KestrelDataGridComponent();
+    grid.columns = [
+      { key: 'asset_tag', label: 'Tag', type: 'mono' },
+      { key: 'name', label: 'Name', type: 'text' },
+    ];
+    grid.rows = [
+      { id: 10, asset_tag: 'KST-010', name: 'Laptop Beta', available_actions: { checkout: true } },
+      { id: 20, asset_tag: 'KST-002', name: 'Laptop Alpha', available_actions: { checkin: true } },
+    ];
+
+    const sortSpy = vi.fn();
+    grid.sortChanged.subscribe(sortSpy);
+    grid.toggleSort({ key: 'asset_tag', label: 'Tag' });
+    expect(sortSpy).toHaveBeenCalledWith({ sort: 'asset_tag', order: 'asc' });
+    expect(grid.displayedRows().map((r) => r['id'])).toEqual([20, 10]);
+
+    grid.toggleSelectAll();
+    expect([...grid.selectedIds()]).toEqual([20, 10]);
+    grid.toggleRowSelection(20);
+    expect([...grid.selectedIds()]).toEqual([10]);
+  });
+
+  it('filters AsyncSelect options by FMCS companyId, resets stale cross-company value, and emits quickCreate', () => {
+    const options: AsyncSelectOption[] = [
+      { id: 1, text: 'Milan HQ', companyId: 10 },
+      { id: 2, text: 'Rome Ops', companyId: 20 },
+      { id: 3, text: 'Global Remote Pool', companyId: null },
+    ];
+
+    expect(filterAsyncSelectOptions(options, '', 10, true).map((o) => o.id)).toEqual([1, 3]);
+    expect(filterAsyncSelectOptions(options, 'milan', 10, false).map((o) => o.id)).toEqual([1]);
+
+    const select = new KestrelAsyncSelectComponent();
+    select.options = options;
+    select.companyId = 10;
+    select.selectOption(options[0]!);
+    expect(select.selectedId()).toBe(1);
+
+    // Switching company scope to 20 must invalidate option id 1 (belongs to company 10)
+    select.companyId = 20;
+    expect(select.selectedId()).toBeNull();
+    expect(select.filteredOptions().map((o) => o.id)).toEqual([2, 3]);
+
+    const quickSpy = vi.fn();
+    select.quickCreate.subscribe(quickSpy);
+    select.onSearchChange('Turin DC');
+    select.triggerQuickCreate();
+    expect(quickSpy).toHaveBeenCalledWith({ query: 'Turin DC', companyId: 20 });
+  });
+
+  it('filters CommandPalette items by query & RBAC permissions and integrates with AppShellComponent + SlideDrawer', () => {
+    const authStore = new AuthStore();
+    authStore.applyLoginResponse({
+      status: 'authenticated',
+      accessToken: 'jwt',
+      refreshToken: 'ref',
+      user: makeUser({ effectivePermissions: makePermissions(['assets.view']) }),
+    });
+
+    const permitted = filterCommandItems(DEFAULT_COMMAND_ITEMS, '', authStore);
+    expect(permitted.some((i) => i.route === '/hardware')).toBe(true);
+    expect(permitted.some((i) => i.route === '/admin/settings')).toBe(false);
+
+    const searchMatches = filterCommandItems(DEFAULT_COMMAND_ITEMS, 'dark', authStore);
+    expect(searchMatches.map((i) => i.id)).toEqual(['theme-toggle']);
+
+    const themeStore = new ThemeStore();
+    const routerMock = { navigateByUrl: vi.fn(async () => true) } as unknown as Router;
+    const palette = new KestrelCommandPaletteComponent(authStore, themeStore, routerMock);
+    palette.openPalette();
+    expect(palette.isOpen()).toBe(true);
+    palette.executeItem(searchMatches[0]!);
+    expect(themeStore.isDark()).toBe(true);
+    expect(palette.isOpen()).toBe(false);
+
+    const drawer = new KestrelSlideDrawerComponent();
+    const closedSpy = vi.fn();
+    drawer.closed.subscribe(closedSpy);
+    drawer.open = true;
+    drawer.onKeydown({ key: 'Escape' } as KeyboardEvent);
+    expect(closedSpy).toHaveBeenCalledTimes(1);
+
+    const shell = new AppShellComponent(authStore, themeStore, undefined, routerMock);
+    expect(shell.sidebarCollapsed()).toBe(false);
+    shell.toggleSidebar();
+    expect(shell.sidebarCollapsed()).toBe(true);
+    shell.openCommandPalette();
+    expect(shell.commandPaletteOpen()).toBe(true);
+    shell.toggleTheme();
+    expect(themeStore.isDark()).toBe(false);
   });
 });
