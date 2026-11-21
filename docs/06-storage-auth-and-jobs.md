@@ -1,136 +1,40 @@
 # 06 — Authentication (OIDC, OAuth 2.0/2.1, Better Auth, 2FA & PAT), Pluggable Storage, CSV Importers & Scheduled Jobs
 
-Questo documento definisce le specifiche per i layer infrastrutturali e operativi di Kestrel-IT: **Autenticazione moderna** (**OIDC**, **OAuth 2.0 / 2.1**, **Better Auth**, **Local Auth + TOTP 2FA** e **PAT**), **Storage Pluggable**, il **Motore di Importazione CSV (14 entità)**, il **Generatore di Etichette PDF** e le **26 Notifiche & Cron Jobs**.
+Questo documento definisce le specifiche per i layer infrastrutturali e operativi di Kestrel-IT: **Autenticazione moderna**, **Storage Pluggable**, il **Motore di Importazione CSV (12 tipi)**, il **Generatore di Etichette PDF** e le **26 Notifiche & Cron Jobs**.
 
 ---
 
-## 1. Autenticazione: OIDC + OAuth 2.0 / 2.1 + Better Auth + Local Auth + TOTP 2FA + PAT
+## 1. Autenticazione
 
-Kestrel-IT sostituisce le implementazioni legacy SAML/LDAP di Snipe-IT con un'architettura di autenticazione moderna basata su tre pilastri interoperabili:
-1. **OpenID Connect (OIDC 1.0)** e **OAuth 2.0 / OAuth 2.1** (con Authorization Code + **PKCE `S256` obbligatorio**).
-2. **Better Auth (`better-auth`)**, supportato sia come **motore di autenticazione embedded** su PostgreSQL (`drizzleAdapter(db, { provider: 'pg' })`) sia come **Identity Provider esterno** federato OIDC/OAuth 2.1.
-3. **Autenticazione Locale + TOTP 2FA** (con verifica retrocompatibile degli hash Bcrypt `$2y$` migrati da Snipe-IT) e **Personal Access Tokens (PAT)**.
+Snipe-IT supporta autenticazione API con bearer token OIDC, Passport OAuth, PAT, SAML, LDAP e autenticazione locale con TOTP. La sincronizzazione utenti LDAP è un flusso di provisioning dedicato. [Test OIDC API](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/tests/Feature/Authentication/OidcApiAuthTest.php#L113-L140), [sincronizzazione LDAP](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web/users.php#L9-L27)
 
-```mermaid
-sequenceDiagram
-    participant User as Utente / SPA Angular
-    participant API as NestJS AuthModule (Native / Better Auth)
-    participant IdP as OIDC / OAuth 2.0-2.1 Provider (Keycloak / Entra ID / Okta / GitHub / Better Auth Server)
-    participant DB as PostgreSQL (users / personal_access_tokens)
+Nei passi 1.4 e 1.4b sono presenti moduli API per login locale con TOTP, OIDC e OAuth con PKCE, PAT, configurazione iniziale e scambio di sessione Better Auth. L'avvio dell'API compilata e la verifica dei flussi HTTP restano aperti nel [piano di lavoro](../PLAN.md). Le decisioni di parità su SAML, sincronizzazione LDAP, Passport e bearer OIDC per l'API sono nella [mappa funzionale](08-upstream-feature-map.md).
 
-    alt Flusso 1: OIDC / OAuth 2.0-2.1 Authorization Code + PKCE (S256)
-        User->>API: GET /api/v1/auth/oidc/login (o Better Auth genericOAuth/sso)
-        API-->>User: Redirect to IdP Authorization Endpoint (state, nonce, code_challenge S256)
-        User->>IdP: Login & Consent
-        IdP-->>API: GET /api/v1/auth/oidc/callback?code=...&state=...
-        API->>IdP: Exchange Code + code_verifier for ID Token (OIDC) & Access Token + UserInfo
-        API->>DB: Upsert User by (oidc_issuer, oidc_subject) or email + sync Groups & Companies
-        API-->>User: Issue Session / JWT + Refresh Token Cookie
-    else Flusso 2: Better Auth Embedded Engine (Optional Passkey / Social / SSO)
-        User->>API: Auth request via Better Auth handler (/api/auth/*)
-        API->>API: BetterAuthProvisioningBridge (databaseHooks)
-        API->>DB: OidcUserProvisioningService.resolveAndProvisionUser() + RBAC/FMCS sync
-        API-->>User: Issue Session / JWT Token
-    else Flusso 3: Local Login + TOTP 2FA
-        User->>API: POST /api/v1/auth/login { username, password }
-        API->>DB: Verify Scrypt / Legacy Bcrypt ($2y$) hash & activated = true
-        opt two_factor_enrolled = true (o forzato da settings.two_factor_enabled)
-            API-->>User: 202 Accepted { requiresTwoFactor: true, challengeToken }
-            User->>API: POST /api/v1/auth/2fa/verify { challengeToken, totpCode }
-        end
-        API-->>User: Issue Session / JWT + Refresh Token Cookie
-    else Flusso 4: API Personal Access Token (PAT)
-        User->>API: Request with Header "Authorization: Bearer <pat_token>"
-        API->>DB: Lookup SHA-256 hash in personal_access_tokens (check expires_at & revoked_at)
-        API-->>User: Execute authorized API call & update last_used_at
-    end
-```
+### 1.1 Login locale, 2FA e PAT
 
-### 1.1 Regole di Sicurezza Auth Estratte da Snipe-IT
-- **Compatibilità Hash Password:** Supporto sia per **Argon2id** (nuovi hash) sia per **Bcrypt `$2y$`** (in modo che gli utenti migrati da MySQL Snipe-IT in Fase 4 possano fare login senza dover resettare la password).
-- **Gating PAT (`self.api`):** Come fissato in [`routes/web.php`](file:///Users/thor/development/snipe-it/routes/web.php#L51-L74), un utente può generare o revocare i propri Personal Access Token **solo** se possiede il permesso `self.api`.
-- **Two-Factor Policy (`settings.two_factor_enabled`):**
-  - `0` (Disabled): 2FA disabilitato.
-  - `1` (User Opt-in): Gli utenti con permesso `self.two_factor` possono attivarlo volontariamente.
-  - `2` (Required for All): Ogni utente è obbligato a completare l'enrollment TOTP al primo login; un admin può resettare il `two_factor_secret` di un utente bloccato.
-- **Audit Login Attempts:** Ogni tentativo di login (riuscito o fallito) viene registrato nella tabella `login_attempts` (esposta a `superuser` su `GET /api/v1/settings/login-attempts`).
+- Il login locale verifica le password `scrypt` e gli hash bcrypt `$2y$` migrati da Snipe-IT. `POST /api/v1/auth/login` restituisce HTTP 200 con `status: '2fa_required'` e un `challengeToken` quando serve completare TOTP. L'enrollment restituisce un URI `otpauth` e la verifica riceve `challengeToken` e `code`. I nuovi segreti TOTP sono cifrati con AES-256-GCM. [Controller Auth](../apps/api/src/modules/auth/auth.controller.ts), [servizio Auth](../apps/api/src/modules/auth/auth.service.ts)
+- Gli endpoint `/api/v1/account/personal-access-tokens` verificano `self.api` e lo stato `twoFactorVerified` del contesto. I token Kestrel-IT hanno prefisso `kst_` e il database conserva il digest SHA-256. Snipe-IT lega la gestione dei PAT allo stesso permesso. [Servizio PAT](../apps/api/src/modules/auth/pat.service.ts), [rotte Snipe-IT](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L51-L74)
+- La rotazione del refresh token di Kestrel-IT registra gli identificativi consumati nella memoria del singolo processo. Il logout cancella i cookie. Persistenza, revoca server-side e verifica della policy MFA restano da completare. [Servizio Auth](../apps/api/src/modules/auth/auth.service.ts), [controller Auth](../apps/api/src/modules/auth/auth.controller.ts)
 
-### 1.2 OIDC Just-In-Time (JIT) Auto-Provisioning & Claim Mapping (Superamento del limite di Snipe-IT)
+### 1.2 OIDC, OAuth con PKCE e provisioning JIT
 
-> [!IMPORTANT]
-> **Limite attuale in Snipe-IT (`app/Services/Oidc/OidcUserResolver.php`):**
-> In Snipe-IT, `OidcUserResolver` cerca solo un utente già creato manualmente tramite `(oidc_issuer, oidc_subject)` o fallback su `username`, e **rifiuta il login se l'utente non esiste già nel DB** (*"A token that resolves to no existing user is rejected -- there is no just-in-time provisioning"*).
-> In **Kestrel-IT**, il layer OIDC implementa il **Just-In-Time (JIT) Auto-Provisioning completo** (configurabile da env/settings con `oidc_auto_provision_users = true`).
+Il resolver OIDC di Snipe-IT richiede un utente esistente e cerca la coppia issuer/subject o uno username. Kestrel-IT aggiunge il provisioning JIT configurabile e usa la coppia `(oidc_issuer, oidc_subject)` per la risoluzione iniziale. [Resolver Snipe-IT](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/Oidc/OidcUserResolver.php), [provisioning Kestrel-IT](../apps/api/src/modules/auth/oidc-provisioning.service.ts)
 
-#### Algoritmo di Risoluzione & JIT Auto-Provisioning (`OidcUserProvisioningService`):
+- Le rotte `/api/v1/auth/oidc/{login,callback}` e `/api/v1/auth/oauth/{login,callback}` espongono il flusso Authorization Code con `state` e PKCE S256. In modalità OIDC il servizio verifica l'ID token e il nonce. In modalità OAuth senza ID token recupera il profilo dall'endpoint UserInfo e lo normalizza per il provisioning. [Servizio Auth](../apps/api/src/modules/auth/auth.service.ts)
+- Il linking degli account esistenti usa il claim username configurato e, come fallback, l'email verificata. La verifica del pinning e del collegamento degli account resta da completare. La creazione JIT registra un evento `oidc_jit` in `action_logs`. [Servizio provisioning](../apps/api/src/modules/auth/oidc-provisioning.service.ts)
+- Il servizio può sincronizzare il profilo, aggiornare `users_groups` dai claim e assegnare la company di default in `company_user`. L'assegnazione da claim delle company e il checkout automatico delle postazioni licenza sono estensioni da implementare. [Servizio provisioning](../apps/api/src/modules/auth/oidc-provisioning.service.ts)
 
-1. **Step 1 — Match per Identità OIDC Pin (`(oidc_issuer, oidc_subject)`):**
-   - Cerca in `users` per `oidc_issuer = claims.iss AND oidc_subject = claims.sub` (includendo controllo `deleted_at IS NULL`).
-2. **Step 2 — Fallback Link su Utente Esistente (Primo login OIDC di un utente pre-esistente / migrato):**
-   - Se non trovato per `(iss, sub)` e `oidc_link_existing_users = true`, cerca un utente attivo tramite il claim configurato (`OIDC_USERNAME_CLAIM`, default `preferred_username`, oppure `email` se `email_verified === true`), verificando che l'utente non sia già pinnato a un `oidc_issuer` differente.
-   - Se trovato, esegue il **pinning automatico** salvando `oidc_issuer = claims.iss` e `oidc_subject = claims.sub`.
-3. **Step 3 — Creazione Automatica Just-In-Time (JIT Provisioning se l'utente non esiste):**
-   - Se `oidc_auto_provision_users === true`:
-     - Crea automaticamente il nuovo record in `users` con `activated = true`, `password = null` (account federato OIDC-only), `oidc_issuer = claims.iss`, `oidc_subject = claims.sub`.
-     - **Mappatura Attributi Profilo dai Claims OIDC (`ID Token` + `UserInfo` endpoint):**
-       - `username` ← `claims[oidc_username_claim]` (default `preferred_username` o `email`)
-       - `email` ← `claims.email`
-       - `first_name` ← `claims.given_name` (o split di `claims.name`)
-       - `last_name` ← `claims.family_name`
-       - `display_name` ← `claims.name`
-       - `employee_num` ← `claims[oidc_employee_num_claim]` (opzionale, es. `employee_number`)
-       - `jobtitle` ← `claims[oidc_jobtitle_claim]` (opzionale, es. `title`)
-       - `phone` ← `claims.phone_number`
-       - `locale` ← `claims.locale` (fallback a `settings.locale`)
-4. **Step 4 — Sincronizzazione Automatica Gruppi, Ruoli, Company & Location ad ogni Login (`oidc_sync_on_login = true`):**
-   - **Default Group & Group Claim Mapping (`claims.groups` / `claims.roles`):**
-     - Assegna sempre il gruppo predefinito `settings.oidc_default_group_id` (se configurato) ai nuovi utenti auto-provisionati.
-     - Se `oidc_sync_groups = true`, legge l'array `claims[oidc_groups_claim]` (es. `groups` o `realm_access.roles` da Keycloak / Authentik / Entra ID / Nextcloud) e sincronizza la tabella pivot `users_groups` facendo match con i `groups.name` (o tramite una mappa JSON `oidc_group_mapping` che associa i gruppi IdP ai `group_id` di Kestrel-IT).
-   - **Company & Location Auto-Assignment (FMCS-aware):**
-     - Assegna la company di default (`oidc_default_company_id`) o risolve il claim `claims[oidc_company_claim]` nella tabella pivot `company_user`.
-     - Se presente `claims[oidc_department_claim]` o `claims[oidc_location_claim]`, associa (o crea, se `oidc_auto_create_taxonomy = true`) il `Department` e la `Location`.
-   - **Auto-Assign Licenses (`autoassign_licenses`):**
-     - Alla creazione JIT di un nuovo utente, se nel sistema esistono licenze con auto-assegnazione attiva, esegue il checkout automatico di un `LicenseSeat` libero esattamente come avviene nella creazione manuale di un utente.
-   - **Audit Log:** Registra in `action_logs` l'evento `create` con `action_source = 'oidc_jit'`.
+### 1.3 Prima configurazione e bootstrap headless
 
-### 1.2.1 Conformità OAuth 2.0 e OAuth 2.1 (PKCE S256 & UserInfo Normalization)
-Oltre ad OpenID Connect 1.0 completo (`id_token` JWT firmato JWKS + `/.well-known/openid-configuration`), il modulo Auth supporta **OAuth 2.0** e le specifiche **OAuth 2.1**:
-- **Requisiti OAuth 2.1 Enforced by Default:**
-  - **PKCE `S256` obbligatorio** (`code_challenge` + `code_challenge_method=S256` + `code_verifier`) su tutti i flussi Authorization Code.
-  - **Divieto dei flussi deprecati:** I grant type *Implicit* (`response_type=token`) e *Resource Owner Password Credentials (ROPC)* sono disabilitati per specifica OAuth 2.1.
-  - **Validazione rigorosa delle Redirect URI:** Exact string matching su `redirect_uri` registrate.
-  - **Refresh Token Rotation:** Rotazione con revoca preventiva in caso di riuso dei refresh token.
-- **Provider OAuth 2.0 / 2.1 Puri (senza `id_token` OIDC):**
-  - Supporto nativo per IdP e piattaforme che espongono OAuth 2.0 / 2.1 puro senza `id_token` (es. GitHub, GitLab, Nextcloud OAuth2, provider aziendali custom) tramite **Token Introspection** e/o chiamata autenticata all'endpoint **`/userinfo`**.
-  - Un normalizzatore dedicato mappa la risposta JSON di `/userinfo` sullo stesso contratto `OidcClaimsInput` consumato da `OidcUserProvisioningService`, riutilizzando invariato l'intero flusso di JIT Auto-Provisioning, pinning `(issuer, subject)` e sync gruppi/company.
+Snipe-IT verifica la presenza di utenti e impostazioni, guida l'operatore nella creazione del primo amministratore e gestisce i redirect del setup via middleware. [Controller upstream](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Controllers/SetupController.php), [middleware upstream](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Middleware/CheckForSetup.php), [condizione di completamento](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Setting.php#L147-L160)
 
-### 1.3 First-Run Pre-Flight & Setup Wizard (`/setup`) + Headless Bootstrap
-Mappato da [`SetupController.php`](file:///Users/thor/development/snipe-it/app/Http/Controllers/SetupController.php), [`CheckForSetup.php`](file:///Users/thor/development/snipe-it/app/Http/Middleware/CheckForSetup.php) e [`Setting::setupCompleted()`](file:///Users/thor/development/snipe-it/app/Models/Setting.php#L147-L160).
+- `GET /api/v1/setup/status` restituisce lo stato del setup, esegue `SELECT 1`, verifica la scrivibilità dello storage locale e controlla la presenza della configurazione per S3, Nextcloud, OIDC e SMTP. [Servizio setup](../apps/api/src/modules/setup/setup.service.ts)
+- `POST /api/v1/setup/complete` crea il primo superuser, la riga `settings` e le etichette di stato in una transazione, quindi restituisce la sessione. Il guard risponde con HTTP 403 dopo il completamento. Il wizard Angular è nel passo 1.6. [Controller setup](../apps/api/src/modules/setup/setup.controller.ts), [piano](../PLAN.md)
+- Il bootstrap headless usa `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` e facoltativamente `BOOTSTRAP_SITE_NAME`. [Servizio bootstrap](../apps/api/src/db/bootstrap.service.ts)
 
-- **Condizione di Attivazione (`setupCompleted`):**
-  $$\text{COUNT(users)} > 0 \quad \text{AND} \quad \text{COUNT(settings)} > 0$$
-  Finché questa condizione è falsa, tutte le rotte applicative Angular reindirizzano a `/setup`. Appena `setupCompleted === true`, tutti gli endpoint di scrittura `/api/v1/setup/*` vengono disattivati in modo permanente rispondendo **`403 Forbidden`** (protetti da `SetupNotCompletedGuard`).
+### 1.4 Bridge Better Auth
 
-#### Modalità A — Interactive Web Setup Wizard (`/setup`, default)
-1. **Step 1 — Pre-Flight Check (`GET /api/v1/setup/status`):**
-   Verifica in tempo reale lo stato dell'ambiente: connessione a PostgreSQL, stato delle migrazioni Drizzle, permessi di lettura/scrittura del `StorageProvider` (`local` / `s3` / `nextcloud`), coerenza di `APP_URL`, stato configurazione OIDC e SMTP.
-2. **Step 2 — Configurazione Istanza & Seed Iniziale:**
-   Raccoglie `site_name`, `full_multiple_companies_support` (FMCS), `locale`, `default_currency`, `email_domain`, `email_format` e le impostazioni di numerazione automatica degli Asset Tag (`auto_increment_assets`, `auto_increment_prefix`, `zerofill_count`, `next_auto_tag_base = 1`). Durante il commit vengono popolati automaticamente gli `status_labels` di base (*Ready to Deploy*, *Pending*, *Archived*).
-3. **Step 3 — Creazione Primo Superuser (`POST /api/v1/setup/complete`):**
-   Crea il primo account (`first_name`, `last_name`, `username`, `email`, `password` con `permissions: { superuser: 1 }`, `activated: true`, invio opzionale di `FirstAdminNotification`), salva la riga singleton `settings`, effettua l'**auto-login** e reindirizza a `/dashboard`.
-
-#### Modalità B — Headless / Helm Zero-Touch Bootstrap (Opzionale via `.env` / `values.yaml`)
-Se all'avvio del backend `setupCompleted === false` e sono valorizzate le variabili `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` (e opzionalmente `BOOTSTRAP_SITE_NAME`), NestJS esegue automaticamente il bootstrap in una transazione atomica all'avvio del pod (creando Superuser, `settings` e `status_labels` base), rendendo l'istanza immediatamente operativa per deploy GitOps/ArgoCD senza passare dal wizard web.
-
-### 1.4 Integrazione Better Auth (`better-auth` + Drizzle Adapter & Federated SSO)
-Kestrel-IT supporta **Better Auth** (`better-auth`) in due modalità complementari, mantenendo intatti il modello RBAC a 87 permessi e il multi-company scoping FMCS di Snipe-IT:
-
-- **Modalità A — Embedded Better Auth Engine (`AUTH_PROVIDER=native | better-auth`):**
-  - Configura `betterAuth({ database: drizzleAdapter(db, { provider: 'pg' }), ... })` montato sull'adapter Fastify/NestJS per sfruttare lo stack nativo PostgreSQL + Drizzle ORM.
-  - **Plugin supportati:** `genericOAuth` (provider OIDC, OAuth 2.0 e OAuth 2.1 con PKCE), `twoFactor` (TOTP), `passkey` (WebAuthn / FIDO2 passwordless), `apiKey` / `bearer`.
-  - **`BetterAuthProvisioningBridge` (`databaseHooks`):** Intercetta la creazione e il login degli utenti/sessioni OAuth/SSO in Better Auth e invoca `OidcUserProvisioningService.resolveAndProvisionUser()`, assicurando che il Just-In-Time (JIT) Auto-Provisioning, la sincronizzazione dei gruppi (`users_groups`), l'assegnazione company FMCS (`company_user`, `company_id`), l'auto-assegnazione licenze e la matrice RBAC di Kestrel-IT restino l'unica fonte di verità.
-- **Modalità B — External Better Auth Identity Server (SSO Federato):**
-  - Quando un'organizzazione utilizza un server di autenticazione centralizzato basato su Better Auth (es. con plugin `oidcProvider` / OAuth 2.1), Kestrel-IT si collega nativamente via flusso standard **OIDC / OAuth 2.1 + PKCE** con JIT Auto-Provisioning e sync automatico dei claims.
+`POST /api/v1/auth/better-auth/exchange` accetta un profilo firmato o verifica una sessione presso il server Better Auth configurato tramite `/api/auth/get-session`. Il bridge passa il profilo al servizio JIT di Kestrel-IT. La configurazione e gli hook Drizzle preparano l'integrazione embedded. Il motore embedded, i plugin social e le passkey sono ancora nel piano. [Servizio Better Auth](../apps/api/src/modules/auth/better-auth.service.ts), [piano](../PLAN.md)
 
 ---
 
@@ -163,14 +67,14 @@ export interface StorageProvider {
 
 ---
 
-## 3. Motore CSV Importer (Le 14 Classi di `app/Importer/*`)
+## 3. Importazione CSV
 
-Dall'ispezione di [`../snipe-it/app/Importer/`](file:///Users/thor/development/snipe-it/app/Importer), il sistema di importazione supporta **14 tipi di importazione**:
+Il [controller di importazione](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Controllers/Api/ImportController.php#L365-L414) gestisce **12 tipi selezionabili**. La [directory degli importer](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Importer) contiene anche le classi di base `Importer` e `ItemImporter`.
 
-| Tipo Import (`import_type`) | Classe Originale Snipe-IT | Chiave di Match / Deduplica | Relazioni Auto-Create (Find-or-Create) |
+| Tipo Import (parametro HTTP `import-type`) | Classe Originale Snipe-IT | Chiave di Match / Deduplica | Relazioni Auto-Create (Find-or-Create) |
 | :--- | :--- | :--- | :--- |
 | **`asset`** | `AssetImporter` | `asset_tag` | `AssetModel`, `Category`, `Manufacturer`, `Supplier`, `Location`, `Statuslabel`, `Company`, `User` (checkout automatico se presente nell'import), più tutte le colonne mapped ai **Custom Fields** (`custom_fields JSONB`). |
-| **`asset-history`** | `AssetHistoryImporter` | `asset_tag` + storico | Ricostruisce lo storico `action_logs` di checkout/checkin passati per gli asset esistenti. |
+| **`assetHistory`** | `AssetHistoryImporter` | `asset_tag` + storico | Ricostruisce lo storico `action_logs` di checkout/checkin passati per gli asset esistenti. |
 | **`assetModel`** | `AssetModelImporter` | `name` + `model_number` | `Category`, `Manufacturer`, `Depreciation`, `CustomFieldset`. |
 | **`user`** | `UserImporter` | `username` / `email` | `Company` (popola `company_user`), `Location`, `Department`, `Manager`, `Group`. |
 | **`license`** | `LicenseImporter` | `name` + `serial` | `Category`, `Manufacturer`, `Supplier`, `Company`, `Depreciation`, più creazione automatica dei `LicenseSeat` e checkout se presente `assigned_to`. |
@@ -186,7 +90,7 @@ Dall'ispezione di [`../snipe-it/app/Importer/`](file:///Users/thor/development/s
 
 ## 4. Generatore Etichette PDF, QR Code & Barcode 1D/2D
 
-Mappato da [`LabelsController.php`](file:///Users/thor/development/snipe-it/app/Http/Controllers/LabelsController.php), [`QrCodeController.php`](file:///Users/thor/development/snipe-it/app/Http/Controllers/QrCodeController.php) e [`app/Models/Labels/`](file:///Users/thor/development/snipe-it/app/Models/Labels):
+Mappato da [`LabelsController.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Controllers/LabelsController.php), [`QrCodeController.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Controllers/QrCodeController.php) e [`app/Models/Labels/`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Labels):
 - **Formati Codice a Barre 1D:** `C128` (Code 128), `C39` (Code 39), `EAN13`, `UPCA`, `ITF`.
 - **Formati 2D:** `QRCODE` (punta all'URL di dettaglio dell'asset o a `label2_2d_prefix`), `DATAMATRIX`, `PDF417`.
 - **Template di Stampa (`label2_template` + `CustomUserLabel`):**
@@ -204,7 +108,7 @@ Mappato da [`LabelsController.php`](file:///Users/thor/development/snipe-it/app/
    - **Microsoft Teams**
    - **Google Chat**
    - **Generic JSON Webhook**
-   - *(Con validazione anti-SSRF [`ExternalUrl`](file:///Users/thor/development/snipe-it/app/Models/Company.php#L82) sugli endpoint webhook)*.
+   - *(Con validazione anti-SSRF [`ExternalUrl`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Company.php#L82) sugli endpoint webhook)*.
 
 ### 5.2 Tabella delle 26 Notifiche di Snipe-IT
 - **Checkout (`5`):** `CheckoutAssetNotification`, `CheckoutAccessoryNotification`, `CheckoutConsumableNotification`, `CheckoutComponentNotification`, `CheckoutLicenseSeatNotification`.
@@ -216,7 +120,7 @@ Mappato da [`LabelsController.php`](file:///Users/thor/development/snipe-it/app/
 - **Account & Utility (`4`):** `WelcomeNotification`, `FirstAdminNotification`, `CurrentInventory` (invio lista asset a un utente), `MailTest`.
 
 ### 5.3 Cron Schedule & Cache In-Memory (`apps/api/src/jobs/scheduler.service.ts`)
-Mappato da [`app/Console/Kernel.php`](file:///Users/thor/development/snipe-it/app/Console/Kernel.php):
+Mappato da [`app/Console/Kernel.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Console/Kernel.php):
 
 > [!NOTE]
 > **Architettura senza Redis:** La cache (`settings`, chiavi JWKS OIDC) è gestita **In-Memory** (con invalidazione multi-pod opzionale tramite PostgreSQL `LISTEN/NOTIFY`) e i cron job utilizzano `@nestjs/schedule` coordinato tramite **PostgreSQL Advisory Locks** (`pg_try_advisory_lock`), senza alcuna dipendenza da Redis.

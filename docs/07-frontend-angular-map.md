@@ -1,6 +1,6 @@
 # 07 — Frontend Angular Architecture & Legacy UI Mapping
 
-Questo documento mappa l'intero layer di presentazione di Snipe-IT — composto dalle viste Blade in [`../snipe-it/resources/views/`](file:///Users/thor/development/snipe-it/resources/views), dai **18 componenti Livewire** in [`../snipe-it/app/Livewire/`](file:///Users/thor/development/snipe-it/app/Livewire) e dal monolite JavaScript [`../snipe-it/resources/assets/js/snipeit.js`](file:///Users/thor/development/snipe-it/resources/assets/js/snipeit.js) (analizzato staticamente con REA, Evidence ID `ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed`) — nell'architettura **Angular (Standalone Components + Signals)** di Kestrel-IT (`apps/web`).
+Questo documento mappa i principali flussi del layer di presentazione di Snipe-IT — composto dalle viste Blade in [`../snipe-it/resources/views/`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/resources/views), dai **18 componenti Livewire** in [`../snipe-it/app/Livewire/`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Livewire) e dal monolite JavaScript [`../snipe-it/resources/assets/js/snipeit.js`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/resources/assets/js/snipeit.js) (analizzato staticamente con REA, Evidence ID `ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed`) — nell'architettura **Angular (Standalone Components + Signals)** di Kestrel-IT (`apps/web`).
 
 ---
 
@@ -38,9 +38,9 @@ Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 
 
 ---
 
-## 3. Albero Completa delle Rotte Angular (`apps/web/src/app/app.routes.ts`)
+## 3. Mappa delle rotte Angular previste (`apps/web/src/app/app.routes.ts`)
 
-Tutte le rotte UI di [`../snipe-it/routes/web.php`](file:///Users/thor/development/snipe-it/routes/web.php) e [`../snipe-it/routes/web/*`](file:///Users/thor/development/snipe-it/routes/web) sono mappate con breadcrumb automatico, `setupCompletedGuard` (che redirige a `/setup` finché `setupCompleted === false`) e `canActivate: [authGuard, permissionGuard]`:
+L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-it/routes/web.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php) e [`../snipe-it/routes/web/*`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web) con breadcrumb e guard per le rotte protette. Il guard di setup reindirizza a `/setup` finché la configurazione iniziale è incompleta.
 
 ```text
 /setup                                  # SetupWizardComponent a 3 step (protetto da setupIncompleteGuard):
@@ -87,7 +87,7 @@ Tutte le rotte UI di [`../snipe-it/routes/web.php`](file:///Users/thor/developme
 ├── /statuslabels                       # Gestione Status Labels (Deployable, Pending, Archived, Undeployable, colori grafico)
 ├── /depreciations                      # Gestione Piani di Ammortamento (Linear, Half-Year, Diminishing)
 │
-├── /import                             # Wizard CSV Importer (14 entità)
+├── /import                             # Wizard CSV Importer (12 tipi)
 ├── /reports                            # 8+ Report:
 │   ├── /activity                       # Activity Log globale filtrabile
 │   ├── /custom                         # Custom Asset Report Builder (con salvataggio ReportTemplates)
@@ -102,7 +102,7 @@ Tutte le rotte UI di [`../snipe-it/routes/web.php`](file:///Users/thor/developme
 │   ├── /profile                        # Modifica profilo, lingua, password, avatar, 2FA TOTP
 │   ├── /view-assets                    # "My Assigned Assets, Licenses, Accessories & Consumables" + scarico EULA firmati
 │   ├── /accept                         # Coda accettazioni pendenti (`/account/accept/:id` con lettura EULA + SignaturePad)
-│   ├── /requestable-assets             # Catalogo Self-Service a 5 tab (Hardware, Models, Accessories, Consumables, Licenses)
+│   ├── /requestable-assets             # Catalogo Self-Service (Hardware, Models, Accessories, Consumables, Components, Licenses)
 │   └── /api                            # Gestione Personal Access Tokens (se ha permesso `self.api`)
 │
 └── /admin                              # Impostazioni Globali (solo `superuser`):
@@ -114,6 +114,13 @@ Tutte le rotte UI di [`../snipe-it/routes/web.php`](file:///Users/thor/developme
 ```
 
 ---
+
+### Flussi amministrativi con copertura da decidere
+
+| Funzionalità Snipe-IT | Comportamento osservato | Kestrel-IT |
+| :--- | :--- | :--- |
+| Backup e ripristino | Elenco, creazione, caricamento, download, eliminazione e ripristino dei backup. [Rotte web](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L500-L529) | Definire la copertura nell'interfaccia, nell'API o negli strumenti operativi. |
+| Sincronizzazione LDAP | Configurazione LDAP e avvio manuale del sync utenti dalla gestione utenti. [Configurazione](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L429-L443), [Sync utenti](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web/users.php#L9-L27) | Il provisionamento OIDC al login copre un flusso distinto. Definire la copertura del sync amministrativo. |
 
 ## 4. Architettura Reattiva in Angular (Signals + RBAC + FMCS)
 

@@ -1,16 +1,16 @@
 # 03 — RBAC Policies, Permissions & Multi-Company Scoping (FMCS)
 
-Questo documento mappa l'intero sistema di autorizzazione di Snipe-IT — definito in [`config/permissions.php`](file:///Users/thor/development/snipe-it/config/permissions.php), nelle **24 Policy** in [`app/Policies/`](file:///Users/thor/development/snipe-it/app/Policies) e nella logica **FMCS (Full Multiple Company Support)** di [`app/Models/Company.php`](file:///Users/thor/development/snipe-it/app/Models/Company.php) — traducendolo in **NestJS Guards** e **Drizzle Query Scopes** per Kestrel-IT.
+Questo documento mappa l'intero sistema di autorizzazione di Snipe-IT — definito in [`config/permissions.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/config/permissions.php), nelle **24 Policy** in [`app/Policies/`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Policies) e nella logica **FMCS (Full Multiple Company Support)** di [`app/Models/Company.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Company.php) — traducendolo in **NestJS Guards** e **Drizzle Query Scopes** per Kestrel-IT.
 
 ---
 
 ## 1. Catalogo Completo dei Permessi (`packages/shared/src/rbac/permissions.ts`)
 
-Estratto integralmente da [`../snipe-it/config/permissions.php`](file:///Users/thor/development/snipe-it/config/permissions.php):
+Estratto integralmente da [`../snipe-it/config/permissions.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/config/permissions.php):
 
 | Area / Gruppo | Chiavi di Permesso (`PermissionKey`) | Note e Regole Speciali |
 | :--- | :--- | :--- |
-| **Global Roles** | `superuser`, `admin` | `superuser` bypassa qualsiasi controllo (incluso FMCS). `admin` concede tutte le azioni sulle entità ma **resta vincolato a FMCS** (vedi [`SnipePermissionsPolicy::before`](file:///Users/thor/development/snipe-it/app/Policies/SnipePermissionsPolicy.php#L38-L54)). |
+| **Global Roles** | `superuser`, `admin` | `superuser` bypassa qualsiasi controllo (incluso FMCS). `admin` concede tutte le azioni sulle entità ma **resta vincolato a FMCS** (vedi [`SnipePermissionsPolicy::before`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Policies/SnipePermissionsPolicy.php#L38-L54)). |
 | **System Operations** | `import`, `reports.view` | `import` abilita l'uso del motore CSV Importer; `reports.view` abilita i report e l'export. |
 | **Assets (`hardware`)** | `assets.view`, `assets.create`, `assets.edit`, `assets.delete`, `assets.checkout`, `assets.checkin`, `assets.audit`, `assets.view.encrypted_custom_fields`, `assets.files`, `assets.view.requestable` | `clone` non è un permesso a sé: è composto da `assets.view && assets.create`. `delete` richiede inoltre che l'asset non sia eliminato (`deleted_at IS NULL`) e non sia attualmente assegnato (`assigned_to IS NULL`). |
 | **Accessories** | `accessories.view`, `accessories.create`, `accessories.edit`, `accessories.delete`, `accessories.checkout`, `accessories.checkin`, `accessories.files` | Estende `CheckoutablePermissionsPolicy`. |
@@ -33,48 +33,21 @@ Estratto integralmente da [`../snipe-it/config/permissions.php`](file:///Users/t
 
 ---
 
-## 2. Algoritmo di Risoluzione dei Permessi (`User::hasAccess`)
+## 2. Decisioni di autorizzazione in Snipe-IT
 
-In Snipe-IT, i permessi sono memorizzati come JSON sia su `users.permissions` (valori: `1` = Grant, `-1` = Deny, `0` = Inherit) sia su `groups.permissions` (valori: `1` = Grant, `0` = Deny/Unset).
+- Il controllo della singola chiave concede sempre la richiesta al superuser. Negli altri casi un grant esplicito (`1`) o un deny esplicito (`-1`) dell'utente ha la precedenza. Una chiave assente o impostata a `0` eredita eventuali grant dei gruppi. [`User::hasAccess()`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/User.php#L936-L993)
+- L'override admin concede le operazioni gestite dalle policy sulle entità. L'admin resta soggetto al filtraggio aziendale applicato nelle query. I controlli chiamati direttamente tramite `hasAccess()` continuano a valutare la chiave richiesta. [`SnipePermissionsPolicy::before()`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Policies/SnipePermissionsPolicy.php#L38-L71)
+- Lo scope FMCS filtra le query, con regole specifiche per aziende, utenti, sedi e storico attività. [`Company::scopeCompanyablesDirectly()`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Company.php#L749-L867)
 
-L'ordine esatto di valutazione da implementare in `packages/shared/src/rbac/evaluate-permission.ts` è:
+### Mappatura Kestrel-IT
 
-```ts
-export type PermissionValue = 1 | 0 | -1;
-
-export function hasAccess(
-  userPermissions: Record<string, PermissionValue>,
-  groupPermissionsList: Array<Record<string, PermissionValue>>,
-  requiredPermission: PermissionKey,
-): boolean {
-  // 1. Superuser override (utente o gruppo)
-  if (userPermissions['superuser'] === 1) return true;
-  if (userPermissions['superuser'] !== -1 && groupPermissionsList.some(g => g['superuser'] === 1)) {
-    return true;
-  }
-
-  // 2. Explicit User-level Grant or Deny overrides any Group permission
-  if (userPermissions[requiredPermission] === 1) return true;
-  if (userPermissions[requiredPermission] === -1) return false;
-
-  // 3. Admin role check (for item permissions, unless explicitly denied above)
-  const isAdmin =
-    userPermissions['admin'] === 1 ||
-    (userPermissions['admin'] !== -1 && groupPermissionsList.some(g => g['admin'] === 1));
-  if (isAdmin && requiredPermission !== 'superuser') {
-    return true;
-  }
-
-  // 4. Group inheritance (if any group grants 1, access is allowed)
-  return groupPermissionsList.some(g => g[requiredPermission] === 1);
-}
-```
+Il pacchetto condiviso contiene un valutatore di permessi. Per raggiungere la parità, il backend dovrà distinguere il controllo di una chiave, l'autorizzazione di un'azione su una risorsa e la visibilità FMCS della risorsa. I casi di parità comprendono un admin senza un grant esplicito, un deny utente con grant di gruppo e un admin che opera fuori dal proprio perimetro aziendale.
 
 ---
 
 ## 3. Regole delle 24 Policy Specializzate (`app/Policies/*`)
 
-Oltre ai metodi standard di [`SnipePermissionsPolicy`](file:///Users/thor/development/snipe-it/app/Policies/SnipePermissionsPolicy.php) (`index`, `view`, `create`, `clone`, `update`, `delete`, `files`, `manageFiles`, `history`), ecco le regole specifiche estratte dalle 24 classi in `app/Policies/`:
+Oltre ai metodi standard di [`SnipePermissionsPolicy`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Policies/SnipePermissionsPolicy.php) (`index`, `view`, `create`, `clone`, `update`, `delete`, `files`, `manageFiles`, `history`), ecco le regole specifiche estratte dalle 24 classi in `app/Policies/`:
 
 1. **`CheckoutablePermissionsPolicy`** (base di `AssetPolicy`, `AccessoryPolicy`, `ConsumablePolicy`, `LicensePolicy`):
    - `checkout(user, item?)`: `user.hasAccess('<entity>.checkout')`
@@ -97,7 +70,7 @@ Oltre ai metodi standard di [`SnipePermissionsPolicy`](file:///Users/thor/develo
 
 ## 4. Full Multiple Company Support (FMCS) — Specifica Completa
 
-Dall'analisi di [`app/Models/Company.php`](file:///Users/thor/development/snipe-it/app/Models/Company.php#L258-L800), l'isolamento multi-company di Snipe-IT ha regole molto precise (inclusi i fix di sicurezza `GHSA-8hq6-r8cw-gqwh` e `#19187`):
+Dall'analisi di [`app/Models/Company.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Company.php#L258-L800), l'isolamento multi-company di Snipe-IT ha regole molto precise (inclusi i fix di sicurezza `GHSA-8hq6-r8cw-gqwh` e `#19187`):
 
 ### 4.1 Variabili di Configurazione Globali (`settings`)
 - `full_multiple_companies_support` (`boolean`): Se `false`, nessun filtro aziendale viene applicato.
@@ -105,7 +78,7 @@ Dall'analisi di [`app/Models/Company.php`](file:///Users/thor/development/snipe-
 - `scope_locations_fmcs` (`boolean`): Se `false`, la tabella `locations` è condivisa tra tutte le aziende anche con FMCS attivo; se `true`, anche le `locations` vengono filtrate per `company_id`.
 
 ### 4.2 Calcolo di `userCompanyIds` (Con Espansione Gerarchica a 1 Livello)
-In [`Company::getCurrentUserCompanyIds()`](file:///Users/thor/development/snipe-it/app/Models/Company.php#L269-L296):
+In [`Company::getCurrentUserCompanyIds()`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/Company.php#L269-L296):
 1. L'appartenenza di un utente alle aziende è determinata dalla tabella pivot **`company_user`** (`user_id`, `company_id`).
 2. **Gerarchia Parent → Child:** Le aziende supportano 1 livello di gerarchia (`companies.parent_id`). Se un utente è membro di un'azienda madre, **eredita automaticamente l'accesso a tutte le aziende figlie** (`WHERE parent_id IN (directIds)`).
 3. Il set risultante `userCompanyIds = unique([...directIds, ...childIds])` viene memorizzato nel contesto della richiesta HTTP (`RequestContext`).

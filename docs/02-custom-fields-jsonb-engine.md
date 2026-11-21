@@ -1,12 +1,12 @@
 # 02 — Custom Fields & Fieldsets Engine (`JSONB` + GIN + Dynamic Zod)
 
-Questo documento mappa il funzionamento esatto del sottosistema **Custom Fields & Fieldsets** di Snipe-IT ([`app/Models/CustomField.php`](file:///Users/thor/development/snipe-it/app/Models/CustomField.php), [`app/Models/CustomFieldset.php`](file:///Users/thor/development/snipe-it/app/Models/CustomFieldset.php), [`app/Http/Transformers/CustomFieldValuesTransformer.php`](file:///Users/thor/development/snipe-it/app/Http/Transformers/CustomFieldValuesTransformer.php)) e specifica la sua reimplementazione su **PostgreSQL `JSONB`** in Kestrel-IT.
+Questo documento mappa il funzionamento esatto del sottosistema **Custom Fields & Fieldsets** di Snipe-IT ([`app/Models/CustomField.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/CustomField.php), [`app/Models/CustomFieldset.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/CustomFieldset.php), [`app/Http/Transformers/CustomFieldValuesTransformer.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Transformers/CustomFieldValuesTransformer.php)) e specifica la sua reimplementazione su **PostgreSQL `JSONB`** in Kestrel-IT.
 
 ---
 
 ## 1. Come Funziona in Snipe-IT (Comportamento Osservato)
 
-In [`CustomField.php`](file:///Users/thor/development/snipe-it/app/Models/CustomField.php#L324-L448):
+In [`CustomField.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/CustomField.php#L324-L448):
 1. Quando un amministratore crea un `CustomField` (es. `"MAC Address"` con `id = 1`), l'hook Eloquent `self::created` genera uno slug Unicode (`convertUnicodeDbSlug()`):
    - Formato: `_snipeit_<slug_max_50_chars>_<id>` (es. `_snipeit_mac_address_1`).
    - Esegue un `ALTER TABLE assets ADD COLUMN _snipeit_mac_address_1 TEXT NULL` (oppure `DATE` / `DATETIME` se il formato è `DATE` o `DATETIME`).
@@ -15,7 +15,7 @@ In [`CustomField.php`](file:///Users/thor/development/snipe-it/app/Models/Custom
 4. **Blocco cambio formato (`DATE`/`DATETIME`)**: In Snipe-IT non è possibile cambiare il formato di un campo esistente da/verso `DATE` o `DATETIME` perché MySQL fallirebbe il cast DDL della colonna fisica.
 
 ### 1.1 Elementi UI Supportati (`ELEMENT_KEYS`)
-Estratti da [`CustomField::ELEMENT_KEYS`](file:///Users/thor/development/snipe-it/app/Models/CustomField.php#L63-L66):
+Estratti da [`CustomField::ELEMENT_KEYS`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/CustomField.php#L63-L66):
 - `'text'` — Input testuale singolo
 - `'listbox'` — Select dropdown singolo (richiede `field_values`, opzioni separate da newline `\n`, con supporto opzionale `valore|etichetta`)
 - `'textarea'` — Area di testo semplice
@@ -26,7 +26,7 @@ Estratti da [`CustomField::ELEMENT_KEYS`](file:///Users/thor/development/snipe-i
 - `'datetime_picker'` — Selettore data e ora (`YYYY-MM-DD HH:mm:ss`)
 
 ### 1.2 Formati di Validazione (`PREDEFINED_FORMATS`) e Matrice di Compatibilità
-Estratti da [`CustomField::PREDEFINED_FORMATS`](file:///Users/thor/development/snipe-it/app/Models/CustomField.php#L33-L71) e `allowedElementKeysForFormat()`:
+Estratti da [`CustomField::PREDEFINED_FORMATS`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Models/CustomField.php#L33-L71) e `allowedElementKeysForFormat()`:
 
 | Formato (`format`) | Regola di Validazione | Elementi Consentiti (`element`) | Crittografia Consentita (`canEncryptFor`) | Icona UI (`iconForFormat`) |
 | :--- | :--- | :--- | :--- | :--- |
@@ -55,7 +55,7 @@ Ogni `CustomField` possiede 9 flag booleani:
 - `auto_add_to_fieldsets`: Quando viene creato un nuovo `CustomFieldset`, questo campo vi viene aggiunto automaticamente.
 - `show_in_listview`: Mostra la colonna nella tabella generale degli Asset.
 - `show_in_email`: Include il valore nelle email di notifica Checkout/Checkin.
-- `show_in_requestable_list`: Include il valore nella tabella degli asset richiedibili dagli utenti (`/account/requestable`, filtrato in [`AssetsTransformer::transformRequestedAsset`](file:///Users/thor/development/snipe-it/app/Http/Transformers/AssetsTransformer.php#L321-L327) con `includeEncrypted: false`).
+- `show_in_requestable_list`: Include il valore nella tabella degli asset richiedibili dagli utenti (`/account/requestable`, filtrato in [`AssetsTransformer::transformRequestedAsset`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Transformers/AssetsTransformer.php#L321-L327) con `includeEncrypted: false`).
 - `display_in_user_view`: Mostra il campo all'utente assegnatario nella propria pagina profilo `/account/view-assets`.
 - `display_checkout`: Mostra e permette la modifica del campo durante il form di **Checkout**.
 - `display_checkin`: Mostra e permette la modifica del campo durante il form di **Checkin**.
@@ -69,7 +69,7 @@ Ogni `CustomField` possiede 9 flag booleani:
 Invece di eseguire `ALTER TABLE`, la tabella `assets` ha una colonna `custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb`:
 - **Chiave nel documento JSONB:** Manteniamo `db_column` (es. `"_snipeit_mac_address_1"`) come chiave nel JSONB!
   - **Perché usare `db_column` come chiave JSONB:**
-    1. Garantisce **compatibilità 100% con i client API di Snipe-IT** che inviano payload `{ "_snipeit_mac_address_1": "AA:BB:CC:DD:EE:FF" }` in `POST /api/v1/hardware` e `PATCH /api/v1/hardware/{id}`.
+    1. Conserva le chiavi di richiesta usate dai client API di Snipe-IT che inviano payload `{ "_snipeit_mac_address_1": "AA:BB:CC:DD:EE:FF" }` in `POST /api/v1/hardware` e `PATCH /api/v1/hardware/{id}`.
     2. Se l'amministratore rinomina la label visuale del campo (`name`), non occorre riscrivere tutte le righe della tabella `assets` o si può aggiornare la chiave in modo atomico con `jsonb_set`.
     3. La migrazione da MySQL (Fase 4) diventa una semplice aggregazione `jsonb_build_object` delle colonne `_snipeit_*` esistenti.
 
@@ -159,10 +159,10 @@ export function buildCustomFieldZodSchema(field: CustomFieldDefinition, isRequir
    - I campi con `fieldEncrypted = true` vengono cifrati tramite **AES-256-GCM** (`enc:v1:<iv>:<authTag>:<ciphertext>`) prima di essere scritti in `assets.custom_fields[dbColumn]`.
    - In fase di serializzazione (`CustomFieldValuesTransformer`), se il campo è cifrato:
      - Se l'utente ha il permesso `assets.view.encrypted_custom_fields`, il valore viene decifrato al volo.
-     - Altrimenti viene restituita la stringa `"ENCRYPTED"` (esattamente come in [`CustomFieldValuesTransformer.php`](file:///Users/thor/development/snipe-it/app/Http/Transformers/CustomFieldValuesTransformer.php#L32-L34)).
+     - Altrimenti viene restituita la stringa `"ENCRYPTED"` (esattamente come in [`CustomFieldValuesTransformer.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Transformers/CustomFieldValuesTransformer.php#L32-L34)).
 
 ### 2.4 Formato di Serializzazione API (`custom_fields` in `AssetsTransformer`)
-Per mantenere la compatibilità al 100% con l'API di Snipe-IT, l'oggetto `custom_fields` restituito in `GET /api/v1/hardware` mantiene la struttura esatta di `CustomFieldValuesTransformer`:
+La risposta Kestrel prevista per `GET /api/v1/hardware` riprende la struttura di `CustomFieldValuesTransformer`:
 
 ```json
 {

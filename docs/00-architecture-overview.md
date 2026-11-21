@@ -2,7 +2,7 @@
 
 ## 1. Obiettivo e Filosofia Architetturale
 
-**Kestrel-IT** è una reimplementazione clean-room in **TypeScript** di [**Snipe-IT**](file:///Users/thor/development/snipe-it) che mantiene la **piena parità funzionale e di API** con Snipe-IT modernizzando radicalmente lo stack tecnologico:
+**Kestrel-IT** è una reimplementazione clean-room in **TypeScript** di [**Snipe-IT**](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8) con l’obiettivo di raggiungere la **parità funzionale e di API** con Snipe-IT modernizzando radicalmente lo stack tecnologico:
 
 | Dimensione | Snipe-IT (`../snipe-it`) | Kestrel-IT (`kestrel-it`) | Vantaggio Architetturale |
 | :--- | :--- | :--- | :--- |
@@ -12,7 +12,7 @@
 | **Database & ORM** | MySQL / MariaDB + Eloquent ORM (513 migrazioni) | **PostgreSQL 16+** + **Drizzle ORM** | Query SQL type-safe, performance elevate, transazioni con lock espliciti e supporto nativo `JSONB` + indici `GIN`. |
 | **Custom Fields** | Mutazioni DDL a runtime (`ALTER TABLE assets ADD _snipeit_*`) | Colonna **`custom_fields JSONB`** su `assets` + validazione dinamica **Zod** | Nessuna mutazione dello schema DB a runtime; indicizzazione GIN istantanea e zero lock DDL su tabelle grandi. |
 | **Frontend UI** | Blade + AdminLTE 2 + Bootstrap 3 + jQuery (`snipeit.js`) + 18 widget Livewire | **Angular** (Standalone Components, Signals, Reactive Forms) | SPA reattiva, accessibile, disaccoppiata dal backend e senza dipendenza da jQuery/Bootstrap 3. |
-| **Autenticazione** | Sessioni Laravel, Passport OAuth, LDAP, SAML 2.0, Google OAuth, TOTP | **OIDC Nativo** + **OAuth 2.0 / 2.1 (PKCE)** + **Better Auth** + **Local Auth / TOTP 2FA** + **Personal Access Tokens (PAT)** | Integrazione standard con Keycloak, Authentik, Entra ID, Okta, Nextcloud, Google, GitHub, provider OAuth 2.0/2.1 e supporto `better-auth` (`drizzleAdapter` PostgreSQL + Passkeys/WebAuthn). |
+| **Autenticazione** | Sessioni Laravel, Passport OAuth, LDAP, SAML 2.0, Google OAuth, TOTP e autenticazione API con bearer token OIDC | **Local/TOTP**, **OIDC e OAuth con PKCE**, **PAT**, bridge **Better Auth** | Il motore Better Auth embedded e le passkey sono nel [piano di lavoro](../PLAN.md). |
 | **File Storage** | Laravel Filesystem (`local` / `s3`) | **Pluggable Storage Adapter** (`Local`, `Native S3`, `Nextcloud WebDAV`) | Supporto nativo per filesystem locale, S3/MinIO/R2 e istanze aziendali Nextcloud via WebDAV. |
 | **Deployment** | VM / Docker monolitico Apache/PHP-FPM | **Docker Multi-Stage + Single Helm Chart** (`deploy/helm`) | Cloud-native, pronto per Kubernetes con un unico chart che orchestra API, Web e dipendenze opzionali. |
 
@@ -36,7 +36,8 @@ kestrel-it/
 │   ├── 05-api-contracts-and-modules.md
 │   ├── 06-storage-auth-and-jobs.md
 │   ├── 07-frontend-angular-map.md
-│   └── rea-evidence-bundle.json    # Bundle di evidenze statiche REA
+│   ├── rea-evidence-summary.json   # Sintesi delle evidenze statiche REA
+│   └── 08-upstream-feature-map.md  # Funzionalità Snipe-IT e stato di parità
 ├── packages/
 │   └── shared/                     # @kestrel-it/shared
 │       ├── src/
@@ -84,7 +85,7 @@ flowchart TB
 
     subgraph Backend["Application & Domain Layer (apps/api - NestJS)"]
         Controllers["REST Controllers (/api/v1/*)"]
-        Guards["AuthGuard (JWT/OIDC/OAuth2.1/BetterAuth/PAT) + PermissionsGuard + FmcsGuard"]
+        Guards["JwtOrPatAuthGuard (JWT Kestrel-IT/PAT) + PermissionsGuard + FmcsGuard"]
         Transformers["Response Serializers (Datatables, Selectlist, available_actions)"]
         Services["Domain Services (AssetCheckoutService, KitCheckoutService, DepreciableService, ImporterService)"]
         Events["Event Bus & ActionLogObserver (Immutable Audit Trail)"]
@@ -113,32 +114,29 @@ flowchart TB
 1. **Eliminazione del Doppio Albero di Controller (`Web` vs `Api`)**:
    In Snipe-IT ogni entità ha due controller (`app/Http/Controllers/Assets/AssetsController.php` per Blade e `app/Http/Controllers/Api/AssetsController.php` per JSON), causando frequenti divergenze di validazione e permessi. In Kestrel-IT esiste **un solo Controller REST per risorsa** in `apps/api`, consumato sia dalla SPA Angular sia dalle integrazioni esterne.
 2. **Eliminazione di `ALTER TABLE` a Runtime**:
-   In Snipe-IT la creazione/modifica/cancellazione di un `CustomField` esegue `Schema::table('assets', ...)` aggiungendo/rinominando/eliminando colonne `_snipeit_<slug>_<id>`. In Kestrel-IT la tabella `assets` possiede una colonna `custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb` indicizzata con `GIN`, eliminando qualsiasi mutazione DDL a runtime (vedi [`docs/02-custom-fields-jsonb-engine.md`](file:///Users/thor/development/kestrel-it/docs/02-custom-fields-jsonb-engine.md)).
+   In Snipe-IT la creazione/modifica/cancellazione di un `CustomField` esegue `Schema::table('assets', ...)` aggiungendo/rinominando/eliminando colonne `_snipeit_<slug>_<id>`. In Kestrel-IT la tabella `assets` possiede una colonna `custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb` indicizzata con `GIN`, eliminando qualsiasi mutazione DDL a runtime (vedi [`docs/02-custom-fields-jsonb-engine.md`](02-custom-fields-jsonb-engine.md)).
 3. **Centralizzazione di FMCS (Full Multiple Company Support)**:
-   In Snipe-IT il filtraggio per azienda è diviso tra `CompanyableScope`, controlli manuali `Company::isCurrentUserHasAccess($item)` in `SnipePermissionsPolicy::before()` e filtri manuali nei metodi `selectlist()`. In Kestrel-IT il contesto tenant/company dell'utente autenticato viene risolto una sola volta nel `RequestContext` ed applicato in modo uniforme dal `FmcsScopeHelper` di Drizzle e dal `PermissionsGuard` (vedi [`docs/03-rbac-policies-and-fmcs.md`](file:///Users/thor/development/kestrel-it/docs/03-rbac-policies-and-fmcs.md)).
+   In Snipe-IT il filtraggio per azienda è diviso tra `CompanyableScope`, controlli manuali `Company::isCurrentUserHasAccess($item)` in `SnipePermissionsPolicy::before()` e filtri manuali nei metodi `selectlist()`. In Kestrel-IT il contesto tenant/company dell'utente autenticato viene risolto una sola volta nel `RequestContext` ed applicato in modo uniforme dal `FmcsScopeHelper` di Drizzle e dal `PermissionsGuard` (vedi [`docs/03-rbac-policies-and-fmcs.md`](03-rbac-policies-and-fmcs.md)).
 
 ---
 
 ## 4. Tracciamento delle Funzionalità tramite REA (`reverse-engineer-anything`)
 
-Per garantire che nessuna funzionalità venga persa durante la riscrittura, il processo combina:
+La [mappa funzionale](08-upstream-feature-map.md) collega il comportamento osservato in Snipe-IT al corrispondente progetto Kestrel-IT. I permalink puntano alla [revisione upstream di riferimento](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8) usata per verificare la mappa. Il [piano di lavoro](../PLAN.md) indica le fasi di implementazione.
 
-1. **Analisi Statica REA del Frontend JS Legacy (`analyze_javascript_application`)**:
-   - Eseguita su `/Users/thor/development/snipe-it/resources/assets/js`
-   - **Parent Evidence ID:** `ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed`
-   - **Summary View Evidence ID:** `ev_20ef51e470a5d7e916e4704f3f8af1b6930ef2ff0e18462fa83cfad1bb9392fd`
-   - **Artifact SHA-256:** `56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846`
-   - **Statistiche rilevate:** 11 file JS sorgente (2.25 MB, 28.654 nodi AST visitati, 1.368 relazioni call-flow, 13.889 relazioni data-flow, 42 event listeners).
-   - Il bundle completo delle evidenze è esportato in [`docs/rea-evidence-bundle.json`](file:///Users/thor/development/kestrel-it/docs/rea-evidence-bundle.json).
+1. **Analisi statica REA del frontend JavaScript legacy** (`analyze_javascript_application`)
+   - L'artefatto analizzato è `resources/assets/js`. La [sintesi REA versionata](rea-evidence-summary.json) registra l'hash dell'artefatto, gli ID delle evidenze e i limiti dell'analisi.
+   - La sintesi riguarda 11 file JavaScript e riporta copertura applicativa parziale e copertura semantica non determinata. Il codice PHP, le rotte e i test upstream sono citati nelle voci della mappa che descrivono quei comportamenti.
+   - Il riepilogo REA non registra il commit upstream dell'artefatto originale.
 
 2. **Matrice dei Boundary di Ricostruzione (per `evaluate_reconstruction_coverage` & `verify_reconstruction`)**:
 
 | Boundary ID | Scope in Snipe-IT | Target in Kestrel-IT | Specifica di Riferimento |
 | :--- | :--- | :--- | :--- |
-| `boundary.db.schema` | 513 migrazioni MySQL, 53 modelli Eloquent | `apps/api/src/db/schema/*` | [`docs/01-database-schema-drizzle.md`](file:///Users/thor/development/kestrel-it/docs/01-database-schema-drizzle.md) |
-| `boundary.custom_fields` | `CustomField`, `CustomFieldset`, `CustomFieldDefault` | `apps/api/src/modules/custom-fields/*` | [`docs/02-custom-fields-jsonb-engine.md`](file:///Users/thor/development/kestrel-it/docs/02-custom-fields-jsonb-engine.md) |
-| `boundary.rbac.fmcs` | `config/permissions.php`, 24 `Policies`, `CompanyableScope` | `packages/shared/src/rbac/*`, `apps/api/src/common/guards/*` | [`docs/03-rbac-policies-and-fmcs.md`](file:///Users/thor/development/kestrel-it/docs/03-rbac-policies-and-fmcs.md) |
-| `boundary.workflows` | `AssetCheckoutService`, `PredefinedKitCheckoutService`, `Depreciable` | `apps/api/src/modules/*/services/*` | [`docs/04-domain-workflows-and-state.md`](file:///Users/thor/development/kestrel-it/docs/04-domain-workflows-and-state.md) |
-| `boundary.api.rest` | `routes/api.php` (36 controller, 39 transformer) | `apps/api/src/modules/*/*.controller.ts` | [`docs/05-api-contracts-and-modules.md`](file:///Users/thor/development/kestrel-it/docs/05-api-contracts-and-modules.md) |
-| `boundary.ops.jobs` | `Auth`, `Storage`, 14 `Importer`, 26 `Notifications`, `Console/Kernel` | `apps/api/src/common/storage/*`, `apps/api/src/jobs/*` | [`docs/06-storage-auth-and-jobs.md`](file:///Users/thor/development/kestrel-it/docs/06-storage-auth-and-jobs.md) |
-| `boundary.web.spa` | `resources/views/*`, `snipeit.js`, 18 componenti `Livewire` | `apps/web/src/app/*` | [`docs/07-frontend-angular-map.md`](file:///Users/thor/development/kestrel-it/docs/07-frontend-angular-map.md) |
+| `boundary.db.schema` | 513 migrazioni MySQL, 53 modelli Eloquent | `apps/api/src/db/schema/*` | [`docs/01-database-schema-drizzle.md`](01-database-schema-drizzle.md) |
+| `boundary.custom_fields` | `CustomField`, `CustomFieldset`, `CustomFieldDefault` | `apps/api/src/modules/custom-fields/*` | [`docs/02-custom-fields-jsonb-engine.md`](02-custom-fields-jsonb-engine.md) |
+| `boundary.rbac.fmcs` | `config/permissions.php`, 24 `Policies`, `CompanyableScope` | `packages/shared/src/rbac/*`, `apps/api/src/common/guards/*` | [`docs/03-rbac-policies-and-fmcs.md`](03-rbac-policies-and-fmcs.md) |
+| `boundary.workflows` | `AssetCheckoutService`, `PredefinedKitCheckoutService`, `Depreciable` | `apps/api/src/modules/*/services/*` | [`docs/04-domain-workflows-and-state.md`](04-domain-workflows-and-state.md) |
+| `boundary.api.rest` | `routes/api.php` (36 controller, 39 transformer) | `apps/api/src/modules/*/*.controller.ts` | [`docs/05-api-contracts-and-modules.md`](05-api-contracts-and-modules.md) |
+| `boundary.ops.jobs` | `Auth`, `Storage`, 12 tipi di import CSV, 26 `Notifications`, `Console/Kernel` | `apps/api/src/common/storage/*`, `apps/api/src/jobs/*` | [`docs/06-storage-auth-and-jobs.md`](06-storage-auth-and-jobs.md) |
+| `boundary.web.spa` | `resources/views/*`, `snipeit.js`, 18 componenti `Livewire` | `apps/web/src/app/*` | [`docs/07-frontend-angular-map.md`](07-frontend-angular-map.md) |

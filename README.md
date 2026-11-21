@@ -12,7 +12,7 @@ Snipe-IT has proven, battle-tested ITAM workflows, but its PHP/Laravel monolith 
 
 - **Modern Decoupled Stack:** TypeScript end-to-end with a **Node.js** backend and an **Angular** SPA frontend.
 - **PostgreSQL-First:** Powered by **Drizzle ORM**, using `JSONB` for dynamic custom fields instead of runtime `ALTER TABLE` schema mutations.
-- **Modern Authentication (OIDC, OAuth 2.0/2.1 & Better Auth):** Native **OpenID Connect (OIDC)**, **OAuth 2.0 / OAuth 2.1 (PKCE)** and **Better Auth** support (Keycloak, Authentik, Entra ID, Okta, Nextcloud, Google, GitHub, WebAuthn/Passkeys) replacing legacy SAML, alongside local auth + TOTP 2FA and PAT.
+- **Authentication:** Local login with TOTP, OpenID Connect (OIDC), OAuth Authorization Code with PKCE, and personal access tokens. A Better Auth session bridge is in development. See the [feature map](docs/08-upstream-feature-map.md) for upstream compatibility.
 - **Pluggable Storage:** Unified storage abstraction supporting **Local**, **Native S3** (AWS S3, MinIO, Cloudflare R2, etc.), and **Nextcloud** (WebDAV).
 - **Kubernetes-Ready:** Deployed via a **single Helm chart** covering both backend and frontend (plus optional PostgreSQL dependency).
 
@@ -25,7 +25,7 @@ Snipe-IT has proven, battle-tested ITAM workflows, but its PHP/Laravel monolith 
 | **Backend** | Node.js, TypeScript (NestJS / Fastify) |
 | **ORM / Database** | Drizzle ORM, PostgreSQL |
 | **Frontend** | Angular (standalone components, Signals) |
-| **Auth** | OpenID Connect (OIDC), OAuth 2.0 / 2.1 (PKCE), Better Auth, Local / TOTP 2FA & PAT |
+| **Auth** | Local/TOTP, OIDC, OAuth Authorization Code with PKCE, PAT, Better Auth session bridge |
 | **Storage** | Local FS, Native S3 (`@aws-sdk/client-s3`), Nextcloud (WebDAV) |
 | **Deployment** | Docker, single Helm Chart (Kubernetes) |
 
@@ -57,6 +57,8 @@ kestrel-it/
 - **Migration Tooling:** One-time importer from existing Snipe-IT (MySQL/MariaDB) databases to Kestrel-IT (PostgreSQL)
 
 ---
+
+The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstream behavior to the planned Kestrel-IT equivalents and records open parity decisions.
 
 ## Roadmap
 
