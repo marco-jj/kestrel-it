@@ -12,12 +12,14 @@ import {
   type SQL,
   type Table,
 } from 'drizzle-orm';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from 'jose';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../app.module.js';
 import { CryptoService } from '../common/crypto/crypto.service.js';
@@ -271,8 +273,13 @@ function createInMemoryDrizzleHarness() {
     return out;
   };
 
+  const appliedMigrations = readMigrationFiles({
+    migrationsFolder: fileURLToPath(new URL('../../drizzle/', import.meta.url)),
+  }).map(({ hash, folderMillis }) => ({ hash, created_at: String(folderMillis) }));
   const db = {
-    execute: async () => [{ '?column?': 1 }],
+    execute: async (query: SQL) => dialect.sqlToQuery(query).sql.includes('__drizzle_migrations')
+      ? appliedMigrations
+      : [],
     select: (projection?: Record<string, unknown>) => ({
       from: (baseTable: Table) => {
         let joinTable: Table | null = null;
@@ -490,7 +497,7 @@ function createInMemoryDrizzleHarness() {
     },
   };
 
-  return { db: db as unknown as DrizzleDb, store };
+  return { appliedMigrations, db: db as unknown as DrizzleDb, store };
 }
 
 function getCookieValue(
@@ -689,7 +696,7 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
     await app.register(fastifyCookie);
     await app.register(fastifyMultipart);
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+    app.setGlobalPrefix('api/v1', { exclude: ['health', 'ready'] });
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
 
@@ -717,6 +724,22 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
       await rm(tempStorageDir, { recursive: true, force: true });
     }
     process.env = originalEnv;
+  });
+
+  it('requires the migration journal to match the release before reporting readiness', async () => {
+    const probe = () => app.inject({ method: 'GET', url: '/ready' });
+    expect((await probe()).statusCode).toBe(200);
+
+    const latestMigration = harness.appliedMigrations.pop()!;
+    const earlierCount = harness.appliedMigrations.length;
+    try {
+      expect((await probe()).statusCode).toBe(503);
+      harness.appliedMigrations.push({ ...latestMigration, hash: 'different migration' });
+      expect((await probe()).statusCode).toBe(503);
+    } finally {
+      harness.appliedMigrations.length = earlierCount;
+      harness.appliedMigrations.push(latestMigration);
+    }
   });
 
   it('completes first-run setup over HTTP, sets session cookies, and locks setup with 403', async () => {

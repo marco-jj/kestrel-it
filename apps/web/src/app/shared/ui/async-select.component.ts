@@ -7,7 +7,6 @@ import {
   computed,
   forwardRef,
   signal,
-  type OnChanges,
 } from '@angular/core';
 import { NG_VALUE_ACCESSOR, type ControlValueAccessor } from '@angular/forms';
 
@@ -202,7 +201,7 @@ function isVisibleInCompany(
     `,
   ],
 })
-export class KestrelAsyncSelectComponent implements ControlValueAccessor, OnChanges {
+export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   readonly optionsSignal = signal<readonly AsyncSelectOption[]>([]);
   readonly companyIdSignal = signal<number | null>(null);
   readonly includeNullCompanySignal = signal<boolean>(true);
@@ -241,14 +240,17 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor, OnChan
 
   @Input() set options(value: readonly AsyncSelectOption[]) {
     this.optionsSignal.set(value);
+    this.scheduleReconciliation();
   }
 
   @Input() set companyId(value: number | null | undefined) {
     this.companyIdSignal.set(value ?? null);
+    this.scheduleReconciliation();
   }
 
   @Input() set includeNullCompany(value: boolean) {
     this.includeNullCompanySignal.set(value);
+    this.scheduleReconciliation();
   }
 
   @Output() selectionChanged = new EventEmitter<AsyncSelectOption | null>();
@@ -258,7 +260,19 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor, OnChan
   private onChangeCallback: (value: number | string | null) => void = () => undefined;
   private onTouchedCallback: () => void = () => undefined;
 
-  ngOnChanges(): void {
+  private reconciliationScheduled = false;
+
+  private scheduleReconciliation(): void {
+    if (this.reconciliationScheduled) return;
+    this.reconciliationScheduled = true;
+    // Evaluate related inputs together regardless of binding or assignment order.
+    queueMicrotask(() => {
+      this.reconciliationScheduled = false;
+      this.reconcileSelection();
+    });
+  }
+
+  private reconcileSelection(): void {
     const selected = this.selectedOption();
     if (!selected) return; // An asynchronous option page may not include the current value.
 

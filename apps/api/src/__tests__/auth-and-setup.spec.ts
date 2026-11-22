@@ -709,7 +709,7 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
     const crypto = new CryptoService(config);
     const jwt = new JwtService(config);
     const consumed = new Set<string>();
-    const dbMock = {
+    const executor = {
       insert: () => ({
         values: ({ digest }: { digest: string }) => ({
           onConflictDoNothing: () => ({
@@ -721,6 +721,18 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
           }),
         }),
       }),
+    };
+    const dbMock = {
+      transaction: async <T>(work: (tx: typeof executor) => Promise<T>) => {
+        const before = [...consumed];
+        try {
+          return await work(executor);
+        } catch (error) {
+          consumed.clear();
+          for (const digest of before) consumed.add(digest);
+          throw error;
+        }
+      },
     } as unknown as ConstructorParameters<typeof AuthService>[0];
 
     const authService = new AuthService(
@@ -731,7 +743,7 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
       new OidcUserProvisioningService(dbMock, config),
     );
 
-    vi.spyOn(authService, 'issueSessionForUser').mockImplementation(async (userId) => ({
+    const issueSession = vi.spyOn(authService, 'issueSessionForUser').mockImplementation(async (userId) => ({
       status: 'authenticated',
       accessToken: `acc-${userId}`,
       refreshToken: await jwt.signRefreshToken({ userId }),
@@ -752,6 +764,11 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
     }));
 
     const initialRefreshToken = await jwt.signRefreshToken({ userId: 7 });
+    issueSession.mockRejectedValueOnce(new Error('Account lookup temporarily unavailable'));
+    await expect(authService.refreshTokens(initialRefreshToken)).rejects.toThrow(
+      'Account lookup temporarily unavailable',
+    );
+
     const rotated = await authService.refreshTokens(initialRefreshToken);
     expect(rotated.status).toBe('authenticated');
 
@@ -759,6 +776,8 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
     await expect(authService.refreshTokens(initialRefreshToken)).rejects.toThrow(
       UnauthorizedException,
     );
+
+    expect(issueSession).toHaveBeenCalledTimes(2);
 
     // Using the newly rotated refresh token succeeds
     if (rotated.status === 'authenticated') {

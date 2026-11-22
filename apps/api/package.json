@@ -9,7 +9,8 @@
     "dev": "node --watch dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "db:generate": "tsc -p tsconfig.build.json && drizzle-kit generate"
+    "db:generate": "tsc -p tsconfig.build.json && drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

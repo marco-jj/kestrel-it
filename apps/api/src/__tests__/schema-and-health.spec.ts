@@ -153,6 +153,16 @@ describe('Environment validation & controllers', () => {
     expect(connectedHealth.database).toBe('up');
   });
 
+  it('validates the signing key at startup when Better Auth is enabled', () => {
+    expect(() => validateEnv({ BETTER_AUTH_ENABLED: true })).toThrow(/BETTER_AUTH_SECRET/);
+    expect(() => validateEnv({ BETTER_AUTH_ENABLED: true, BETTER_AUTH_SECRET: 'too short' }))
+      .toThrow(/BETTER_AUTH_SECRET/);
+    expect(validateEnv({
+      BETTER_AUTH_ENABLED: true,
+      BETTER_AUTH_SECRET: 'long-test-key-for-better-auth-validation',
+    }).BETTER_AUTH_ENABLED).toBe(true);
+  });
+
   it('requires deployment-specific signing and encryption keys in production', () => {
     expect(() => validateEnv({ NODE_ENV: 'production' })).toThrow(/JWT_SECRET.*APP_ENCRYPTION_KEY/);
     expect(() => validateEnv({

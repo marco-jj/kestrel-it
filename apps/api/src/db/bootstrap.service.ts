@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { count, sql } from 'drizzle-orm';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { randomBytes, scryptSync } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
 import type { EnvConfig } from '../config/env.schema.js';
@@ -11,6 +13,14 @@ import { authConsumedTokens, settings, statusLabels, users } from './schema/inde
 
 type DbOrTx = Pick<DrizzleDb, 'select' | 'insert'>;
 const STARTUP_LOCK = 1_804_723_651;
+const packagedMigrations = new URL('../drizzle/', import.meta.url);
+const migrationConfig = {
+  migrationsFolder: fileURLToPath(
+    existsSync(new URL('meta/_journal.json', packagedMigrations))
+      ? packagedMigrations
+      : new URL('../../drizzle/', import.meta.url),
+  ),
+};
 
 function hashPasswordScrypt(password: string): string {
   const salt = randomBytes(16).toString('hex');
@@ -21,6 +31,7 @@ function hashPasswordScrypt(password: string): string {
 @Injectable()
 export class DatabaseBootstrapService {
   private readonly logger = new Logger(DatabaseBootstrapService.name);
+  private readonly requiredMigrations = readMigrationFiles(migrationConfig);
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
@@ -32,9 +43,7 @@ export class DatabaseBootstrapService {
     try {
       await connection`SELECT pg_advisory_lock(${STARTUP_LOCK})`;
       if (this.config.get('DB_AUTO_MIGRATE', { infer: true })) {
-        await migrate(this.db, {
-          migrationsFolder: fileURLToPath(new URL('../drizzle/', import.meta.url)),
-        });
+        await migrate(this.db, migrationConfig);
       }
       await this.checkSchema();
       await this.runHeadlessBootstrapIfConfigured();
@@ -48,6 +57,21 @@ export class DatabaseBootstrapService {
   }
 
   async checkSchema(): Promise<void> {
+    const applied = await this.db
+      .execute<{ hash: string; created_at: string }>(
+        sql`SELECT hash, created_at FROM drizzle.__drizzle_migrations`,
+      )
+      .catch((cause: unknown) => {
+        throw new Error('Cannot read the Drizzle migration journal. Apply pending migrations.', {
+          cause,
+        });
+      });
+    const recorded = new Set(applied.map(({ created_at, hash }) => `${created_at}:${hash}`));
+    if (
+      this.requiredMigrations.some(({ folderMillis, hash }) => !recorded.has(`${folderMillis}:${hash}`))
+    ) {
+      throw new Error('The Drizzle migration journal is missing migrations required by this release');
+    }
     await this.db.execute(sql`
       SELECT 1
       FROM ${settings}, ${users}, ${statusLabels}, ${authConsumedTokens}

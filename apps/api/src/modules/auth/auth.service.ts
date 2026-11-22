@@ -248,15 +248,17 @@ export class AuthService {
       'refresh',
     );
     const userId = Number(payload.sub);
-    if (!Number.isInteger(userId) || userId <= 0 || !payload.jti || !payload.exp) {
+    const { jti, exp } = payload;
+    if (!Number.isInteger(userId) || userId <= 0 || !jti || !exp) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const session = await this.issueSessionForUser(userId, true);
-    if (!(await this.consumeRefreshToken(payload.jti, payload.exp))) {
-      throw new UnauthorizedException('Refresh token has already been rotated or revoked');
-    }
-    return session;
+    return this.db.transaction(async (tx) => {
+      if (!(await this.consumeRefreshToken(jti, exp, tx))) {
+        throw new UnauthorizedException('Refresh token has already been rotated or revoked');
+      }
+      return this.issueSessionForUser(userId, true, tx);
+    });
   }
 
   async revokeRefreshToken(refreshToken?: string): Promise<void> {
@@ -516,8 +518,9 @@ export class AuthService {
   async issueSessionForUser(
     userId: number,
     twoFactorVerified: boolean,
+    db: Pick<DrizzleDb, 'select'> = this.db,
   ): Promise<LoginResponse> {
-    const userContext = await this.loadUserContext(userId, twoFactorVerified, 'jwt');
+    const userContext = await this.loadUserContext(userId, twoFactorVerified, 'jwt', db);
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAccessToken({
         userId: userContext.id,
@@ -539,8 +542,9 @@ export class AuthService {
     userId: number,
     twoFactorVerified: boolean,
     authMethod: 'jwt' | 'pat',
+    db: Pick<DrizzleDb, 'select'> = this.db,
   ): Promise<AuthenticatedUserContext> {
-    const [user] = await this.db
+    const [user] = await db
       .select()
       .from(users)
       .where(and(eq(users.id, userId), isNull(users.deletedAt)))
@@ -550,7 +554,7 @@ export class AuthService {
       throw new UnauthorizedException('User account not found or inactive');
     }
 
-    const groupRows = await this.db
+    const groupRows = await db
       .select({
         id: groups.id,
         permissions: groups.permissions,
@@ -566,7 +570,7 @@ export class AuthService {
     const superUser = isSuperUser(userPerms, groupPermsList);
     const admin = isAdmin(userPerms, groupPermsList);
 
-    const directCompanyRows = await this.db
+    const directCompanyRows = await db
       .select({ companyId: companyUser.companyId })
       .from(companyUser)
       .where(eq(companyUser.userId, user.id));
@@ -575,7 +579,7 @@ export class AuthService {
     let expandedCompanyIds = [...directCompanyIds];
 
     if (directCompanyIds.length > 0) {
-      const childCompanies = await this.db
+      const childCompanies = await db
         .select({ id: companies.id })
         .from(companies)
         .where(and(inArray(companies.parentId, directCompanyIds), isNull(companies.deletedAt)));
@@ -628,8 +632,12 @@ export class AuthService {
     await this.db.delete(authConsumedTokens).where(lte(authConsumedTokens.expiresAt, new Date()));
   }
 
-  private async consumeRefreshToken(jti: string, expiresAt: number): Promise<boolean> {
-    const [claimed] = await this.db
+  private async consumeRefreshToken(
+    jti: string,
+    expiresAt: number,
+    db: Pick<DrizzleDb, 'insert'> = this.db,
+  ): Promise<boolean> {
+    const [claimed] = await db
       .insert(authConsumedTokens)
       .values({
         digest: `refresh_jti:${this.cryptoService.sha256Hex(jti)}`,

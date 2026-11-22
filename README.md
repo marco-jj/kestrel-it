@@ -64,9 +64,29 @@ The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstr
 
 The API applies the checked-in Drizzle migrations before first-run setup. Replicas serialize migration and headless bootstrap through a PostgreSQL advisory lock. The Helm chart probes `/health` for liveness and `/ready` for database and schema readiness.
 
-If the initial SQL was applied manually, apply the follow-up migration with `psql --single-transaction -v ON_ERROR_STOP=1 -f apps/api/drizzle/0001_auth_consumption_and_oidc.sql` and set `DB_AUTO_MIGRATE=false` (`config.dbAutoMigrate=false` in Helm). If the unique OIDC index reports duplicate active identities, reconcile those identities before retrying the migration. Existing refresh revocations with a future expiry are carried forward. [Migration](apps/api/drizzle/0001_auth_consumption_and_oidc.sql)
+When managing migrations separately, set `DB_AUTO_MIGRATE=false` (`config.dbAutoMigrate=false` in Helm) and run `pnpm --filter @kestrel-it/api db:migrate` with `DATABASE_URL` set before starting the API. Readiness requires a journal entry with the matching timestamp and hash for each migration shipped with the release. With separate migration and API roles, give the API role `USAGE` on the `drizzle` schema and `SELECT` on `drizzle.__drizzle_migrations`.
+
+For a database created by running the initial SQL manually, confirm that the SQL was applied successfully, then record it in the Drizzle journal once before running `db:migrate`.
+
+```sql
+BEGIN;
+CREATE SCHEMA IF NOT EXISTS drizzle;
+CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+  id serial PRIMARY KEY,
+  hash text NOT NULL,
+  created_at bigint
+);
+INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+SELECT '70d4e8e953d9b794787c0ee20d04ca7140c88d3c8d8b668b3e107741fbb7f713', 1795227931162
+WHERE NOT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = 1795227931162);
+COMMIT;
+```
+
+If you also applied `0001_auth_consumption_and_oidc.sql` manually, record it the same way with timestamp `1795386212405` and hash `e435e8eb60ae8cd2a374b7202ed07d2afe57d41cafde89cf3b1b2193be6413d9`. If the unique OIDC index reports duplicate active identities, reconcile those identities before retrying the migration. [Migration](apps/api/drizzle/0001_auth_consumption_and_oidc.sql)
 
 Provide production JWT and encryption keys through `config.secrets` or `config.existingSecret`, and supply `postgresql.auth.password` when using bundled PostgreSQL. Set `config.appUrl` to the public HTTPS origin used by the browser. The default local volume supports a single API replica. Use S3, Nextcloud, or a ReadWriteMany volume to scale past one.
+
+Enabling Better Auth requires a dedicated `BETTER_AUTH_SECRET` of at least 32 characters. In Helm, use `config.betterAuth.secret` or supply the key in `config.existingSecret`.
 
 ## Roadmap
 

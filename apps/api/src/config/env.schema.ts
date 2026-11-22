@@ -91,6 +91,13 @@ export const EnvSchema = z.object({
   BOOTSTRAP_ADMIN_FIRST_NAME: z.string().optional().default('Admin'),
   BOOTSTRAP_ADMIN_LAST_NAME: z.string().optional().default('User'),
 }).superRefine((env, ctx) => {
+  if (env.BETTER_AUTH_ENABLED && env.BETTER_AUTH_SECRET.trim().length < 32) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['BETTER_AUTH_SECRET'],
+      message: 'Better Auth requires a dedicated signing key of at least 32 characters',
+    });
+  }
   if (env.NODE_ENV !== 'production') return;
 
   if (env.JWT_SECRET.trim().length < 32 || /^(dev-only|change-me)/i.test(env.JWT_SECRET.trim())) {

@@ -17,6 +17,7 @@
             "browser": "src/main.ts",
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.build.json",
+            "assets": [{ "glob": "**/*", "input": "public" }],
             "optimization": { "scripts": true, "styles": true, "fonts": false },
             "styles": ["src/styles.css"],
             "scripts": []

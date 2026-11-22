@@ -408,7 +408,7 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
     expect(grid.displayedRows().map((r) => r['id'])).toEqual([10, 20]);
   });
 
-  it('filters AsyncSelect options by FMCS companyId, resets stale cross-company value, and emits quickCreate', () => {
+  it('reconciles AsyncSelect values after direct scope and options assignments', async () => {
     const options: AsyncSelectOption[] = [
       { id: 1, text: 'Milan HQ', companyId: 10 },
       { id: 2, text: 'Rome Ops', companyId: 20 },
@@ -426,7 +426,7 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
 
     // Switching company scope to 20 must invalidate option id 1 (belongs to company 10)
     select.companyId = 20;
-    select.ngOnChanges();
+    await Promise.resolve();
     expect(select.selectedId()).toBeNull();
     expect(select.filteredOptions().map((o) => o.id)).toEqual([2, 3]);
 
@@ -438,17 +438,23 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
 
     select.writeValue(3);
     select.includeNullCompany = false;
-    select.ngOnChanges();
+    await Promise.resolve();
     expect(select.selectedId()).toBeNull();
 
     select.options = [];
     select.writeValue(1);
     select.companyId = 10;
-    select.ngOnChanges();
+    await Promise.resolve();
     expect(select.selectedId()).toBe(1);
     select.options = options;
-    select.ngOnChanges();
+    await Promise.resolve();
     expect(select.selectedOption()?.text).toBe('Milan HQ');
+
+    select.companyId = 30;
+    select.options = [{ id: 1, text: 'Berlin HQ', companyId: 30 }];
+    await Promise.resolve();
+    expect(select.selectedId()).toBe(1);
+    expect(select.selectedOption()?.text).toBe('Berlin HQ');
   });
 
   it('filters CommandPalette items by query & RBAC permissions and integrates with AppShellComponent + SlideDrawer', () => {
