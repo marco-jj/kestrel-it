@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Inject,
   Post,
@@ -43,7 +44,10 @@ interface HttpCookieReply {
   setCookie(name: string, value: string, options: Record<string, unknown>): unknown;
   clearCookie(name: string, options: Record<string, unknown>): unknown;
   redirect(url: string, code?: number): unknown;
+  send(payload: unknown): unknown;
 }
+
+const SSO_CHALLENGE_COOKIE = 'kestrel_sso_challenge';
 
 const TwoFactorEnrollRequestSchema = z.object({
   challengeToken: z.string().min(1).optional(),
@@ -159,6 +163,7 @@ export class AuthController {
     const result = await this.authService.verifyTwoFactor(userId, parsed.data.code);
 
     if (result.status === 'authenticated') {
+      reply.clearCookie(SSO_CHALLENGE_COOKIE, { path: '/' });
       this.setSessionCookies(reply, result.accessToken, result.refreshToken);
     }
 
@@ -173,6 +178,7 @@ export class AuthController {
       await this.authService.buildOidcAuthorizationRedirect();
     const isProd = process.env['NODE_ENV'] === 'production';
 
+    reply.clearCookie(SSO_CHALLENGE_COOKIE, { path: '/' });
     reply.setCookie(OIDC_STATE_COOKIE, stateCookieToken, {
       httpOnly: true,
       sameSite: 'lax',
@@ -185,13 +191,14 @@ export class AuthController {
 
   @Public()
   @Get('auth/oidc/callback')
+  @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'Handle OIDC callback, verify ID Token, and JIT provision user' })
   async oidcCallback(
     @Query('code') code: string | undefined,
     @Query('state') state: string | undefined,
     @Req() request: HttpCookieRequest,
-    @Res({ passthrough: true }) reply: HttpCookieReply,
-  ): Promise<LoginResponse> {
+    @Res() reply: HttpCookieReply,
+  ): Promise<void> {
     const stateCookieToken = request.cookies?.[OIDC_STATE_COOKIE];
     if (!code || !state || !stateCookieToken) {
       throw new BadRequestException('Missing OIDC callback code, state, or state cookie');
@@ -209,7 +216,42 @@ export class AuthController {
     if (result.status === 'authenticated') {
       this.setSessionCookies(reply, result.accessToken, result.refreshToken);
     }
-    return result;
+
+    if (typeof request.headers.accept !== 'string' || !request.headers.accept.includes('text/html')) {
+      reply.send(result);
+      return;
+    }
+
+    if (result.status === 'authenticated') {
+      reply.redirect('/dashboard', 303);
+    } else {
+      reply.setCookie(SSO_CHALLENGE_COOKIE, result.challengeToken, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env['NODE_ENV'] === 'production',
+        path: '/',
+        maxAge: 300,
+      });
+      reply.redirect('/login?sso=challenge', 303);
+    }
+  }
+
+  @Public()
+  @Get('auth/sso/challenge')
+  @Header('Cache-Control', 'no-store')
+  async getSsoChallenge(@Req() request: HttpCookieRequest): Promise<LoginResponse> {
+    const challengeToken = request.cookies?.[SSO_CHALLENGE_COOKIE];
+    if (!challengeToken) throw new UnauthorizedException('SSO challenge required');
+
+    const payload = await this.jwtService.verifyToken<TwoFactorChallengePayload>(
+      challengeToken, '2fa_challenge',
+    );
+    return {
+      status: '2fa_required',
+      requiresTwoFactor: true,
+      requiresEnrollment: payload.requiresEnrollment,
+      challengeToken,
+    };
   }
 
   @Public()
@@ -221,13 +263,14 @@ export class AuthController {
 
   @Public()
   @Get('auth/oauth/callback')
+  @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'Handle OAuth 2.0 / OAuth 2.1 callback and JIT provision user' })
   async oauthCallback(
     @Query('code') code: string | undefined,
     @Query('state') state: string | undefined,
     @Req() request: HttpCookieRequest,
-    @Res({ passthrough: true }) reply: HttpCookieReply,
-  ): Promise<LoginResponse> {
+    @Res() reply: HttpCookieReply,
+  ): Promise<void> {
     return this.oidcCallback(code, state, request, reply);
   }
 
@@ -262,10 +305,10 @@ export class AuthController {
     return result;
   }
 
-  @ApiBearerAuth()
+  @Public()
   @Post(['logout', 'auth/logout'])
   @HttpCode(200)
-  @ApiOperation({ summary: 'Clear session cookies and revoke refresh token' })
+  @ApiOperation({ summary: 'Clear session cookies and revoke the presented refresh token' })
   async logout(
     @Body() body: unknown,
     @Req() request: HttpCookieRequest,
@@ -279,6 +322,7 @@ export class AuthController {
 
     reply.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
     reply.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/' });
+    reply.clearCookie(SSO_CHALLENGE_COOKIE, { path: '/' });
     return {
       status: 'success',
       messages: 'Logged out successfully.',

@@ -1,16 +1,17 @@
 import { STORAGE_DRIVERS } from '@kestrel-it/shared';
 import { z } from 'zod';
 
+const optionalBooleanFromEnv = z
+  .union([z.boolean(), z.enum(['true', 'false', '1', '0', ''])])
+  .optional()
+  .transform((value) =>
+    value === undefined || value === '' ? undefined : value === true || value === 'true' || value === '1',
+  );
+
 const booleanFromEnv = (defaultValue: boolean) =>
-  z
-    .union([z.boolean(), z.enum(['true', 'false', '1', '0', ''])])
-    .optional()
-    .transform((val) => {
-      if (val === undefined || val === '') {
-        return defaultValue;
-      }
-      return val === true || val === 'true' || val === '1';
-    });
+  optionalBooleanFromEnv.transform((value) => value ?? defaultValue);
+
+const DEVELOPMENT_JWT_SECRET = 'dev-only-jwt-secret-change-me-in-production';
 
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -23,8 +24,9 @@ export const EnvSchema = z.object({
     .string()
     .min(1)
     .default('postgresql://kestrel:kestrel_dev_password@localhost:5432/kestrel_it'),
+  DB_AUTO_MIGRATE: booleanFromEnv(true),
 
-  JWT_SECRET: z.string().min(16).default('dev-only-jwt-secret-change-me-in-production'),
+  JWT_SECRET: z.string().min(16).default(DEVELOPMENT_JWT_SECRET),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   APP_ENCRYPTION_KEY: z
@@ -33,12 +35,12 @@ export const EnvSchema = z.object({
     .default('0'.repeat(64)),
 
   // OIDC, OAuth 2.0/2.1 & JIT Auto-Provisioning
-  OIDC_ENABLED: booleanFromEnv(false),
+  OIDC_ENABLED: optionalBooleanFromEnv,
   OIDC_ISSUER_URL: z.string().optional().default(''),
   OIDC_CLIENT_ID: z.string().optional().default(''),
   OIDC_CLIENT_SECRET: z.string().optional().default(''),
   OIDC_REDIRECT_URI: z.string().optional().default(''),
-  OIDC_SCOPES: z.string().default('openid profile email groups'),
+  OIDC_SCOPES: z.string().default(''),
   OIDC_AUTO_PROVISION_USERS: booleanFromEnv(true),
   OIDC_LINK_EXISTING_USERS: booleanFromEnv(true),
   OIDC_SYNC_ON_LOGIN: booleanFromEnv(true),
@@ -88,6 +90,23 @@ export const EnvSchema = z.object({
   BOOTSTRAP_ADMIN_PASSWORD: z.string().optional().default(''),
   BOOTSTRAP_ADMIN_FIRST_NAME: z.string().optional().default('Admin'),
   BOOTSTRAP_ADMIN_LAST_NAME: z.string().optional().default('User'),
+}).superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+
+  if (env.JWT_SECRET.trim().length < 32 || /^(dev-only|change-me)/i.test(env.JWT_SECRET.trim())) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['JWT_SECRET'],
+      message: 'Production requires a deployment-specific signing key of at least 32 characters',
+    });
+  }
+  if (/^0{64}$/.test(env.APP_ENCRYPTION_KEY)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['APP_ENCRYPTION_KEY'],
+      message: 'Production requires a deployment-specific encryption key',
+    });
+  }
 });
 
 export type EnvConfig = z.infer<typeof EnvSchema>;

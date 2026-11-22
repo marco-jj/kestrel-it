@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ALL_PERMISSIONS, type AuthenticatedUserContext } from '@kestrel-it/shared';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { CryptoService } from '../common/crypto/crypto.service.js';
 import { JwtService } from '../common/crypto/jwt.util.js';
@@ -20,6 +21,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard.js';
 import { validateEnv } from '../config/env.schema.js';
 import {
   actionLogs,
+  authConsumedTokens,
   companyUser,
   groups,
   personalAccessTokens,
@@ -364,13 +366,9 @@ describe('OidcUserProvisioningService (JIT + Linking)', () => {
         values: (values: unknown) => {
           insertedOps.push({ table, values });
           return {
-            returning: async () => [
-              {
-                id: 101,
-                ...(values as object),
-              },
-            ],
-            onConflictDoNothing: async () => undefined,
+            onConflictDoNothing: () => ({
+              returning: async () => [{ id: 101, ...(values as object) }],
+            }),
           };
         },
       }),
@@ -710,11 +708,16 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
     const config = makeConfigMock();
     const crypto = new CryptoService(config);
     const jwt = new JwtService(config);
+    const consumed = new Set<string>();
     const dbMock = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: async () => [],
+      insert: () => ({
+        values: ({ digest }: { digest: string }) => ({
+          onConflictDoNothing: () => ({
+            returning: async () => {
+              if (consumed.has(digest)) return [];
+              consumed.add(digest);
+              return [{ digest }];
+            },
           }),
         }),
       }),
@@ -776,21 +779,22 @@ describe('BetterAuthService & BetterAuthProvisioningBridge', () => {
     });
 
     const loginAttemptInserts: unknown[] = [];
-    const lastLoginUpdates: unknown[] = [];
-
+    const usedAssertions = new Set<string>();
     const dbMock = {
-      update: () => ({
-        set: (vals: unknown) => {
-          lastLoginUpdates.push(vals);
-          return {
-            where: async () => undefined,
-          };
-        },
-      }),
       insert: (table: unknown) => ({
-        values: async (vals: unknown) => {
-          loginAttemptInserts.push({ table, vals });
-          return undefined;
+        values: (vals: { digest: string }) => {
+          if (table !== authConsumedTokens) {
+            loginAttemptInserts.push({ table, vals });
+          }
+          return {
+            onConflictDoNothing: () => ({
+              returning: async () => {
+                if (usedAssertions.has(vals.digest)) return [];
+                usedAssertions.add(vals.digest);
+                return [{ digest: vals.digest }];
+              },
+            }),
+          };
         },
       }),
     } as unknown as ConstructorParameters<typeof BetterAuthService>[0];
@@ -807,7 +811,7 @@ describe('BetterAuthService & BetterAuthProvisioningBridge', () => {
     } as unknown as OidcUserProvisioningService;
 
     const authServiceMock = {
-      issueSessionForUser: vi.fn(async (userId: number) => ({
+      completeUserAuthentication: vi.fn(async ({ id: userId }: { id: number }) => ({
         status: 'authenticated' as const,
         accessToken: 'jwt-ba-acc',
         refreshToken: 'jwt-ba-ref',
@@ -876,36 +880,33 @@ describe('BetterAuthService & BetterAuthProvisioningBridge', () => {
       lastName: 'Neri',
       groups: ['it-admins'],
     };
-    const validSignature = baService.signBetterAuthBridgePayload({
+    const assertion = {
       providerId: 'github',
       user: userPayload,
-    });
+      accountId: 'github-account-55',
+      issuedAt: Math.floor(Date.now() / 1000),
+      nonce: randomUUID(),
+    };
+    const signature = baService.signBetterAuthBridgePayload(assertion);
 
-    // Tampered signature must fail
     await expect(
-      baService.exchangeSession({
-        providerId: 'github',
-        user: userPayload,
-        signature: '0'.repeat(64),
-      }),
+      baService.exchangeSession({ ...assertion, signature: '0'.repeat(64) }),
     ).rejects.toThrow(UnauthorizedException);
 
-    // Valid signed payload completes exchange and returns RBAC session
     const session = await baService.exchangeSession(
-      {
-        providerId: 'github',
-        user: userPayload,
-        signature: validSignature,
-      },
+      { ...assertion, signature },
       { remoteIp: '10.0.0.5', userAgent: 'Vitest' },
     );
+    await expect(
+      baService.exchangeSession({ ...assertion, signature }),
+    ).rejects.toThrow(UnauthorizedException);
 
     expect(session.status).toBe('authenticated');
     if (session.status === 'authenticated') {
       expect(session.user.id).toBe(55);
       expect(session.user.effectivePermissions['assets.view']).toBe(true);
     }
-    expect(lastLoginUpdates).toHaveLength(1);
+    expect(authServiceMock.completeUserAuthentication).toHaveBeenCalledTimes(1);
     expect((loginAttemptInserts[0] as { vals: { loginVia: string } }).vals.loginVia).toBe(
       'better-auth',
     );

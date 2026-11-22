@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, Inject, Optional, type OnInit, computed, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   LoginRequestSchema,
   TwoFactorVerifyRequestSchema,
@@ -349,6 +349,7 @@ export class LoginComponent implements OnInit {
     @Optional() @Inject(HttpClient) private readonly http?: HttpClient,
     @Optional() @Inject(Router) private readonly router?: Router,
     @Optional() @Inject(ThemeStore) themeStore?: ThemeStore,
+    @Optional() @Inject(ActivatedRoute) private readonly route?: ActivatedRoute,
   ) {
     this.themeStore = themeStore ?? new ThemeStore();
   }
@@ -358,6 +359,17 @@ export class LoginComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    if (this.route?.snapshot.queryParamMap.get('sso') === 'challenge' && this.http) {
+      try {
+        const response = await firstValueFrom(
+          this.http.get<LoginResponse>('/api/v1/auth/sso/challenge'),
+        );
+        await this.handleLoginResponse(response);
+        return;
+      } catch {
+        this.errorMessage.set('Unable to continue single sign-on. Start sign-in again.');
+      }
+    }
     await this.loadProviders();
   }
 

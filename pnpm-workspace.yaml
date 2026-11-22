@@ -3,4 +3,7 @@ packages:
   - 'packages/*'
 allowBuilds:
   '@scarf/scarf': true
+  '@parcel/watcher': false
   esbuild: true
+  lmdb: false
+  msgpackr-extract: false

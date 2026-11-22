@@ -20,5 +20,7 @@ Kestrel-IT has been deployed!
    - Open /setup in your browser to complete the 3-step First-Run Setup Wizard.
 {{- end }}
 
-WARNING: Remember to override config.secrets.jwtSecret, config.secrets.appEncryptionKey,
-and postgresql.auth.password (or supply config.existingSecret) before running in production.
+The API applies Drizzle migrations at startup when config.dbAutoMigrate is true.
+With automatic migrations disabled, apply all pending SQL migrations before starting the API.
+The startup waits for the migrated schema before performing headless bootstrap.
+Set config.appUrl to the public HTTPS URL in production so browsers can use the session cookies.

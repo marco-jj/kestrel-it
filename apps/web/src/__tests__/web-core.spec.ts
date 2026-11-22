@@ -64,6 +64,22 @@ function makeUser(overrides: Partial<AuthenticatedUserContext> = {}): Authentica
 }
 
 describe('AuthStore Signals, RBAC & FMCS', () => {
+  it('restores the cookie-backed user before checking dashboard access', async () => {
+    const store = new AuthStore();
+    const user = makeUser({ userCompanyIds: [12] });
+    const http = {
+      get: vi.fn((url: string) => of(
+        url.endsWith('/setup/status') ? { setupCompleted: true } : user,
+      )),
+    } as unknown as HttpClient;
+
+    await store.initialize(http);
+    expect(store.accessToken()).toBeNull();
+    expect(store.currentUser()).toEqual(user);
+    expect(store.selectedCompanyId()).toBe(12);
+    expect(evaluateAuthGuard(store)).toBe(true);
+  });
+
   it('tracks session state, permission checks, and FMCS company scoping reactively', () => {
     const store = new AuthStore();
     expect(store.isAuthenticated()).toBe(false);
@@ -366,6 +382,7 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
     expect([...selected]).toEqual([]);
 
     const grid = new KestrelDataGridComponent();
+    grid.serverSide = false;
     grid.columns = [
       { key: 'asset_tag', label: 'Tag', type: 'mono' },
       { key: 'name', label: 'Name', type: 'text' },
@@ -385,6 +402,10 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
     expect([...grid.selectedIds()]).toEqual([20, 10]);
     grid.toggleRowSelection(20);
     expect([...grid.selectedIds()]).toEqual([10]);
+
+    grid.serverSide = true;
+    grid.onSearchInput('value searchable only on the server');
+    expect(grid.displayedRows().map((r) => r['id'])).toEqual([10, 20]);
   });
 
   it('filters AsyncSelect options by FMCS companyId, resets stale cross-company value, and emits quickCreate', () => {
@@ -405,6 +426,7 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
 
     // Switching company scope to 20 must invalidate option id 1 (belongs to company 10)
     select.companyId = 20;
+    select.ngOnChanges();
     expect(select.selectedId()).toBeNull();
     expect(select.filteredOptions().map((o) => o.id)).toEqual([2, 3]);
 
@@ -413,6 +435,20 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
     select.onSearchChange('Turin DC');
     select.triggerQuickCreate();
     expect(quickSpy).toHaveBeenCalledWith({ query: 'Turin DC', companyId: 20 });
+
+    select.writeValue(3);
+    select.includeNullCompany = false;
+    select.ngOnChanges();
+    expect(select.selectedId()).toBeNull();
+
+    select.options = [];
+    select.writeValue(1);
+    select.companyId = 10;
+    select.ngOnChanges();
+    expect(select.selectedId()).toBe(1);
+    select.options = options;
+    select.ngOnChanges();
+    expect(select.selectedOption()?.text).toBe('Milan HQ');
   });
 
   it('filters CommandPalette items by query & RBAC permissions and integrates with AppShellComponent + SlideDrawer', () => {

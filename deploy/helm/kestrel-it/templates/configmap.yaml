@@ -10,6 +10,7 @@ data:
   APP_URL: {{ .Values.config.appUrl | quote }}
   API_PORT: {{ .Values.api.service.port | quote }}
   API_PREFIX: {{ .Values.config.apiPrefix | quote }}
+  DB_AUTO_MIGRATE: {{ .Values.config.dbAutoMigrate | quote }}
   JWT_ACCESS_EXPIRES_IN: {{ .Values.config.jwtAccessExpiresIn | quote }}
   JWT_REFRESH_EXPIRES_IN: {{ .Values.config.jwtRefreshExpiresIn | quote }}
 
@@ -22,7 +23,9 @@ data:
   NEXTCLOUD_URL: {{ .Values.config.storage.nextcloud.url | quote }}
   NEXTCLOUD_BASE_PATH: {{ .Values.config.storage.nextcloud.basePath | quote }}
 
+  {{- if ne .Values.config.oidc.enabled nil }}
   OIDC_ENABLED: {{ .Values.config.oidc.enabled | quote }}
+  {{- end }}
   OIDC_ISSUER_URL: {{ .Values.config.oidc.issuerUrl | quote }}
   OIDC_CLIENT_ID: {{ .Values.config.oidc.clientId | quote }}
   OIDC_REDIRECT_URI: {{ .Values.config.oidc.redirectUri | quote }}

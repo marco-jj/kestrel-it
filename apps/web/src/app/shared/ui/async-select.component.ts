@@ -7,6 +7,7 @@ import {
   computed,
   forwardRef,
   signal,
+  type OnChanges,
 } from '@angular/core';
 import { NG_VALUE_ACCESSOR, type ControlValueAccessor } from '@angular/forms';
 
@@ -27,13 +28,7 @@ export function filterAsyncSelectOptions(
   const normalized = query.trim().toLowerCase();
 
   return options.filter((opt) => {
-    if (companyId !== null && companyId !== undefined) {
-      const optCompany = opt.companyId ?? null;
-      const matchesCompany = optCompany === companyId || (includeNullCompany && optCompany === null);
-      if (!matchesCompany) {
-        return false;
-      }
-    }
+    if (!isVisibleInCompany(opt, companyId, includeNullCompany)) return false;
 
     if (normalized) {
       return opt.text.toLowerCase().includes(normalized);
@@ -41,6 +36,16 @@ export function filterAsyncSelectOptions(
 
     return true;
   });
+}
+
+function isVisibleInCompany(
+  option: AsyncSelectOption,
+  companyId: number | null | undefined,
+  includeNullCompany: boolean,
+): boolean {
+  const optionCompany = option.companyId ?? null;
+  return companyId == null || optionCompany === companyId ||
+    (includeNullCompany && optionCompany === null);
 }
 
 @Component({
@@ -197,7 +202,7 @@ export function filterAsyncSelectOptions(
     `,
   ],
 })
-export class KestrelAsyncSelectComponent implements ControlValueAccessor {
+export class KestrelAsyncSelectComponent implements ControlValueAccessor, OnChanges {
   readonly optionsSignal = signal<readonly AsyncSelectOption[]>([]);
   readonly companyIdSignal = signal<number | null>(null);
   readonly includeNullCompanySignal = signal<boolean>(true);
@@ -205,6 +210,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   readonly selectedId = signal<number | string | null>(null);
   readonly isOpen = signal<boolean>(false);
   readonly disabledSignal = signal<boolean>(false);
+  private readonly rememberedSelection = signal<AsyncSelectOption | null>(null);
 
   readonly filteredOptions = computed(() =>
     filterAsyncSelectOptions(
@@ -216,7 +222,8 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   );
 
   readonly selectedOption = computed(
-    () => this.optionsSignal().find((opt) => opt.id === this.selectedId()) ?? null,
+    () => this.optionsSignal().find((opt) => opt.id === this.selectedId()) ??
+      this.rememberedSelection(),
   );
 
   readonly displayInputValue = computed(() => {
@@ -237,22 +244,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   }
 
   @Input() set companyId(value: number | null | undefined) {
-    const normalized = value ?? null;
-    this.companyIdSignal.set(normalized);
-    const currentId = this.selectedId();
-    if (currentId !== null) {
-      const stillVisible = filterAsyncSelectOptions(
-        this.optionsSignal(),
-        '',
-        normalized,
-        this.includeNullCompanySignal(),
-      ).some((opt) => opt.id === currentId);
-      if (!stillVisible) {
-        this.selectedId.set(null);
-        this.onChangeCallback(null);
-        this.selectionChanged.emit(null);
-      }
-    }
+    this.companyIdSignal.set(value ?? null);
   }
 
   @Input() set includeNullCompany(value: boolean) {
@@ -266,8 +258,25 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   private onChangeCallback: (value: number | string | null) => void = () => undefined;
   private onTouchedCallback: () => void = () => undefined;
 
+  ngOnChanges(): void {
+    const selected = this.selectedOption();
+    if (!selected) return; // An asynchronous option page may not include the current value.
+
+    if (isVisibleInCompany(selected, this.companyIdSignal(), this.includeNullCompanySignal())) {
+      this.rememberedSelection.set(selected);
+    } else {
+      this.writeValue(null);
+      this.onChangeCallback(null);
+      this.selectionChanged.emit(null);
+    }
+  }
+
   writeValue(value: number | string | null): void {
+    if (this.rememberedSelection()?.id !== value) {
+      this.rememberedSelection.set(null);
+    }
     this.selectedId.set(value ?? null);
+    this.rememberedSelection.set(this.selectedOption());
   }
 
   registerOnChange(fn: (value: number | string | null) => void): void {
@@ -296,6 +305,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
 
   selectOption(option: AsyncSelectOption): void {
     this.selectedId.set(option.id);
+    this.rememberedSelection.set(option);
     this.searchQuery.set('');
     this.isOpen.set(false);
     this.onChangeCallback(option.id);
@@ -304,7 +314,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   }
 
   clearSelection(): void {
-    this.selectedId.set(null);
+    this.writeValue(null);
     this.searchQuery.set('');
     this.onChangeCallback(null);
     this.onTouchedCallback();

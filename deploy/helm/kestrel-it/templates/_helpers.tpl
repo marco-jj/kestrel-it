@@ -46,8 +46,9 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- if .Values.config.secrets.externalDatabaseUrl -}}
 {{- .Values.config.secrets.externalDatabaseUrl -}}
 {{- else if .Values.postgresql.enabled -}}
-{{- printf "postgresql://%s:%s@%s-postgresql:%d/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "kestrel-it.fullname" .) (int .Values.postgresql.service.port) .Values.postgresql.auth.database -}}
+{{- $password := required "Set postgresql.auth.password for the bundled database" .Values.postgresql.auth.password -}}
+{{- printf "postgresql://%s:%s@%s-postgresql:%d/%s" (.Values.postgresql.auth.username | urlquery) ($password | urlquery | replace "+" "%20") (include "kestrel-it.fullname" .) (int .Values.postgresql.service.port) (.Values.postgresql.auth.database | urlquery) -}}
 {{- else -}}
-{{- "postgresql://kestrel:kestrel@localhost:5432/kestrel_it" -}}
+{{- fail "Set config.secrets.externalDatabaseUrl or config.existingSecret for an external database" -}}
 {{- end -}}
 {{- end -}}

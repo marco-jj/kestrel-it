@@ -443,6 +443,7 @@ export class KestrelDataGridComponent {
   readonly pageSignal = signal<number>(1);
   readonly pageSizeSignal = signal<number>(20);
   readonly loadingSignal = signal<boolean>(false);
+  private readonly serverSideSignal = signal(true);
 
   readonly sortKey = signal<string | null>(null);
   readonly sortDir = signal<'asc' | 'desc'>('asc');
@@ -450,8 +451,10 @@ export class KestrelDataGridComponent {
   readonly selectedIds = signal<ReadonlySet<number | string>>(new Set());
 
   readonly displayedRows = computed(() => {
-    const query = this.searchQuery().trim().toLowerCase();
     const base = this.rowsSignal();
+    if (this.serverSideSignal()) return base;
+
+    const query = this.searchQuery().trim().toLowerCase();
     const filtered = query
       ? base.filter((row) =>
           this.columnsSignal().some((col) =>
@@ -504,6 +507,10 @@ export class KestrelDataGridComponent {
 
   @Input() set loading(value: boolean) {
     this.loadingSignal.set(value);
+  }
+
+  @Input() set serverSide(value: boolean) {
+    this.serverSideSignal.set(value);
   }
 
   @Input() emptyTitle = 'No matching records';

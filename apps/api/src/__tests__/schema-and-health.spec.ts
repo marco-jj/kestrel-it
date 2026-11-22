@@ -153,6 +153,15 @@ describe('Environment validation & controllers', () => {
     expect(connectedHealth.database).toBe('up');
   });
 
+  it('requires deployment-specific signing and encryption keys in production', () => {
+    expect(() => validateEnv({ NODE_ENV: 'production' })).toThrow(/JWT_SECRET.*APP_ENCRYPTION_KEY/);
+    expect(() => validateEnv({
+      NODE_ENV: 'production',
+      JWT_SECRET: 'test-production-signing-key-for-validation',
+      APP_ENCRYPTION_KEY: 'a1'.repeat(32),
+    })).not.toThrow();
+  });
+
   it('evaluates setup completion status accurately', async () => {
     const makeMockDb = (userCount: number, settingsCount: number) => {
       let callIndex = 0;

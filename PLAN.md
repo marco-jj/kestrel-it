@@ -61,7 +61,7 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - [x] Verificare avvio dell'API compilata (`storage.spec.ts`) e flussi HTTP Fastify E2E (`auth-http-e2e.spec.ts`), pinning anti-rebinding `(oidc_issuer, oidc_subject)`, applicazione della policy MFA ai flussi federati (`amr` / `2fa_required`) e gestione delle sessioni.
 - [x] **Piano 1.4b — Estensione Auth: OAuth con PKCE S256 e Better Auth (`apps/api/src/modules/auth`)**
   - [x] Implementare il flusso Authorization Code con PKCE S256 e normalizzazione del profilo OAuth, il bridge di scambio Better Auth e i contratti condivisi.
-  - [x] Completare e verificare il bridge federato HTTP, la rotazione persistente e revoca su logout dei refresh token (`personal_access_tokens` L1+L2 JTI markers) e la configurazione/hook Drizzle di Better Auth con provider OAuth 2.1 PKCE e passkey (`auth-http-e2e.spec.ts`, `auth-and-setup.spec.ts`).
+  - [x] Completare e verificare il bridge federato HTTP, la rotazione atomica e revoca su logout dei refresh token (`auth_consumed_tokens`) e la configurazione/hook Drizzle di Better Auth con provider OAuth 2.1 PKCE e passkey (`auth-http-e2e.spec.ts`, `auth-and-setup.spec.ts`).
 - [x] **Piano 1.5 — Pluggable Storage Layer (`apps/api/src/common/storage`)**
   - Implementare l'interfaccia `StorageProvider` e i 3 adapter: `LocalStorageAdapter`, `S3StorageAdapter` (AWS Signature V4 & Presigned URLs), `NextcloudWebDavAdapter`.
 - [x] **Piano 1.6 — Scaffolding Frontend Angular (`apps/web`) & Helm Chart (`deploy/helm`)**

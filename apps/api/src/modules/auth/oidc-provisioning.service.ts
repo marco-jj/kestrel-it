@@ -96,12 +96,15 @@ export class OidcUserProvisioningService {
     const defaultLocale = settingsRow?.locale || 'en-US';
 
     // Step 1: Direct lookup by (oidc_issuer, oidc_subject)
+    const identity = and(
+      eq(users.oidcIssuer, issuer),
+      eq(users.oidcSubject, subject),
+      isNull(users.deletedAt),
+    );
     const [byTuple] = await this.db
       .select()
       .from(users)
-      .where(
-        and(eq(users.oidcIssuer, issuer), eq(users.oidcSubject, subject), isNull(users.deletedAt)),
-      )
+      .where(identity)
       .limit(1);
 
     let resolvedUser = byTuple ?? null;
@@ -152,10 +155,23 @@ export class OidcUserProvisioningService {
             oidcSubject: subject,
             updatedAt: new Date(),
           })
-          .where(eq(users.id, candidate.id))
+          .where(and(
+            eq(users.id, candidate.id),
+            eq(users.activated, true),
+            isNull(users.deletedAt),
+            candidate.oidcIssuer == null
+              ? isNull(users.oidcIssuer)
+              : eq(users.oidcIssuer, candidate.oidcIssuer),
+            candidate.oidcSubject == null
+              ? isNull(users.oidcSubject)
+              : eq(users.oidcSubject, candidate.oidcSubject),
+          ))
           .returning();
 
-        resolvedUser = pinned ?? candidate;
+        if (!pinned) {
+          throw new UnauthorizedException('User identity changed during OIDC account linking');
+        }
+        resolvedUser = pinned;
       }
     }
 
@@ -169,7 +185,7 @@ export class OidcUserProvisioningService {
 
       const mapped = this.mapProfileFromClaims(claims, usernameClaim, subject, defaultLocale);
 
-      resolvedUser = await this.db.transaction(async (tx) => {
+      const createdUser = await this.db.transaction(async (tx) => {
         const [created] = await tx
           .insert(users)
           .values({
@@ -190,11 +206,10 @@ export class OidcUserProvisioningService {
             oidcIssuer: issuer,
             oidcSubject: subject,
           })
+          .onConflictDoNothing()
           .returning();
 
-        if (!created) {
-          throw new Error('Failed to create JIT provisioned OIDC user');
-        }
+        if (!created) return undefined;
 
         await tx.insert(actionLogs).values({
           createdBy: created.id,
@@ -209,7 +224,12 @@ export class OidcUserProvisioningService {
         return created;
       });
 
-      isNewlyCreated = true;
+      const [concurrentUser] = createdUser ? [] : await this.db.select().from(users).where(identity).limit(1);
+      resolvedUser = createdUser ?? concurrentUser ?? null;
+      if (!resolvedUser?.activated) {
+        throw new UnauthorizedException('OIDC account could not be provisioned');
+      }
+      isNewlyCreated = Boolean(createdUser);
     }
 
     // Step 4: Sync profile attributes, groups, and company membership on login

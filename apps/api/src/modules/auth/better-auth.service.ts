@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -12,11 +13,11 @@ import {
   type BetterAuthUserPayload,
   type LoginResponse,
 } from '@kestrel-it/shared';
-import { eq } from 'drizzle-orm';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
 import type { EnvConfig } from '../../config/env.schema.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
-import { loginAttempts, personalAccessTokens, users } from '../../db/schema/index.js';
+import { authConsumedTokens, loginAttempts, personalAccessTokens, users } from '../../db/schema/index.js';
 import { AuthService } from './auth.service.js';
 import { OidcUserProvisioningService } from './oidc-provisioning.service.js';
 
@@ -26,6 +27,26 @@ export interface BetterAuthStatus {
   passkeyEnabled: boolean;
   providers: string[];
 }
+
+const BRIDGE_ASSERTION_TTL_SECONDS = 120;
+
+interface SignedBridgePayload {
+  providerId: string;
+  accountId?: string;
+  user: BetterAuthUserPayload;
+  issuedAt: number;
+  nonce: string;
+}
+
+const FederatedSessionSchema = z.object({
+  user: BetterAuthUserPayloadSchema,
+  session: z.object({
+    userId: z.string(),
+    expiresAt: z.string().datetime({ offset: true }),
+    twoFactorVerified: z.boolean().optional(),
+    amr: z.array(z.string()).optional(),
+  }),
+});
 
 @Injectable()
 export class BetterAuthService {
@@ -86,7 +107,7 @@ export class BetterAuthService {
       },
       basePath: `/${apiPrefix}/auth/better-auth`,
       baseURL: configuredUrl || appUrl,
-      secret: this.resolveBridgeSecret(),
+      secret: this.config.get('BETTER_AUTH_SECRET', { infer: true }),
       plugins: {
         genericOAuth: {
           enabled: status.enabled,
@@ -136,25 +157,20 @@ export class BetterAuthService {
     };
   }
 
-  signBetterAuthBridgePayload(payload: {
-    providerId: string;
-    user: BetterAuthUserPayload;
-  }): string {
-    const canonical = this.buildCanonicalBridgeMessage(payload.providerId, payload.user);
-    return createHmac('sha256', this.resolveBridgeSecret()).update(canonical).digest('hex');
+  signBetterAuthBridgePayload(payload: SignedBridgePayload): string {
+    const secret = this.config.get('BETTER_AUTH_SECRET', { infer: true });
+    if (secret.length < 32) {
+      throw new ServiceUnavailableException('A dedicated Better Auth bridge signing key is required');
+    }
+    return createHmac('sha256', secret)
+      .update(this.buildCanonicalBridgeMessage(payload))
+      .digest('hex');
   }
 
-  verifyBetterAuthBridgeSignature(
-    payload: { providerId: string; user: BetterAuthUserPayload },
-    signature: string,
-  ): boolean {
-    const expectedHex = this.signBetterAuthBridgePayload(payload);
-    const expectedBuf = Buffer.from(expectedHex, 'hex');
-    const providedBuf = Buffer.from(signature.trim(), 'hex');
-    if (expectedBuf.length !== providedBuf.length) {
-      return false;
-    }
-    return timingSafeEqual(expectedBuf, providedBuf);
+  verifyBetterAuthBridgeSignature(payload: SignedBridgePayload, signature: string): boolean {
+    if (!/^[a-f0-9]{64}$/i.test(signature)) return false;
+    const expected = Buffer.from(this.signBetterAuthBridgePayload(payload), 'hex');
+    return timingSafeEqual(expected, Buffer.from(signature, 'hex'));
   }
 
   async exchangeSession(
@@ -166,33 +182,16 @@ export class BetterAuthService {
       throw new BadRequestException('Better Auth integration is not enabled');
     }
 
-    let resolvedBaUser: BetterAuthUserPayload;
+    let claims: Record<string, unknown>;
 
-    if (dto.user) {
-      if (!dto.signature) {
-        throw new UnauthorizedException('Better Auth bridge signature is required');
-      }
-      const validSig = this.verifyBetterAuthBridgeSignature(
-        { providerId: dto.providerId, user: dto.user },
-        dto.signature,
-      );
-      if (!validSig) {
-        throw new UnauthorizedException('Invalid Better Auth bridge signature');
-      }
-      resolvedBaUser = dto.user;
-    } else if (dto.sessionToken) {
-      resolvedBaUser = await this.fetchFederatedSessionUser(dto.sessionToken);
+    if (dto.user && !dto.sessionToken) {
+      claims = await this.verifySignedExchange(dto);
+    } else if (dto.sessionToken && !dto.user) {
+      claims = await this.fetchFederatedSessionClaims(dto.sessionToken);
     } else {
-      throw new BadRequestException(
-        'Either a signed Better Auth user payload or a sessionToken must be provided',
-      );
+      throw new BadRequestException('Provide exactly one Better Auth credential');
     }
 
-    const claims = this.toProvisioningClaims(
-      resolvedBaUser,
-      dto.providerId,
-      dto.accountId,
-    );
     const provisionedUser = await this.oidcProvisioning.resolveOrProvisionUser(claims);
 
     await this.db.insert(loginAttempts).values({
@@ -203,18 +202,31 @@ export class BetterAuthService {
       loginVia: 'better-auth',
     });
 
-    if (typeof this.authService.completeUserAuthentication === 'function') {
-      return this.authService.completeUserAuthentication(provisionedUser, {
-        federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(claims),
-      });
+    return this.authService.completeUserAuthentication(provisionedUser, {
+      federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(claims),
+    });
+  }
+
+  private async verifySignedExchange(dto: BetterAuthSessionExchangeRequest) {
+    const { user, providerId, accountId, issuedAt, nonce, signature } = dto;
+    const now = Math.floor(Date.now() / 1000);
+    if (!user || !signature || !nonce || !issuedAt || issuedAt > now ||
+        issuedAt + BRIDGE_ASSERTION_TTL_SECONDS <= now ||
+        !this.verifyBetterAuthBridgeSignature({ user, providerId, accountId, issuedAt, nonce }, signature)) {
+      throw new UnauthorizedException('Invalid or expired Better Auth bridge assertion');
     }
 
-    await this.db
-      .update(users)
-      .set({ lastLogin: new Date(), updatedAt: new Date() })
-      .where(eq(users.id, provisionedUser.id));
+    const [claimed] = await this.db
+      .insert(authConsumedTokens)
+      .values({
+        digest: `better_auth_nonce:${createHash('sha256').update(nonce).digest('hex')}`,
+        expiresAt: new Date((issuedAt + BRIDGE_ASSERTION_TTL_SECONDS) * 1000),
+      })
+      .onConflictDoNothing()
+      .returning({ digest: authConsumedTokens.digest });
 
-    return this.authService.issueSessionForUser(provisionedUser.id, true);
+    if (!claimed) throw new UnauthorizedException('Better Auth bridge assertion has already been used');
+    return this.toProvisioningClaims(user, providerId, accountId);
   }
 
   toProvisioningClaims(
@@ -232,10 +244,7 @@ export class BetterAuthService {
       email: baUser.email,
       email_verified: baUser.emailVerified,
       preferred_username: baUser.username || baUser.email,
-      two_factor_verified:
-        baUser.twoFactorVerified === true ||
-        providerId === 'passkey' ||
-        providerId === 'better-auth:passkey',
+      two_factor_verified: baUser.twoFactorVerified === true,
     };
 
     if (baUser.name) claims['name'] = baUser.name;
@@ -248,7 +257,7 @@ export class BetterAuthService {
     return claims;
   }
 
-  private async fetchFederatedSessionUser(sessionToken: string): Promise<BetterAuthUserPayload> {
+  private async fetchFederatedSessionClaims(sessionToken: string): Promise<Record<string, unknown>> {
     const baseUrl = this.config.get('BETTER_AUTH_URL', { infer: true }).replace(/\/+$/, '');
     if (!baseUrl) {
       throw new BadRequestException(
@@ -258,6 +267,7 @@ export class BetterAuthService {
 
     const res = await fetch(`${baseUrl}/api/auth/get-session`, {
       method: 'GET',
+      redirect: 'error',
       headers: {
         authorization: `Bearer ${sessionToken}`,
         accept: 'application/json',
@@ -268,25 +278,29 @@ export class BetterAuthService {
       throw new UnauthorizedException('Failed to verify session with federated Better Auth server');
     }
 
-    const body = (await res.json()) as { user?: unknown };
-    const parsed = BetterAuthUserPayloadSchema.safeParse(body?.user);
-    if (!parsed.success) {
-      throw new UnauthorizedException('Federated Better Auth session did not contain a valid user');
+    const parsed = FederatedSessionSchema.safeParse(await res.json());
+    if (!parsed.success || parsed.data.user.id !== parsed.data.session.userId ||
+        Date.parse(parsed.data.session.expiresAt) <= Date.now()) {
+      throw new UnauthorizedException('Federated Better Auth session is invalid or expired');
     }
 
-    return parsed.data;
+    const { user, session } = parsed.data;
+    const issuer = `federated:${createHash('sha256').update(new URL(baseUrl).href).digest('hex')}`;
+    return this.toProvisioningClaims({
+      ...user,
+      twoFactorVerified: session.twoFactorVerified,
+      amr: session.amr,
+    }, issuer);
   }
 
-  private resolveBridgeSecret(): string {
-    return (
-      this.config.get('BETTER_AUTH_SECRET', { infer: true }) ||
-      this.config.get('JWT_SECRET', { infer: true })
-    );
-  }
-
-  private buildCanonicalBridgeMessage(providerId: string, user: BetterAuthUserPayload): string {
+  private buildCanonicalBridgeMessage(payload: SignedBridgePayload): string {
+    const { providerId, accountId, user, issuedAt, nonce } = payload;
     return JSON.stringify([
+      'kestrel-better-auth-v2',
       providerId,
+      accountId ?? null,
+      issuedAt,
+      nonce,
       user.id,
       user.email,
       user.emailVerified,

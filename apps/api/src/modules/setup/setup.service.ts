@@ -5,7 +5,6 @@ import type {
   LoginResponse,
   PreflightStatusResponse,
 } from '@kestrel-it/shared';
-import { sql } from 'drizzle-orm';
 import { accessSync, constants, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { EnvConfig } from '../../config/env.schema.js';
@@ -31,18 +30,14 @@ export class SetupService {
 
     let database = false;
     try {
-      await this.db.execute(sql`SELECT 1`);
+      await this.bootstrapService.checkSchema();
       database = true;
     } catch {
       database = false;
     }
 
     const storageWritable = this.checkStorageConfiguredAndWritable();
-    const oidcConfigured = Boolean(
-      this.config.get('OIDC_ENABLED', { infer: true }) &&
-        this.config.get('OIDC_ISSUER_URL', { infer: true }) &&
-        this.config.get('OIDC_CLIENT_ID', { infer: true }),
-    );
+    const oidcConfigured = database && (await this.authService.getAuthProvidersStatus()).sso.enabled;
     const smtpConfigured = Boolean(
       this.config.get('SMTP_HOST', { infer: true }) &&
         this.config.get('SMTP_FROM_ADDRESS', { infer: true }),

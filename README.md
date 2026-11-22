@@ -60,6 +60,14 @@ kestrel-it/
 
 The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstream behavior to the planned Kestrel-IT equivalents and records open parity decisions.
 
+## Database startup and Helm configuration
+
+The API applies the checked-in Drizzle migrations before first-run setup. Replicas serialize migration and headless bootstrap through a PostgreSQL advisory lock. The Helm chart probes `/health` for liveness and `/ready` for database and schema readiness.
+
+If the initial SQL was applied manually, apply the follow-up migration with `psql --single-transaction -v ON_ERROR_STOP=1 -f apps/api/drizzle/0001_auth_consumption_and_oidc.sql` and set `DB_AUTO_MIGRATE=false` (`config.dbAutoMigrate=false` in Helm). If the unique OIDC index reports duplicate active identities, reconcile those identities before retrying the migration. Existing refresh revocations with a future expiry are carried forward. [Migration](apps/api/drizzle/0001_auth_consumption_and_oidc.sql)
+
+Provide production JWT and encryption keys through `config.secrets` or `config.existingSecret`, and supply `postgresql.auth.password` when using bundled PostgreSQL. Set `config.appUrl` to the public HTTPS origin used by the browser. The default local volume supports a single API replica. Use S3, Nextcloud, or a ReadWriteMany volume to scale past one.
+
 ## Roadmap
 
 - [ ] **Phase 1 — Foundation:** Monorepo setup, Drizzle + PostgreSQL schema, OIDC + local auth, Storage adapters (Local / S3 / Nextcloud), Helm chart skeleton

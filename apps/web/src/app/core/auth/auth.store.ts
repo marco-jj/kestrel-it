@@ -1,3 +1,4 @@
+import { HttpErrorResponse, type HttpClient } from '@angular/common/http';
 import { Injectable, computed, signal } from '@angular/core';
 import {
   canAccessCompanyRecord,
@@ -7,6 +8,7 @@ import {
   type PermissionKey,
   type PreflightStatusResponse,
 } from '@kestrel-it/shared';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
 export class AuthStore {
@@ -19,7 +21,7 @@ export class AuthStore {
   readonly twoFactorChallengeToken = signal<string | null>(null);
   readonly requiresTwoFactorEnrollment = signal<boolean>(false);
 
-  readonly isAuthenticated = computed(() => this.currentUser() !== null && this.accessToken() !== null);
+  readonly isAuthenticated = computed(() => this.currentUser() !== null);
   readonly isSetupCompleted = computed(() => this.setupStatus()?.setupCompleted ?? false);
   readonly isSuperUser = computed(() => this.currentUser()?.isSuperUser ?? false);
   readonly isAdmin = computed(() => this.currentUser()?.isAdmin ?? false);
@@ -28,6 +30,32 @@ export class AuthStore {
     const user = this.currentUser();
     return user ? user.displayName || user.username : '';
   });
+
+  async initialize(http: HttpClient): Promise<void> {
+    try {
+      this.setSetupStatus(await firstValueFrom(
+        http.get<PreflightStatusResponse>('/api/v1/setup/status'),
+      ));
+    } catch {
+      return; // The setup page can display preflight failure and retry.
+    }
+    if (!this.isSetupCompleted()) return;
+
+    try {
+      this.setSessionUser(await firstValueFrom(
+        http.get<AuthenticatedUserContext>('/api/v1/auth/me'),
+      ));
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && error.status === 401) {
+        try {
+          const response = await firstValueFrom(http.post<LoginResponse>('/api/v1/auth/refresh', {}));
+          this.applyLoginResponse(response);
+        } catch {
+          this.clearSession();
+        }
+      }
+    }
+  }
 
   applyLoginResponse(response: LoginResponse): void {
     if (response.status === '2fa_required') {
@@ -41,12 +69,16 @@ export class AuthStore {
 
     this.twoFactorChallengeToken.set(null);
     this.requiresTwoFactorEnrollment.set(false);
-    this.currentUser.set(response.user);
+    this.setSessionUser(response.user);
     this.accessToken.set(response.accessToken);
     this.refreshToken.set(response.refreshToken);
+  }
 
-    const companies = response.user.userCompanyIds;
-    if (companies.length > 0 && this.selectedCompanyId() === null) {
+  private setSessionUser(user: AuthenticatedUserContext): void {
+    this.currentUser.set(user);
+    const companies = user.userCompanyIds;
+    const currentCompany = this.selectedCompanyId();
+    if (currentCompany === null || !companies.includes(currentCompany)) {
       this.selectedCompanyId.set(companies[0] ?? null);
     }
   }

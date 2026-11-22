@@ -374,6 +374,10 @@ function createInMemoryDrizzleHarness() {
 
           for (const item of items) {
             if (ignoreConflicts) {
+              if (tableName === 'auth_consumed_tokens' &&
+                  tableRows.some((r) => r['digest'] === item['digest'])) {
+                continue;
+              }
               if (
                 tableName === 'users_groups' &&
                 tableRows.some(
@@ -655,6 +659,10 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
                 firstName: 'Better',
                 lastName: 'AuthUser',
                 groups: ['helpdesk'],
+              },
+              session: {
+                userId: 'ba-federated-user-2',
+                expiresAt: new Date(Date.now() + 60_000).toISOString(),
                 amr: ['pwd', 'otp'],
               },
             }),
@@ -754,7 +762,9 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
 
     const postStatus = await app.inject({ method: 'GET', url: '/api/v1/setup/status' });
     expect(postStatus.statusCode).toBe(200);
-    expect(postStatus.json<{ setupCompleted: boolean }>().setupCompleted).toBe(true);
+    expect(postStatus.json()).toMatchObject({ setupCompleted: true, checks: { oidcConfigured: true } });
+    const providers = await app.inject({ method: 'GET', url: '/api/v1/auth/providers' });
+    expect(providers.json()).toMatchObject({ sso: { enabled: true } });
 
     // Subsequent setup attempt must be locked with 403 Forbidden
     const duplicateRes = await app.inject({
@@ -856,7 +866,6 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     });
     expect(refreshRes.statusCode).toBe(200);
     const rotatedRefreshCookie = getCookieValue(refreshRes.cookies, 'kestrel_refresh_token')!;
-    const rotatedAccessCookie = getCookieValue(refreshRes.cookies, 'kestrel_access_token')!;
     expect(rotatedRefreshCookie).toBeTruthy();
     expect(rotatedRefreshCookie).not.toBe(initialRefreshCookie);
 
@@ -868,12 +877,12 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     });
     expect(replayRes.statusCode).toBe(401);
 
-    // 6. Logout revokes the active refresh token and clears cookies
+    // 6. The refresh cookie is sufficient for logout after the access cookie expires.
     const logoutRes = await app.inject({
       method: 'POST',
       url: '/api/v1/logout',
       headers: {
-        cookie: `kestrel_access_token=${rotatedAccessCookie}; kestrel_refresh_token=${rotatedRefreshCookie}`,
+        cookie: `kestrel_refresh_token=${rotatedRefreshCookie}`,
       },
       payload: {},
     });
@@ -889,8 +898,7 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     });
     expect(postLogoutRefresh.statusCode).toBe(401);
 
-    // Persistence verification: a brand-new AuthService instance (empty L1 memory cache) reading
-    // only from the DB store must ALSO reject the logged-out refresh token.
+    // A separate API instance consults the same database revocation state.
     const freshAuthService = new AuthService(
       harness.db,
       app.get(ConfigService),
@@ -904,10 +912,7 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
   });
 
   it('executes OIDC PKCE S256 login + RS256 JWKS callback, enforces MFA policy, and blocks subject rebinding', async () => {
-    const settingsRows = harness.store.get('settings')!;
-    settingsRows[0]!['oidcEnabled'] = true;
-
-    const performOidcFlow = async () => {
+    const performOidcFlow = async (accept = 'application/json') => {
       const loginRes = await app.inject({ method: 'GET', url: '/api/v1/auth/oidc/login' });
       expect(loginRes.statusCode).toBe(302);
       const stateCookie = getCookieValue(loginRes.cookies, 'kestrel_oidc_state')!;
@@ -925,7 +930,7 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
       return app.inject({
         method: 'GET',
         url: `/api/v1/auth/oidc/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
-        headers: { cookie: `kestrel_oidc_state=${stateCookie}` },
+        headers: { cookie: `kestrel_oidc_state=${stateCookie}`, accept },
       });
     };
 
@@ -938,6 +943,19 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     expect(mfaRequiredBody.status).toBe('2fa_required');
     expect(getCookieValue(mfaRequiredCallback.cookies, 'kestrel_access_token')).toBeUndefined();
 
+    const browserChallenge = await performOidcFlow('text/html');
+    expect(browserChallenge.statusCode).toBe(303);
+    expect(browserChallenge.headers['location']).toBe('/login?sso=challenge');
+    const challengeCookie = browserChallenge.cookies.find((c) => c.name === 'kestrel_sso_challenge');
+    expect(challengeCookie).toMatchObject({ httpOnly: true });
+    const handoff = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/sso/challenge',
+      headers: { cookie: `kestrel_sso_challenge=${challengeCookie?.value}` },
+    });
+    expect(handoff.statusCode).toBe(200);
+    expect(handoff.json<LoginResponse>().status).toBe('2fa_required');
+
     // With IdP MFA claim amr=['pwd', 'mfa'], federated login issues authenticated session directly
     oidcMfaMode = 'mfa';
     const authenticatedCallback = await performOidcFlow();
@@ -949,6 +967,11 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
       expect(authBody.user.groupIds).toEqual([1]);
       expect(authBody.user.effectivePermissions['assets.view']).toBe(true);
     }
+
+    const browserSuccess = await performOidcFlow('text/html');
+    expect(browserSuccess.statusCode).toBe(303);
+    expect(browserSuccess.headers['location']).toBe('/dashboard');
+    expect(getCookieValue(browserSuccess.cookies, 'kestrel_access_token')).toBeTruthy();
 
     // Subject rebinding attempt with different sub on same issuer & username must fail with 401
     oidcSubjectMode = 'rebinding_attack';
@@ -966,19 +989,22 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
       firstName: 'Passkey',
       lastName: 'Operator',
       groups: ['helpdesk'],
+      twoFactorVerified: true,
     };
-    const signature = baService.signBetterAuthBridgePayload({
+    const assertion = {
       providerId: 'passkey',
       user: baPayload,
-    });
+      issuedAt: Math.floor(Date.now() / 1000),
+      nonce: randomUUID(),
+    };
+    const signature = baService.signBetterAuthBridgePayload(assertion);
 
     // 1. Signed Better Auth passkey payload satisfies MFA policy and returns authenticated session
     const signedRes = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/better-auth/exchange',
       payload: {
-        providerId: 'passkey',
-        user: baPayload,
+        ...assertion,
         signature,
       },
     });

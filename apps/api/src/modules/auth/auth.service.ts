@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   hasAccess,
   isAdmin,
@@ -20,7 +21,7 @@ import {
   type PermissionMap,
   type TwoFactorEnrollResponse,
 } from '@kestrel-it/shared';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import type { EnvConfig } from '../../config/env.schema.js';
 import { CryptoService } from '../../common/crypto/crypto.service.js';
@@ -36,11 +37,11 @@ import {
 } from '../../common/crypto/totp.util.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import {
+  authConsumedTokens,
   companies,
   companyUser,
   groups,
   loginAttempts,
-  personalAccessTokens,
   settings,
   users,
   usersGroups,
@@ -51,8 +52,6 @@ import {
   validateOAuth21AuthorizationRequest,
 } from './oauth21.util.js';
 import { OidcUserProvisioningService } from './oidc-provisioning.service.js';
-
-const REFRESH_JTI_MARKER_NAME = '__refresh_jti__';
 
 interface OidcDiscoveryDoc {
   authorization_endpoint: string;
@@ -95,7 +94,6 @@ export class AuthService {
     string,
     { expiresAt: number; doc: OidcDiscoveryDoc }
   >();
-  private readonly consumedRefreshTokenJtis = new Map<string, number>();
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
@@ -250,44 +248,29 @@ export class AuthService {
       'refresh',
     );
     const userId = Number(payload.sub);
-    if (!Number.isInteger(userId) || userId <= 0) {
-      throw new UnauthorizedException('Invalid refresh token subject');
+    if (!Number.isInteger(userId) || userId <= 0 || !payload.jti || !payload.exp) {
+      throw new UnauthorizedException('Invalid refresh token');
     }
 
-    if (payload.jti) {
-      const nowEpochSec = Math.floor(Date.now() / 1000);
-      this.pruneExpiredConsumedJtis(nowEpochSec);
-      if (await this.isRefreshJtiConsumed(payload.jti)) {
-        throw new UnauthorizedException('Refresh token has already been rotated or revoked');
-      }
-      const expEpochSec =
-        typeof payload.exp === 'number' ? payload.exp : nowEpochSec + 7 * 24 * 3600;
-      await this.markRefreshJtiConsumed(userId, payload.jti, expEpochSec);
+    const session = await this.issueSessionForUser(userId, true);
+    if (!(await this.consumeRefreshToken(payload.jti, payload.exp))) {
+      throw new UnauthorizedException('Refresh token has already been rotated or revoked');
     }
-
-    return this.issueSessionForUser(userId, true);
+    return session;
   }
 
   async revokeRefreshToken(refreshToken?: string): Promise<void> {
-    if (!refreshToken) {
-      return;
-    }
+    if (!refreshToken) return;
 
-    try {
-      const payload = await this.jwtService.verifyToken<RefreshTokenPayload>(
-        refreshToken,
-        'refresh',
-      );
-      const userId = Number(payload.sub);
-      if (!Number.isInteger(userId) || userId <= 0 || !payload.jti) {
-        return;
-      }
-      const nowEpochSec = Math.floor(Date.now() / 1000);
-      const expEpochSec =
-        typeof payload.exp === 'number' ? payload.exp : nowEpochSec + 7 * 24 * 3600;
-      await this.markRefreshJtiConsumed(userId, payload.jti, expEpochSec);
-    } catch {
-      // Ignore expired or invalid refresh tokens on logout.
+    const payload = await this.jwtService
+      .verifyToken<RefreshTokenPayload>(refreshToken, 'refresh')
+      .catch((error: unknown) => {
+        if (!(error instanceof UnauthorizedException)) throw error;
+        return undefined;
+      });
+
+    if (payload?.jti && payload.exp) {
+      await this.consumeRefreshToken(payload.jti, payload.exp);
     }
   }
 
@@ -317,7 +300,7 @@ export class AuthService {
       settingsRow?.oidcClientId || this.config.get('OIDC_CLIENT_ID', { infer: true }),
     );
     const ssoEnabled = Boolean(
-      (settingsRow?.oidcEnabled ?? this.config.get('OIDC_ENABLED', { infer: true })) &&
+      this.isSsoEnabled(settingsRow?.oidcEnabled) &&
         hasIssuerOrEndpoints &&
         hasClientId,
     );
@@ -640,66 +623,30 @@ export class AuthService {
     );
   }
 
-  private pruneExpiredConsumedJtis(nowEpochSec: number): void {
-    for (const [jti, exp] of this.consumedRefreshTokenJtis.entries()) {
-      if (exp <= nowEpochSec) {
-        this.consumedRefreshTokenJtis.delete(jti);
-      }
-    }
+  @Cron(CronExpression.EVERY_HOUR)
+  async clearExpiredAuthConsumptions(): Promise<void> {
+    await this.db.delete(authConsumedTokens).where(lte(authConsumedTokens.expiresAt, new Date()));
   }
 
-  private buildRefreshJtiHash(jti: string): string {
-    return `refresh_jti:${this.cryptoService.sha256Hex(jti)}`;
+  private async consumeRefreshToken(jti: string, expiresAt: number): Promise<boolean> {
+    const [claimed] = await this.db
+      .insert(authConsumedTokens)
+      .values({
+        digest: `refresh_jti:${this.cryptoService.sha256Hex(jti)}`,
+        expiresAt: new Date(expiresAt * 1000),
+      })
+      .onConflictDoNothing()
+      .returning({ digest: authConsumedTokens.digest });
+    return Boolean(claimed);
   }
 
-  private async isRefreshJtiConsumed(jti: string): Promise<boolean> {
-    if (this.consumedRefreshTokenJtis.has(jti)) {
-      return true;
-    }
-
-    const tokenHash = this.buildRefreshJtiHash(jti);
-    const rows = await this.db
-      .select({ id: personalAccessTokens.id, expiresAt: personalAccessTokens.expiresAt })
-      .from(personalAccessTokens)
-      .where(eq(personalAccessTokens.tokenHash, tokenHash))
-      .limit(1);
-
-    const persisted = Array.isArray(rows) ? rows[0] : undefined;
-    if (!persisted) {
-      return false;
-    }
-
-    const nowEpochSec = Math.floor(Date.now() / 1000);
-    const expEpochSec = persisted.expiresAt
-      ? Math.floor(persisted.expiresAt.getTime() / 1000)
-      : nowEpochSec + 7 * 24 * 3600;
-    this.consumedRefreshTokenJtis.set(jti, expEpochSec);
-    return true;
-  }
-
-  private async markRefreshJtiConsumed(
-    userId: number,
-    jti: string,
-    expEpochSec: number,
-  ): Promise<void> {
-    this.consumedRefreshTokenJtis.set(jti, expEpochSec);
-
-    if (typeof (this.db as { insert?: unknown }).insert === 'function') {
-      await this.db.insert(personalAccessTokens).values({
-        userId,
-        name: REFRESH_JTI_MARKER_NAME,
-        tokenHash: this.buildRefreshJtiHash(jti),
-        scopes: [],
-        expiresAt: new Date(expEpochSec * 1000),
-        revokedAt: new Date(),
-      });
-    }
+  private isSsoEnabled(stored?: boolean): boolean {
+    return this.config.get('OIDC_ENABLED', { infer: true }) ?? stored ?? false;
   }
 
   private async resolveOidcRuntimeConfig() {
     const [settingsRow] = await this.db.select().from(settings).limit(1);
-    const enabled =
-      settingsRow?.oidcEnabled ?? this.config.get('OIDC_ENABLED', { infer: true });
+    const enabled = this.isSsoEnabled(settingsRow?.oidcEnabled);
     const protocol: OAuthProtocol = this.config.get('OAUTH_PROTOCOL', { infer: true });
     const authUrlOverride = this.config.get('OAUTH_AUTHORIZATION_URL', { infer: true });
     const tokenUrlOverride = this.config.get('OAUTH_TOKEN_URL', { infer: true });
@@ -735,8 +682,8 @@ export class AuthService {
       this.config.get('OIDC_REDIRECT_URI', { infer: true }) ||
       `${appUrl}/${apiPrefix}/auth/${callbackSegment}/callback`;
     const scopes =
-      settingsRow?.oidcScopes ||
       this.config.get('OIDC_SCOPES', { infer: true }) ||
+      settingsRow?.oidcScopes ||
       'openid profile email groups';
 
     const hasExplicitEndpoints = Boolean(authUrlOverride && tokenUrlOverride);

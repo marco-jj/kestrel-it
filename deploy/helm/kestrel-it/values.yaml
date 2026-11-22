@@ -7,7 +7,7 @@ serviceAccount:
   name: ""
 
 api:
-  replicaCount: 2
+  replicaCount: 1
   image:
     repository: ghcr.io/marco-jj/kestrel-it-api
     pullPolicy: IfNotPresent
@@ -23,11 +23,11 @@ api:
       cpu: 1000m
       memory: 1Gi
   livenessProbe:
-    path: /api/v1/health
+    path: /health
     initialDelaySeconds: 15
     periodSeconds: 20
   readinessProbe:
-    path: /api/v1/health
+    path: /ready
     initialDelaySeconds: 5
     periodSeconds: 10
 
@@ -53,14 +53,14 @@ config:
   appName: Kestrel-IT
   appUrl: http://kestrel.local
   apiPrefix: api/v1
+  dbAutoMigrate: true
   jwtAccessExpiresIn: 15m
   jwtRefreshExpiresIn: 7d
 
   existingSecret: ""
   secrets:
-    # Override all secret values or supply config.existingSecret in production.
-    jwtSecret: change-me-in-production-min-32-characters
-    appEncryptionKey: "0000000000000000000000000000000000000000000000000000000000000000"
+    jwtSecret: ""
+    appEncryptionKey: ""
     externalDatabaseUrl: ""
 
   storage:
@@ -80,7 +80,7 @@ config:
       appPassword: ""
 
   oidc:
-    enabled: false
+    enabled: null # null uses the database setting. Set true or false to override it.
     issuerUrl: ""
     clientId: ""
     clientSecret: ""
@@ -138,7 +138,7 @@ postgresql:
     pullPolicy: IfNotPresent
   auth:
     username: kestrel
-    password: kestrel_change_me
+    password: ""
     database: kestrel_it
   service:
     port: 5432

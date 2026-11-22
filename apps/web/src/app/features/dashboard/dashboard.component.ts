@@ -76,6 +76,7 @@ import {
         </div>
 
         <kestrel-data-grid
+          [serverSide]="false"
           [columns]="previewColumns"
           [rows]="previewRows"
           [total]="previewRows.length"

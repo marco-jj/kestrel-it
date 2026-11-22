@@ -28,7 +28,7 @@ sequenceDiagram
         IdP-->>API: Token del provider (ID token in modalità OIDC)
         API->>IdP: Profilo UserInfo se richiesto dal flusso
         API->>DB: Risoluzione o provisioning JIT
-        API-->>User: Risposta JSON e cookie di sessione
+        API-->>User: Cookie e redirect alla SPA per il browser, JSON per i client API
     else Login locale
         User->>API: POST /api/v1/auth/login
         API->>DB: Verifica credenziali e policy 2FA
@@ -57,7 +57,7 @@ sequenceDiagram
 
 - Il login locale verifica le password `scrypt` e gli hash bcrypt `$2y$` migrati da Snipe-IT. `POST /api/v1/auth/login` restituisce HTTP 200 con `status: '2fa_required'` e un `challengeToken` quando serve completare TOTP. L'enrollment restituisce un URI `otpauth` e la verifica riceve `challengeToken` e `code`. I nuovi segreti TOTP sono cifrati con AES-256-GCM. [Controller Auth](../apps/api/src/modules/auth/auth.controller.ts), [servizio Auth](../apps/api/src/modules/auth/auth.service.ts)
 - Gli endpoint `/api/v1/account/personal-access-tokens` verificano `self.api` e lo stato `twoFactorVerified` del contesto. I token Kestrel-IT hanno prefisso `kst_` e il database conserva il digest SHA-256. Snipe-IT lega la gestione dei PAT allo stesso permesso. [Servizio PAT](../apps/api/src/modules/auth/pat.service.ts), [rotte Snipe-IT](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L51-L74)
-- La rotazione del refresh token di Kestrel-IT usa una cache L1 in memoria accoppiata alla persistenza L2 su database (`personal_access_tokens` con marker `__refresh_jti__` revocato), invalidando esplicitamente i refresh token anche su `POST /api/v1/logout` e `POST /api/v1/auth/logout`. La policy MFA è applicata sia ai login locali che a tutti i flussi federati (OIDC/OAuth/Better Auth) tramite verifica dei claim `amr` / `mfa_verified` / `two_factor_verified`. [Servizio Auth](../apps/api/src/modules/auth/auth.service.ts), [controller Auth](../apps/api/src/modules/auth/auth.controller.ts)
+- La rotazione registra il consumo del refresh token in `auth_consumed_tokens` con una chiave univoca condivisa fra le repliche. Lo stesso meccanismo revoca il refresh token su `POST /api/v1/logout` e `POST /api/v1/auth/logout`. La policy MFA è applicata sia ai login locali che a tutti i flussi federati (OIDC/OAuth/Better Auth) tramite verifica dei claim `amr` / `mfa_verified` / `two_factor_verified`. [Servizio Auth](../apps/api/src/modules/auth/auth.service.ts), [controller Auth](../apps/api/src/modules/auth/auth.controller.ts)
 
 ### 1.2 OIDC, OAuth con PKCE e provisioning JIT
 
@@ -89,7 +89,7 @@ Snipe-IT verifica la presenza di utenti e impostazioni, guida l'operatore nella 
 
 #### Wizard Angular previsto nel Piano 1.6
 
-1. **Pre-flight.** `SetupWizardComponent` chiama `GET /api/v1/setup/status`. Se `setupCompleted` è vero, il guard lo reindirizza fuori da `/setup`. Altrimenti il wizard mostra `checks.database`, `checks.storageWritable`, `checks.oidcConfigured` e `checks.smtpConfigured`. Il controllo DB usa `SELECT 1`. Per S3, Nextcloud, OIDC e SMTP i controlli attuali rilevano la presenza della configurazione. Per lo storage locale verificano la scrivibilità. [Servizio setup](../apps/api/src/modules/setup/setup.service.ts)
+1. **Pre-flight.** `SetupWizardComponent` chiama `GET /api/v1/setup/status`. Se `setupCompleted` è vero, il guard lo reindirizza fuori da `/setup`. Altrimenti il wizard mostra `checks.database`, `checks.storageWritable`, `checks.oidcConfigured` e `checks.smtpConfigured`. Il controllo DB verifica la connessione e la presenza delle tabelle richieste dal setup e dall'autenticazione. Per S3, Nextcloud, OIDC e SMTP i controlli attuali rilevano la presenza della configurazione. Per lo storage locale verificano la scrivibilità. [Servizio setup](../apps/api/src/modules/setup/setup.service.ts)
 2. **Istanza e asset tag.** Il wizard raccoglie `siteName`, `locale`, `defaultCurrency` e `fullMultipleCompaniesSupport`. Raccoglie anche le impostazioni per i tag `autoIncrementAssets`, `autoIncrementPrefix` e `zerofillCount` e, facoltativamente, `emailDomain` ed `emailFormat`. I valori di questo step restano nel form fino all'invio finale. [Schema richiesta](../packages/shared/src/schemas/auth-and-setup.ts)
 3. **Primo superuser.** Il wizard raccoglie `firstName`, `lastName`, `username`, `email` e `password` e invia tutti i dati con `POST /api/v1/setup/complete`. L'API crea il superuser, la riga `settings` e le etichette di stato in una transazione, poi restituisce il payload di sessione e imposta i cookie. Il wizard usa quella sessione per accedere a `/dashboard`. Dopo il completamento, l'API rifiuta nuove scritture di setup con HTTP 403. [Controller setup](../apps/api/src/modules/setup/setup.controller.ts), [mappa Angular](07-frontend-angular-map.md)
 
@@ -98,6 +98,10 @@ Snipe-IT verifica la presenza di utenti e impostazioni, guida l'operatore nella 
 Il bootstrap headless usa `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` e facoltativamente `BOOTSTRAP_SITE_NAME`. [Servizio bootstrap](../apps/api/src/db/bootstrap.service.ts)
 
 ### 1.4 Bridge Better Auth
+
+Per i client che inviano una sessione federata, issuer e subject provengono dal server `BETTER_AUTH_URL` configurato, dall'ID utente e dalla sessione restituiti da `/api/auth/get-session`. Il bridge usa i segnali MFA della sessione. Gli account federati già associati a un issuer derivato dal vecchio `providerId` richiedono una riassociazione amministrativa al nuovo issuer.
+
+Il bridge HMAC usa `BETTER_AUTH_SECRET`, un'asserzione v2 firmata con `issuedAt` (secondi Unix), `nonce` UUID e tutti i campi d'identità, incluso `accountId` quando presente. L'asserzione dura 120 secondi e si può usare una sola volta. La serializzazione è definita dal servizio. [Servizio Better Auth](../apps/api/src/modules/auth/better-auth.service.ts)
 
 `POST /api/v1/auth/better-auth/exchange` accetta un profilo firmato HMAC-SHA256 o verifica una sessione presso il server Better Auth configurato tramite `/api/auth/get-session`, propagando i claim MFA (`two_factor_verified`, `amr`, passkey) e delegando provisioning JIT, policy MFA, gruppi e permessi RBAC ai servizi di Kestrel-IT. La configurazione e gli hook Drizzle per adapter `pg`, OAuth 2.1 PKCE `S256` e passkey sono implementati e verificati nei test unitari ed E2E HTTP. [Servizio Better Auth](../apps/api/src/modules/auth/better-auth.service.ts), [test E2E HTTP](../apps/api/src/__tests__/auth-http-e2e.spec.ts), [piano](../PLAN.md)
 

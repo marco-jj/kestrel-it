@@ -24,11 +24,13 @@ interface LocalObjectMetadata {
 export class LocalStorageAdapter implements StorageProvider {
   readonly driver = 'local' as const;
   private readonly rootDir: string;
+  private readonly metadataDir: string;
 
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService<EnvConfig, true>,
   ) {
     this.rootDir = resolve(this.config.get('STORAGE_LOCAL_ROOT', { infer: true }));
+    this.metadataDir = join(this.rootDir, '.metadata');
   }
 
   async putObject(
@@ -48,7 +50,9 @@ export class LocalStorageAdapter implements StorageProvider {
       size: data.byteLength,
       updatedAt: new Date().toISOString(),
     };
-    await writeFile(`${filePath}.meta.json`, JSON.stringify(meta), 'utf8');
+    const metadataPath = this.resolveMetadataPath(category, key);
+    await mkdir(dirname(metadataPath), { recursive: true });
+    await writeFile(metadataPath, JSON.stringify(meta), 'utf8');
   }
 
   async getObjectStream(
@@ -70,9 +74,16 @@ export class LocalStorageAdapter implements StorageProvider {
 
     let mimeType = 'application/octet-stream';
     try {
-      const rawMeta = await readFile(`${filePath}.meta.json`, 'utf8');
+      const rawMeta = await readFile(this.resolveMetadataPath(category, key), 'utf8').catch(
+        async (error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error;
+          // Preserve MIME types for objects written by older releases.
+          return readFile(`${filePath}.meta.json`, 'utf8');
+        },
+      );
       const parsed = JSON.parse(rawMeta) as Partial<LocalObjectMetadata>;
-      if (typeof parsed.mimeType === 'string' && parsed.mimeType.length > 0) {
+      if (typeof parsed.mimeType === 'string' && parsed.mimeType &&
+          parsed.size === fileStat.size && typeof parsed.updatedAt === 'string') {
         mimeType = parsed.mimeType;
       }
     } catch {
@@ -89,7 +100,7 @@ export class LocalStorageAdapter implements StorageProvider {
   async deleteObject(category: StorageBucketCategory, key: string): Promise<void> {
     const filePath = this.resolveSafeFilePath(category, key);
     await rm(filePath, { force: true });
-    await rm(`${filePath}.meta.json`, { force: true });
+    await rm(this.resolveMetadataPath(category, key), { force: true });
   }
 
   async exists(category: StorageBucketCategory, key: string): Promise<boolean> {
@@ -124,10 +135,14 @@ export class LocalStorageAdapter implements StorageProvider {
     }
   }
 
-  private resolveSafeFilePath(category: StorageBucketCategory, key: string): string {
+  private resolveMetadataPath(category: StorageBucketCategory, key: string): string {
+    return this.resolveSafeFilePath(category, key, this.metadataDir);
+  }
+
+  private resolveSafeFilePath(category: StorageBucketCategory, key: string, root = this.rootDir): string {
     assertValidStorageCategory(category);
     const cleanKey = sanitizeStorageKey(key);
-    const categoryRoot = resolve(this.rootDir, category);
+    const categoryRoot = resolve(root, category);
     const resolvedPath = resolve(join(categoryRoot, cleanKey));
 
     if (!resolvedPath.startsWith(`${categoryRoot}${sep}`)) {

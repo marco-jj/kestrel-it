@@ -123,6 +123,20 @@ describe('LocalStorageAdapter', () => {
       NotFoundException,
     );
   });
+
+  it('keeps storage object keys independent from their metadata files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kestrel-storage-'));
+    tempDirs.push(root);
+    const adapter = new LocalStorageAdapter(makeConfigMock({ STORAGE_LOCAL_ROOT: root }));
+
+    await adapter.putObject('assets', 'record.meta.json', Buffer.from('attachment'), 'text/plain');
+    await adapter.putObject('assets', 'record', Buffer.from('record'), 'text/plain');
+    await adapter.deleteObject('assets', 'record');
+
+    const attachment = await adapter.getObjectStream('assets', 'record.meta.json');
+    expect(attachment.mimeType).toBe('text/plain');
+    expect((await bodyToBuffer(attachment.stream)).toString()).toBe('attachment');
+  });
 });
 
 describe('S3StorageAdapter (AWS SigV4 & Presigned URLs)', () => {

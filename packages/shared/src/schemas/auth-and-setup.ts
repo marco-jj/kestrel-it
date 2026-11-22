@@ -168,7 +168,7 @@ export type AuthProvidersStatusResponse = z.infer<typeof AuthProvidersStatusResp
 export const BetterAuthUserPayloadSchema = z.object({
   id: z.string().trim().min(1).max(255),
   email: z.string().trim().email().max(255),
-  emailVerified: z.boolean().default(true),
+  emailVerified: z.boolean().default(false),
   name: z.string().trim().max(255).optional(),
   username: z.string().trim().max(255).optional(),
   firstName: z.string().trim().max(255).optional(),
@@ -185,6 +185,8 @@ export const BetterAuthSessionExchangeRequestSchema = z.object({
   accountId: z.string().trim().min(1).max(255).optional(),
   sessionToken: z.string().trim().min(1).optional(),
   signature: z.string().trim().min(1).optional(),
+  issuedAt: z.number().int().positive().optional(),
+  nonce: z.string().uuid().optional(),
   user: BetterAuthUserPayloadSchema.optional(),
 });
 export type BetterAuthSessionExchangeRequest = z.infer<

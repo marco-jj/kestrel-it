@@ -1,12 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { count } from 'drizzle-orm';
+import { count, sql } from 'drizzle-orm';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { randomBytes, scryptSync } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import type { Sql } from 'postgres';
 import type { EnvConfig } from '../config/env.schema.js';
 import { DRIZZLE_DB, type DrizzleDb } from './database.tokens.js';
-import { settings, statusLabels, users } from './schema/index.js';
+import { authConsumedTokens, settings, statusLabels, users } from './schema/index.js';
 
 type DbOrTx = Pick<DrizzleDb, 'select' | 'insert'>;
+const STARTUP_LOCK = 1_804_723_651;
 
 function hashPasswordScrypt(password: string): string {
   const salt = randomBytes(16).toString('hex');
@@ -22,6 +26,34 @@ export class DatabaseBootstrapService {
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     @Inject(ConfigService) private readonly config: ConfigService<EnvConfig, true>,
   ) {}
+
+  async initialize(client: Sql): Promise<void> {
+    const connection = await client.reserve();
+    try {
+      await connection`SELECT pg_advisory_lock(${STARTUP_LOCK})`;
+      if (this.config.get('DB_AUTO_MIGRATE', { infer: true })) {
+        await migrate(this.db, {
+          migrationsFolder: fileURLToPath(new URL('../drizzle/', import.meta.url)),
+        });
+      }
+      await this.checkSchema();
+      await this.runHeadlessBootstrapIfConfigured();
+    } finally {
+      try {
+        await connection`SELECT pg_advisory_unlock(${STARTUP_LOCK})`;
+      } finally {
+        connection.release();
+      }
+    }
+  }
+
+  async checkSchema(): Promise<void> {
+    await this.db.execute(sql`
+      SELECT 1
+      FROM ${settings}, ${users}, ${statusLabels}, ${authConsumedTokens}
+      LIMIT 0
+    `);
+  }
 
   /**
    * Mirrors Snipe-IT Setting::setupCompleted(): true only when at least one user and one settings row exist.

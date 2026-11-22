@@ -107,7 +107,9 @@ export const users = pgTable(
   (table) => [
     index('idx_users_username').on(table.username),
     index('idx_users_email').on(table.email),
-    index('idx_users_oidc').on(table.oidcIssuer, table.oidcSubject),
+    uniqueIndex('uq_users_active_oidc')
+      .on(table.oidcIssuer, table.oidcSubject)
+      .where(sql`${table.deletedAt} IS NULL AND ${table.oidcIssuer} IS NOT NULL AND ${table.oidcSubject} IS NOT NULL`),
     index('idx_users_location_id').on(table.locationId),
     index('idx_users_department_id').on(table.departmentId),
     index('idx_users_manager_id').on(table.managerId),
@@ -176,6 +178,15 @@ export const personalAccessTokens = pgTable(
     index('idx_pat_token_hash').on(table.tokenHash),
     index('idx_pat_user_id').on(table.userId),
   ],
+);
+
+export const authConsumedTokens = pgTable(
+  'auth_consumed_tokens',
+  {
+    digest: varchar('digest', { length: 128 }).primaryKey(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [index('idx_auth_consumed_tokens_expires').on(table.expiresAt)],
 );
 
 export const loginAttempts = pgTable(
