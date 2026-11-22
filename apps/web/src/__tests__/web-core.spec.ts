@@ -1,6 +1,6 @@
 import '@angular/compiler';
 import type { HttpClient } from '@angular/common/http';
-import type { Router } from '@angular/router';
+import { convertToParamMap, type ActivatedRoute, type Router } from '@angular/router';
 import {
   ALL_PERMISSIONS,
   TWO_FACTOR_POLICY,
@@ -210,7 +210,8 @@ describe('SetupWizardComponent (3-Step Pre-Flight, Instance, Superuser)', () => 
     } as unknown as Router;
 
     const wizard = new SetupWizardComponent(store, httpMock, routerMock);
-    await wizard.loadStatus();
+    expect(wizard.ngOnInit()).toBeUndefined();
+    await vi.waitFor(() => expect(wizard.preflight()).toEqual(failingStatus));
 
     // Step 1 blocked while storageWritable is false
     expect(wizard.canProceedFromStep1()).toBe(false);
@@ -257,6 +258,28 @@ describe('SetupWizardComponent (3-Step Pre-Flight, Instance, Superuser)', () => 
 });
 
 describe('LoginComponent (Local + 2FA + SSO Providers)', () => {
+  it('starts the SSO challenge from a synchronous Angular lifecycle hook', async () => {
+    const store = new AuthStore();
+    const route = {
+      snapshot: { queryParamMap: convertToParamMap({ sso: 'challenge' }) },
+    } as ActivatedRoute;
+    const get = vi.fn(() =>
+      of({
+        status: '2fa_required',
+        requiresTwoFactor: true,
+        requiresEnrollment: false,
+        challengeToken: 'challenge-xyz',
+      }),
+    );
+    const http = { get } as unknown as HttpClient;
+    const login = new LoginComponent(store, http, undefined, undefined, route);
+
+    expect(login.ngOnInit()).toBeUndefined();
+    await vi.waitFor(() => expect(login.step()).toBe('2fa'));
+    expect(store.twoFactorChallengeToken()).toBe('challenge-xyz');
+    expect(get.mock.calls).toEqual([['/api/v1/auth/sso/challenge']]);
+  });
+
   it('loads SSO providers and transitions through 2FA enrollment to authenticated session', async () => {
     const store = new AuthStore();
     const providers: AuthProvidersStatusResponse = {
@@ -306,9 +329,8 @@ describe('LoginComponent (Local + 2FA + SSO Providers)', () => {
     } as unknown as Router;
 
     const login = new LoginComponent(store, httpMock, routerMock);
-    await login.loadProviders();
-
-    expect(login.ssoEnabled()).toBe(true);
+    expect(login.ngOnInit()).toBeUndefined();
+    await vi.waitFor(() => expect(login.ssoEnabled()).toBe(true));
     expect(login.ssoLoginPath()).toBe('/api/v1/auth/oauth/login');
     expect(login.ssoLabel()).toBe('OAuth (OAUTH2.1)');
 

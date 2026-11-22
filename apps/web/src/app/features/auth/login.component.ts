@@ -358,7 +358,11 @@ export class LoginComponent implements OnInit {
     this.themeStore.toggleTheme();
   }
 
-  async ngOnInit(): Promise<void> {
+  ngOnInit(): void {
+    void this.initializeLogin();
+  }
+
+  private async initializeLogin(): Promise<void> {
     if (this.route?.snapshot.queryParamMap.get('sso') === 'challenge' && this.http) {
       try {
         const response = await firstValueFrom(

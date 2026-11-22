@@ -486,8 +486,8 @@ export class SetupWizardComponent implements OnInit {
     this.themeStore.toggleTheme();
   }
 
-  async ngOnInit(): Promise<void> {
-    await this.loadStatus();
+  ngOnInit(): void {
+    void this.loadStatus();
   }
 
   async loadStatus(): Promise<void> {
