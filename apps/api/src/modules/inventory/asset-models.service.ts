@@ -11,6 +11,7 @@ import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import {
   actionLogs,
   assets,
+  checkoutRequests,
   customFieldDefaults,
   customFieldsets,
   depreciations,
@@ -256,6 +257,19 @@ export class AssetModelsService {
           .where(and(eq(assets.modelId, id), isNull(assets.deletedAt)))
           .limit(1);
         if (asset) throw new ConflictException('The model has active assets');
+        const [request] = await tx
+          .select({ id: checkoutRequests.id })
+          .from(checkoutRequests)
+          .where(
+            and(
+              eq(checkoutRequests.requestableType, 'model'),
+              eq(checkoutRequests.requestableId, id),
+              eq(checkoutRequests.state, 'pending'),
+              isNull(checkoutRequests.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (request) throw new ConflictException('The model has pending checkout requests');
       }
       await tx
         .update(models)

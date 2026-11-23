@@ -88,7 +88,7 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - CRUD `CustomFields` e `CustomFieldsets` + riordino + valori di default per `AssetModel` (`custom_field_defaults`).
   - Compilatore dinamico Zod in `CustomFieldsValidationService` (formati `ANY`, `ALPHA`, `NUMERIC`, `EMAIL`, `DATE`, `DATETIME`, `URL`, `IP`, `IPV4`, `IPV6`, `MAC`, `BOOLEAN`, `CUSTOM REGEX`).
   - Crittografia AES-256-GCM trasparente per i campi `field_encrypted = true` e mascheramento condizionato dal permesso `assets.view.encrypted_custom_fields`.
-  - Componente Angular `CustomFieldFormSectionComponent` nei form di Asset, Checkout e Checkin, con modalità Audit disponibile per il Piano 3.2.
+  - Componente Angular `CustomFieldFormSectionComponent` nei form di Asset, Checkout e Checkin. L'integrazione nel form di Audit è rinviata al Piano 3.2, dove sarà riutilizzata la modalità `audit` già disponibile.
 - [x] **Piano 2.3 — Asset Models & Hardware Assets**
   - Modulo `AssetModels` (`/api/v1/models`): CRUD, clone, restore, associazione `fieldset_id`, `depreciation_id`, `eol`, `require_serial`, `requestable`.
   - Modulo `Assets` (`/api/v1/hardware`): CRUD, ricerca per tag (`bytag`), ricerca per seriale (`byserial`), auto-increment `asset_tag`, contatori, bulk edit/delete/restore, filtro avanzato su colonne standard e chiavi `custom_fields JSONB`, `SavedSearches`.
@@ -101,7 +101,7 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
   - Implementare `CheckoutAcceptances` & EULA: creazione richiesta accettazione, pagina utente `/account/accept`, firma su canvas HTML5, salvataggio PNG + generazione PDF EULA storicizzato (`stored_eula_file`), notifiche di accettazione/rifiuto.
   - Completato `CheckoutRequests` per hardware e modelli, con catalogo `/account/requestable` e coda operatore `/requests`.
 
-Verifica della Fase 2 con `pnpm build`, `pnpm typecheck` e `pnpm test`. Per i test HTTP con PostgreSQL 16, impostare `INVENTORY_TEST_DATABASE_URL` su un cluster di test con un utente abilitato a creare database temporanei. La suite verifica schema iniziale, upgrade dalla Fase 1, scoping JWT/PAT e transazioni di inventario.
+Verifica della Fase 2 con `pnpm build`, `pnpm typecheck` e `pnpm test`. Per i test HTTP con PostgreSQL 16, impostare `INVENTORY_TEST_DATABASE_URL` su un cluster di test con un utente abilitato a creare database temporanei. La suite verifica schema iniziale, upgrade dalla Fase 1, scoping JWT/PAT e transazioni di inventario. Le regressioni di Fase 2 coprono modifica delegata dell'identità, trasferimento di azienda con sedi compatibili, cambio fieldset con conservazione dei valori comuni e ritiro di modelli con richieste. Il [test Angular in Chromium](apps/web/e2e/README.md) verifica bulk edit/restore, cambio di modello e il percorso dal checkout alla firma e al download dell'EULA.
 
 ---
 

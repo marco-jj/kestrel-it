@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import type { CoreInventoryResource } from '@kestrel-it/shared';
@@ -44,11 +44,14 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
       [total]="total()"
       [page]="page()"
       [creatable]="can('create') && !deleted()"
-      [selectable]="!deleted() && can('edit') && can('delete')"
+      [selectable]="can('delete') || (!deleted() && can('edit'))"
+      [bulkEdit]="!deleted() && can('edit')"
+      [bulkDelete]="!deleted() && can('delete')"
+      [bulkRestore]="deleted() && can('delete')"
       [loading]="loading()"
       (createClicked)="open()"
       (rowAction)="act($event)"
-      (searchChanged)="search = $event; page.set(1); reload()"
+      (searchChanged)="searchChanged($event)"
       (sortChanged)="sort = $event.sort; order = $event.order; reload()"
       (pageChanged)="page.set($event); reload()"
       (bulkAction)="bulk($event)"
@@ -119,6 +122,7 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
 export class DirectoryPageComponent implements OnInit {
   private readonly api = inject(InventoryApi);
   private readonly auth = inject(AuthStore);
+  private readonly grid = viewChild(KestrelDataGridComponent);
   readonly resource = inject(ActivatedRoute).snapshot.data['resource'] as CoreInventoryResource;
   readonly definition = DIRECTORY_UI[this.resource];
   readonly columns: DataGridColumn[] = [
@@ -166,7 +170,15 @@ export class DirectoryPageComponent implements OnInit {
           this.auth.can(permissionFor(this.resource, action));
   }
 
+  searchChanged(search: string): void {
+    this.grid()?.clearSelection();
+    this.search = search;
+    this.page.set(1);
+    void this.reload();
+  }
+
   toggleDeleted(): void {
+    this.grid()?.clearSelection();
     this.deleted.update((value) => !value);
     this.page.set(1);
     void this.reload();
@@ -196,11 +208,18 @@ export class DirectoryPageComponent implements OnInit {
   }
 
   private toForm(data: Record<string, unknown>, bulk = false): void {
-    const fields = this.definition.fields.filter(
-      (field) =>
-        (!field.superuserOnly || this.auth.currentUser()?.isSuperUser) &&
-        (!bulk || (!field.required && field.type !== 'password' && field.type !== 'permissions')),
-    );
+    const superuser = this.auth.currentUser()?.isSuperUser === true;
+    const editingUsers = this.resource === 'users' && (bulk || this.recordId !== undefined);
+    const fields = this.definition.fields.filter((field) => {
+      if (
+        !superuser &&
+        (field.superuserOnly || (editingUsers && ['username', 'email'].includes(field.key)))
+      )
+        return false;
+      return (
+        !bulk || (!field.required && field.type !== 'password' && field.type !== 'permissions')
+      );
+    });
     const controls: Record<string, FormControl> = {};
     for (const field of fields) {
       const initial =
@@ -248,7 +267,9 @@ export class DirectoryPageComponent implements OnInit {
     const ids = event.selectedIds.map(Number);
     if (event.action === 'bulk_delete') {
       this.confirm('delete', ids);
-    } else {
+    } else if (event.action === 'bulk_restore') {
+      this.confirm('restore', ids);
+    } else if (event.action === 'bulk_edit') {
       this.recordId = undefined;
       this.pendingAction.set(null);
       this.selectedIds.set(ids);
@@ -303,6 +324,7 @@ export class DirectoryPageComponent implements OnInit {
         );
       }
       this.drawer.set(false);
+      this.grid()?.clearSelection();
       this.message.set('Changes saved.');
       await this.reload();
     } catch (error) {

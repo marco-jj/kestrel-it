@@ -325,6 +325,153 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
     );
   });
 
+  it('reserves username and email changes for superusers in single and bulk directory edits', async () => {
+    const { payload: account } = await ok('POST', '/users', 'root', {
+      username: 'directory-subject',
+      email: 'directory@example.test',
+      activated: true,
+      company_ids: [westCompany],
+    });
+    const path = `/users/${account.id}`;
+    const changes = [
+      { username: 'directory-renamed' },
+      { email: 'directory-alias@example.test' },
+      { email: null },
+    ];
+    for (const change of changes) {
+      expect((await http('PATCH', path, 'west', change)).statusCode).toBe(403);
+      expect(
+        (
+          await http('PATCH', '/users/bulk', 'west', {
+            action: 'edit',
+            ids: [account.id],
+            changes: change,
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
+    await ok('PATCH', path, 'west', {
+      username: account.username,
+      email: account.email,
+      first_name: 'Directory',
+    });
+    expect(await ok('GET', path, 'west')).toMatchObject({
+      username: account.username,
+      email: account.email,
+      first_name: 'Directory',
+    });
+    await ok('PATCH', path, 'root', changes[0]);
+    expect(await ok('GET', path, 'west')).toMatchObject(changes[0]!);
+  });
+
+  it('validates the effective current and home locations when a scoped editor moves an asset', async () => {
+    await db.insert(tables.companyUser).values({ userId: west, companyId: eastCompany });
+    try {
+      const asset = await create('CompanyMove');
+      const path = `/hardware/${asset.id}`;
+      for (const change of [
+        { company_id: eastCompany },
+        { company_id: eastCompany, location_id: eastLocation },
+        { company_id: eastCompany, location_id: westLocation, rtd_location_id: eastLocation },
+      ]) {
+        expect((await http('PATCH', path, 'west', change)).statusCode).toBe(422);
+      }
+      expect(await ok('GET', path, 'west')).toMatchObject({
+        company_id: westCompany,
+        location_id: westLocation,
+        rtd_location_id: westLocation,
+      });
+      await ok('PATCH', '/hardware/bulk', 'west', {
+        action: 'edit',
+        ids: [asset.id],
+        changes: { company_id: eastCompany, rtd_location_id: eastLocation },
+      });
+      expect(await ok('GET', path, 'west')).toMatchObject({
+        company_id: eastCompany,
+        location_id: eastLocation,
+        rtd_location_id: eastLocation,
+      });
+      await ok('POST', path + '/checkout', 'root', { target_type: 'user', target_id: east });
+      await ok('POST', path + '/checkin', 'root');
+      expect(await ok('GET', path, 'west')).toMatchObject({
+        location_id: eastLocation,
+        rtd_location_id: eastLocation,
+        checkin_counter: 1,
+      });
+    } finally {
+      await db
+        .delete(tables.companyUser)
+        .where(
+          and(eq(tables.companyUser.userId, west), eq(tables.companyUser.companyId, eastCompany)),
+        );
+    }
+  });
+
+  it('changes model fieldsets atomically with confirmed removal, retained values, and new defaults', async () => {
+    const categoryId = (await ok('GET', `/models/${model}`, 'root')).category_id;
+    const color = (await ok('GET', '/fields?search=Color', 'root')).rows[0];
+    const { payload: destination } = await ok('POST', '/fieldsets', 'root', {
+      name: 'Destination fieldset',
+    });
+    const { payload: required } = await ok('POST', '/fields', 'root', {
+      name: 'Destination code',
+      element: 'text',
+    });
+    await ok('POST', `/fieldsets/${destination.id}/fields`, 'root', { field_id: color.id });
+    await ok('POST', `/fieldsets/${destination.id}/fields`, 'root', {
+      field_id: required.id,
+      required: true,
+    });
+    const { payload: target } = await ok('POST', '/models', 'root', {
+      name: 'Destination model',
+      category_id: categoryId,
+      fieldset_id: destination.id,
+    });
+    const asset = await create('ModelMove');
+    const second = await create('ModelMoveTwo');
+    const path = `/hardware/${asset.id}`;
+    const update = { model_id: target.id, confirm_custom_field_removal: true };
+    expect(
+      (
+        await http('PATCH', path, 'root', {
+          model_id: target.id,
+          custom_fields: { [required.db_column]: 'Supplied code' },
+        })
+      ).statusCode,
+    ).toBe(422);
+    expect((await http('PATCH', path, 'root', update)).statusCode).toBe(422);
+    const [before] = await db.select().from(tables.assets).where(eq(tables.assets.id, asset.id));
+    expect(before!.modelId).toBe(model);
+    expect(before!.customFields[encryptedKey]).toMatch(/^enc:v1:/);
+    await ok('POST', `/fieldsets/${destination.id}/fields/${target.id}`, 'root', {
+      [required.db_column]: 'Default destination code',
+    });
+    await ok('PATCH', '/hardware/bulk', 'root', {
+      action: 'edit',
+      ids: [asset.id, second.id],
+      changes: update,
+    });
+    for (const id of [asset.id, second.id] as number[]) {
+      const [saved] = await db.select().from(tables.assets).where(eq(tables.assets.id, id));
+      expect(saved!.modelId).toBe(target.id);
+      expect(saved!.customFields).toEqual({
+        [visibleKey]: 'Blue',
+        [required.db_column]: 'Default destination code',
+      });
+    }
+    await ok('PATCH', '/hardware/bulk', 'root', {
+      action: 'edit',
+      ids: [asset.id, second.id],
+      changes: { custom_fields: { [visibleKey]: 'Green' } },
+    });
+    expect(await ok('GET', path, 'root')).toMatchObject({
+      custom_fields: {
+        Color: { value: 'Green' },
+        'Destination code': { value: 'Default destination code' },
+      },
+    });
+  });
+
   it('allocates tags concurrently and preserves encrypted uniqueness and read masking', async () => {
     const results = await Promise.all([create('Alpha'), create('Beta')]);
     expect(new Set(results.map((row) => row.asset_tag)).size).toBe(2);
@@ -547,6 +694,46 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
     expect((await ok('GET', `/hardware/${canceled.id}`, 'west')).requests_counter).toBe(0);
   });
 
+  it('blocks retirement of models with pending requests and preserves requester history', async () => {
+    const categoryId = (await ok('GET', `/models/${model}`, 'root')).category_id;
+    const { payload: target } = await ok('POST', '/models', 'root', {
+      name: 'Request-only model',
+      category_id: categoryId,
+      requestable: true,
+    });
+    const { payload: request } = await ok('POST', `/account/request/models/${target.id}`, 'west');
+    const modelPath = `/models/${target.id}`;
+    expect((await http('DELETE', modelPath, 'root')).statusCode).toBe(409);
+    await ok('POST', `/account/requests/${request.id}/cancel`, 'west');
+    await ok('DELETE', modelPath, 'root');
+    const history = await ok('GET', '/account/requests', 'west');
+    expect(history.rows).toContainEqual(
+      expect.objectContaining({
+        id: request.id,
+        state: 'canceled',
+        item: 'Request-only model',
+      }),
+    );
+
+    // A record imported with an already retired model remains cancelable by its owner.
+    const [imported] = await db
+      .insert(tables.checkoutRequests)
+      .values({
+        userId: west,
+        requestableType: 'model',
+        requestableId: target.id,
+      })
+      .returning({ id: tables.checkoutRequests.id });
+    const own = await ok('GET', '/account/requests', 'west');
+    expect(own.rows).toContainEqual(
+      expect.objectContaining({ id: imported!.id, state: 'pending' }),
+    );
+    const staff = await ok('GET', '/requests', 'root');
+    expect(staff.rows).not.toContainEqual(expect.objectContaining({ id: imported!.id }));
+    const result = await ok('POST', `/account/requests/${imported!.id}/cancel`, 'west');
+    expect(result.payload.state).toBe('canceled');
+  });
+
   it('schedules a retry on SMTP failure and upgrades populated Phase 1 migrations', async () => {
     await app.get(InventoryMailService).deliverOne();
     const [retry] = await db
@@ -572,9 +759,33 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
         await cp(join(migrations, item.tag + '.sql'), join(old, item.tag + '.sql'));
       await migrate(drizzle(upgraded), { migrationsFolder: old });
       await upgraded`insert into assets (asset_tag) values ('OLD-001')`;
+      const [requester] =
+        await upgraded`insert into users (username) values ('legacy') returning id`;
+      const duplicates = await upgraded`
+        insert into checkout_requests (user_id, requestable_type, requestable_id)
+        values (${requester!.id}, 'model', 1), (${requester!.id}, 'model', 1)
+        returning id
+      `;
+      await expect(
+        migrate(drizzle(upgraded), { migrationsFolder: migrations }),
+      ).rejects.toMatchObject({
+        code: '23505',
+        constraint_name: 'uq_checkout_requests_pending_item',
+      });
+      expect(await upgraded`select state from checkout_requests order by id`).toEqual([
+        { state: 'pending' },
+        { state: 'pending' },
+      ]);
+      await upgraded`
+        update checkout_requests set state = 'canceled', canceled_at = now() where id = ${duplicates[1]!.id}
+      `;
       await migrate(drizzle(upgraded), { migrationsFolder: migrations });
       const [row] = await upgraded`select asset_tag, accepted from assets`;
       expect(row).toMatchObject({ asset_tag: 'OLD-001', accepted: null });
+      expect(await upgraded`select state from checkout_requests order by id`).toEqual([
+        { state: 'pending' },
+        { state: 'canceled' },
+      ]);
     } finally {
       await upgraded.end();
       await rm(old, { recursive: true, force: true });

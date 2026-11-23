@@ -177,7 +177,7 @@ export class CheckoutRequestsService {
       and(
         eq(checkoutRequests.requestableType, 'model'),
         sql`${models.id} is not null`,
-        isNull(models.deletedAt),
+        staff ? isNull(models.deletedAt) : undefined,
       ),
     );
     const filters = and(
@@ -328,7 +328,7 @@ export class CheckoutRequestsService {
       throw new ConflictException('Only pending requests can be canceled');
     const type = this.kind(row);
     const scope = await this.fmcs.resolve(user, tx);
-    const item = await this.item(tx, scope, type, row.requestableId);
+    const item = await this.item(tx, scope, type, row.requestableId, { includeDeletedModel: true });
     if (staff) await this.visibleUser(tx, scope, row.userId);
     const date = new Date();
     const [saved] = await tx
@@ -452,6 +452,7 @@ export class CheckoutRequestsService {
     scope: FmcsScope,
     type: RequestableKind,
     id: number,
+    options: { includeDeletedModel?: boolean } = {},
   ) {
     if (type === 'asset') {
       const row = await this.hardware.find(tx, scope, id, { lock: true });
@@ -464,7 +465,9 @@ export class CheckoutRequestsService {
     const [row] = await tx
       .select()
       .from(models)
-      .where(and(eq(models.id, id), isNull(models.deletedAt)))
+      .where(
+        and(eq(models.id, id), options.includeDeletedModel ? undefined : isNull(models.deletedAt)),
+      )
       .limit(1)
       .for('update');
     if (!row) throw new NotFoundException('Requestable model not found');

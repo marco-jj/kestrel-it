@@ -49,6 +49,7 @@ export const AssetInputSchema = z
     byod: z.boolean().optional(),
     notes: text(10_000),
     custom_fields: CustomFieldValuesSchema.optional(),
+    confirm_custom_field_removal: z.boolean().optional(),
   })
   .strict();
 

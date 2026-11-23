@@ -120,6 +120,7 @@ export class CustomFieldsValidationService {
       submitted?: Values;
       existing?: Values;
       applyDefaultsFrom?: number;
+      revalidateExisting?: boolean;
       assetId?: number;
       mode?: CustomFieldFormMode;
     },
@@ -146,7 +147,14 @@ export class CustomFieldsValidationService {
     );
     for (const { field, required } of active) {
       const hasInput = Object.hasOwn(submitted, field.dbColumn);
-      if (!hasInput && Object.hasOwn(saved, field.dbColumn)) continue;
+      if (!hasInput && Object.hasOwn(saved, field.dbColumn)) {
+        if (!input.revalidateExisting) continue;
+        const existing = this.decode(field, saved[field.dbColumn]);
+        if (present(existing)) {
+          await this.validateValue(field, existing, required);
+          continue;
+        }
+      }
       const value = hasInput
         ? submitted[field.dbColumn]
         : this.decodeDefault(field, defaultValues.get(field.id) ?? null);

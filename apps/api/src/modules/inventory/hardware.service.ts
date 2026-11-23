@@ -433,15 +433,6 @@ export class HardwareService {
     if (companyId !== null) await this.directory.reference(tx, scope, 'companies', companyId);
     if (dto.supplier_id != null)
       await this.directory.reference(tx, scope, 'suppliers', dto.supplier_id);
-    for (const location of new Set([dto.location_id, dto.rtd_location_id])) {
-      if (location != null) {
-        const target = await this.directory.reference(tx, scope, 'locations', location);
-        const targetCompanyIds = typeof target.companyId === 'number' ? [target.companyId] : [];
-        if (scope.scopeLocations && !this.fmcs.compatible(scope, companyId, targetCompanyIds)) {
-          fieldIssue('location_id', 'The location is outside the asset company scope');
-        }
-      }
-    }
     if (
       current?.assignedTo != null &&
       (companyId !== current.companyId || dto.location_id !== undefined)
@@ -450,6 +441,8 @@ export class HardwareService {
         'company_id',
         'Check in this asset before changing its company or current location',
       );
+
+    const locations = await this.resolveLocations(tx, dto, scope, companyId, current);
 
     const serial = dto.serial !== undefined ? dto.serial || null : (current?.serial ?? null);
     if (model.requireSerial && !serial)
@@ -461,10 +454,14 @@ export class HardwareService {
     await this.assertTag(tx, tag, current?.id);
 
     const entries = await this.validation.fields(tx, model.fieldsetId);
-    if (current && modelId !== current.modelId) {
+    const modelChanged = current !== undefined && modelId !== current.modelId;
+    if (modelChanged && dto.confirm_custom_field_removal !== true) {
       const nextKeys = new Set(entries.map(({ field }) => field.dbColumn));
       if (Object.keys(current.customFields).some((key) => !nextKeys.has(key))) {
-        fieldIssue('model_id', 'Clear custom values that are unavailable on the new model first');
+        fieldIssue(
+          'confirm_custom_field_removal',
+          'Confirm removal of saved custom values unavailable on the new model',
+        );
       }
     }
     const customFields = await this.validation.prepare(tx, {
@@ -472,7 +469,8 @@ export class HardwareService {
       submitted: dto.custom_fields,
       existing: current?.customFields,
       assetId: current?.id,
-      applyDefaultsFrom: current ? undefined : modelId,
+      applyDefaultsFrom: !current || modelChanged ? modelId : undefined,
+      revalidateExisting: modelChanged,
     });
     const changed = {
       name: dto.name,
@@ -482,13 +480,7 @@ export class HardwareService {
       statusId,
       companyId,
       supplierId: dto.supplier_id,
-      locationId:
-        dto.location_id !== undefined
-          ? dto.location_id
-          : current?.assignedTo == null && dto.rtd_location_id !== undefined
-            ? dto.rtd_location_id
-            : undefined,
-      rtdLocationId: dto.rtd_location_id,
+      ...locations,
       purchaseDate: dto.purchase_date,
       purchaseCost: dto.purchase_cost,
       orderNumber: dto.order_number,
@@ -508,6 +500,38 @@ export class HardwareService {
           .returning();
     await this.log(tx, row!, user.id, current ? 'update' : 'create');
     return this.serialize(row!, status, entries, user);
+  }
+
+  private async resolveLocations(
+    tx: InventoryTransaction,
+    dto: HardwareInput,
+    scope: FmcsScope,
+    companyId: number | null,
+    current?: Hardware,
+  ) {
+    const rtdLocationId =
+      dto.rtd_location_id !== undefined ? dto.rtd_location_id : (current?.rtdLocationId ?? null);
+    const useHomeLocation = current?.assignedTo == null && dto.rtd_location_id !== undefined;
+    const locationId =
+      dto.location_id !== undefined
+        ? dto.location_id
+        : useHomeLocation
+          ? rtdLocationId
+          : (current?.locationId ?? null);
+    const companyChanged = companyId !== current?.companyId;
+    const locations = [
+      ['location_id', locationId, dto.location_id !== undefined || useHomeLocation],
+      ['rtd_location_id', rtdLocationId, dto.rtd_location_id !== undefined],
+    ] as const;
+    for (const [key, id, written] of locations) {
+      if (id === null || (!companyChanged && !written)) continue;
+      const target = await this.directory.reference(tx, scope, 'locations', id);
+      const targetCompanies = typeof target.companyId === 'number' ? [target.companyId] : [];
+      if (scope.scopeLocations && !this.fmcs.compatible(scope, companyId, targetCompanies)) {
+        fieldIssue(key, 'The location is outside the asset company scope');
+      }
+    }
+    return { locationId, rtdLocationId };
   }
 
   private async nextTag(tx: InventoryTransaction, config: typeof settings.$inferSelect) {

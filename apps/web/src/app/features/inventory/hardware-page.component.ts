@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import {
   FormControl,
   FormGroup,
@@ -74,6 +74,11 @@ const filterFields: InventoryField[] = [
 ];
 type SavedSearch = { id: number; name: string; query: Record<string, string | number | boolean> };
 type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit';
+type AssetFormRecord = DataGridRow & {
+  model_id: number | null;
+  custom_field_schema: InventoryCustomField[];
+  custom_fields: Record<string, { field: string; value: unknown }>;
+};
 
 @Component({
   selector: 'kestrel-hardware-page',
@@ -189,7 +194,7 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
       (createClicked)="open('edit')"
       (rowAction)="act($event)"
       (bulkAction)="bulk($event)"
-      (searchChanged)="search = $event; page.set(1); load()"
+      (searchChanged)="searchChanged($event)"
       (sortChanged)="sort = $event.sort; order = $event.order; load()"
       (pageChanged)="page.set($event); load()"
     />
@@ -226,6 +231,12 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
           @default {
             <form [formGroup]="form()" (ngSubmit)="save()">
               <kestrel-inventory-form-fields [form]="form()" [fields]="fields()" />
+              @if (loadingFields()) {
+                <p role="status">Loading custom fields…</p>
+              }
+              @if (mode() === 'bulk_edit' && customFields().length) {
+                <p>Only custom fields you change will be applied to the selected assets.</p>
+              }
               @if (customFields().length && (isHardware || recordId())) {
                 <kestrel-custom-field-form-section
                   [form]="customForm()"
@@ -233,6 +244,17 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
                   [values]="customValues()"
                   [defaultsOnly]="!isHardware"
                 />
+              }
+              @if (retiredFields().length) {
+                <label>
+                  <input
+                    type="checkbox"
+                    [checked]="confirmFieldRemoval()"
+                    (change)="confirmFieldRemoval.set($any($event.target).checked)"
+                  />
+                  Remove saved values for fields unavailable on the new model:
+                  {{ retiredFields().join(', ') }}.
+                </label>
               }
             </form>
           }
@@ -248,7 +270,7 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
             <button
               class="k-btn k-btn-primary"
               type="button"
-              [disabled]="saving()"
+              [disabled]="saving() || loadingFields() || fieldLoadFailed()"
               (click)="save()"
             >
               {{ mode() === 'delete' ? 'Delete' : mode() === 'restore' ? 'Restore' : 'Save' }}
@@ -338,6 +360,7 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
 export class HardwarePageComponent implements OnInit {
   private readonly api = inject(InventoryApi);
   private readonly auth = inject(AuthStore);
+  private readonly grid = viewChild(KestrelDataGridComponent);
   readonly isHardware = inject(ActivatedRoute).snapshot.routeConfig?.path === 'hardware';
   readonly path = this.isHardware ? '/hardware' : '/models';
   readonly permission = this.isHardware ? 'assets' : 'models';
@@ -381,6 +404,10 @@ export class HardwarePageComponent implements OnInit {
   readonly customForm = signal(new FormRecord<FormControl>({}));
   readonly customFields = signal<InventoryCustomField[]>([]);
   readonly customValues = signal<Record<string, unknown>>({});
+  readonly loadingFields = signal(false);
+  readonly fieldLoadFailed = signal(false);
+  readonly retiredFields = signal<string[]>([]);
+  readonly confirmFieldRemoval = signal(false);
   readonly history = signal<DataGridRow[]>([]);
   readonly details = signal<Array<{ label: string; value: string }>>([]);
   search = '';
@@ -393,8 +420,7 @@ export class HardwarePageComponent implements OnInit {
   private applied: Record<string, string | number | boolean> = {};
   private loadSequence = 0;
   private formSequence = 0;
-  private originalModel: number | null = null;
-  private originalCustom: Record<string, unknown> = {};
+  private fieldSequence = 0;
 
   ngOnInit(): void {
     void this.load();
@@ -432,7 +458,15 @@ export class HardwarePageComponent implements OnInit {
     }
   }
 
+  searchChanged(search: string): void {
+    this.grid()?.clearSelection();
+    this.search = search;
+    this.page.set(1);
+    void this.load();
+  }
+
   toggleDeleted() {
+    this.grid()?.clearSelection();
     this.deleted.update((value) => !value);
     this.page.set(1);
     void this.load();
@@ -540,6 +574,10 @@ export class HardwarePageComponent implements OnInit {
     this.customFields.set([]);
     this.customValues.set({});
     this.customForm.set(new FormRecord<FormControl>({}));
+    this.loadingFields.set(false);
+    this.fieldLoadFailed.set(false);
+    this.retiredFields.set([]);
+    this.confirmFieldRemoval.set(false);
     const generation = ++this.formSequence;
     try {
       const data =
@@ -573,16 +611,20 @@ export class HardwarePageComponent implements OnInit {
             ? active.filter(({ key }) => !['asset_tag', 'serial', 'name'].includes(key))
             : active.filter(({ key }) => key !== 'location_id' || data['assigned_type'] == null);
         const form = this.addFields(fields, data, mode === 'bulk_edit');
-        this.originalModel = typeof data['model_id'] === 'number' ? data['model_id'] : null;
-        const stored = data['custom_fields'] as
-          Record<string, { field: string; value: unknown }> | undefined;
-        this.originalCustom = Object.fromEntries(
-          Object.values(stored ?? {}).map((item) => [item.field, item.value]),
-        );
-        if (mode === 'edit' && this.isHardware) {
-          if (this.originalModel) await this.loadAssetFields(this.originalModel, generation);
+        if (this.isHardware) {
+          const bulk = mode === 'bulk_edit';
+          const records = bulk
+            ? await Promise.all(
+                this.ids().map((assetId) => this.api.read<AssetFormRecord>(`/hardware/${assetId}`)),
+              )
+            : id === undefined
+              ? []
+              : [data as AssetFormRecord];
+          if (generation !== this.formSequence) return;
+          const modelId = Number(form.controls['model_id']?.value);
+          await this.loadAssetFields(modelId, generation, records, bulk);
           form.controls['model_id']?.valueChanges.subscribe((value) => {
-            void this.loadAssetFields(Number(value), generation);
+            void this.loadAssetFields(Number(value), generation, records, bulk);
           });
         } else if (
           !this.isHardware &&
@@ -619,29 +661,72 @@ export class HardwarePageComponent implements OnInit {
     }
   }
 
-  private async loadAssetFields(modelId: number, generation: number) {
-    const form = this.form();
-    if (!modelId) {
-      if (generation === this.formSequence) this.customFields.set([]);
-      return;
-    }
-    try {
-      const data = await this.api.read<{
-        fields: InventoryCustomField[];
-        defaults: Record<string, unknown>;
-      }>(`/hardware/form/${modelId}`);
-      if (generation !== this.formSequence || Number(form.controls['model_id']?.value) !== modelId)
+  private async loadAssetFields(
+    modelId: number,
+    generation: number,
+    records: AssetFormRecord[],
+    bulk: boolean,
+  ) {
+    if (generation !== this.formSequence) return;
+    const request = ++this.fieldSequence;
+    const isCurrent = () => generation === this.formSequence && request === this.fieldSequence;
+    this.error.set('');
+    this.fieldLoadFailed.set(false);
+    this.customFields.set([]);
+    this.customValues.set({});
+    this.retiredFields.set([]);
+    this.confirmFieldRemoval.set(false);
+
+    const first = records[0];
+    const commonFields = (first?.custom_field_schema ?? []).filter(({ db_column }) =>
+      records.every((record) =>
+        record.custom_field_schema.some((field) => field.db_column === db_column),
+      ),
+    );
+    let fields = commonFields;
+    let defaults: Record<string, unknown> = {};
+    const modelChanged = modelId > 0 && records.some((record) => modelId !== record.model_id);
+    if (modelId && (!first || modelChanged)) {
+      this.loadingFields.set(true);
+      try {
+        const data = await this.api.read<{
+          fields: InventoryCustomField[];
+          defaults: Record<string, unknown>;
+        }>(`/hardware/form/${modelId}`);
+        if (!isCurrent()) return;
+        fields = data.fields;
+        defaults = data.defaults;
+      } catch (error) {
+        if (isCurrent()) {
+          this.error.set(inventoryError(error));
+          this.fieldLoadFailed.set(true);
+        }
         return;
-      this.customFields.set(data.fields);
-      this.customValues.set(
-        this.recordId() === null
-          ? data.defaults
-          : modelId === this.originalModel
-            ? this.originalCustom
-            : {},
+      } finally {
+        if (isCurrent()) this.loadingFields.set(false);
+      }
+    }
+    this.loadingFields.set(false);
+
+    const keys = new Set(fields.map(({ db_column }) => db_column));
+    if (modelChanged) {
+      const retired = records
+        .flatMap((record) => record.custom_field_schema)
+        .filter(({ db_column }) => !keys.has(db_column))
+        .map(({ name }) => name);
+      this.retiredFields.set([...new Set(retired)]);
+    }
+    if (bulk) {
+      this.customFields.set(fields.map((field) => ({ ...field, required: false })));
+    } else {
+      const values = Object.values(first?.custom_fields ?? {}).filter(
+        ({ field, value }) => keys.has(field) && value != null,
       );
-    } catch (error) {
-      if (generation === this.formSequence) this.error.set(inventoryError(error));
+      this.customFields.set(fields);
+      this.customValues.set({
+        ...defaults,
+        ...Object.fromEntries(values.map(({ field, value }) => [field, value])),
+      });
     }
   }
 
@@ -682,6 +767,10 @@ export class HardwarePageComponent implements OnInit {
   }
 
   bulk(event: { action: string; selectedIds: Array<number | string> }) {
+    if (event.selectedIds.length > 100) {
+      this.error.set('Select up to 100 assets for a bulk change.');
+      return;
+    }
     this.ids.set(event.selectedIds.map(Number));
     void this.open(
       event.action === 'bulk_restore'
@@ -695,7 +784,7 @@ export class HardwarePageComponent implements OnInit {
   async save() {
     const mode = this.mode();
     const id = this.recordId();
-    if (this.saving() || mode === 'view') return;
+    if (this.saving() || this.loadingFields() || this.fieldLoadFailed() || mode === 'view') return;
     this.error.set('');
     const values = Object.fromEntries(
       Object.entries(this.form().controls)
@@ -710,6 +799,18 @@ export class HardwarePageComponent implements OnInit {
         .map(([key, control]) => [key, control.value === '' ? null : control.value]),
     );
     const custom = customFieldChanges(this.customForm(), this.customFields());
+    if (this.retiredFields().length) {
+      if (!this.confirmFieldRemoval()) {
+        this.error.set('Confirm removal of saved custom values before changing models.');
+        return;
+      }
+      values['confirm_custom_field_removal'] = true;
+    }
+    if (this.isHardware && Object.keys(custom).length) values['custom_fields'] = custom;
+    if (mode === 'bulk_edit' && Object.keys(values).length === 0) {
+      this.error.set('Change at least one field.');
+      return;
+    }
     if (
       ['clone', 'edit', 'bulk_edit'].includes(mode) &&
       (this.form().invalid || this.customForm().invalid)
@@ -733,7 +834,6 @@ export class HardwarePageComponent implements OnInit {
           changes: values,
         });
       } else {
-        if (this.isHardware && Object.keys(custom).length) values['custom_fields'] = custom;
         if (id === null || Object.keys(values).length) {
           await this.api.write(
             id === null ? 'POST' : 'PATCH',
@@ -747,6 +847,7 @@ export class HardwarePageComponent implements OnInit {
         }
       }
       this.drawer.set(false);
+      this.grid()?.clearSelection();
       this.message.set('Changes saved.');
       await this.load();
     } catch (error) {

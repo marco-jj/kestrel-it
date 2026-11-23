@@ -406,6 +406,15 @@ export class DirectoryService {
       throw new ForbiddenException('Company hierarchy changes require a superuser under FMCS');
     }
     if (resource === 'users') {
+      if (
+        !user.isSuperUser &&
+        existing &&
+        ['username', 'email'].some(
+          (key) => Object.hasOwn(input, key) && input[key] !== existing[key],
+        )
+      ) {
+        throw new ForbiddenException('Username and email changes require a superuser');
+      }
       await this.validateUser(tx, input, user, scope, id);
       if (!existing && scope.enabled && input.company_ids === undefined) {
         const companyId = this.fmcs.assign(scope, undefined);
