@@ -23,6 +23,11 @@ export const appRoutes: Routes = [
     component: AppShellComponent,
     canActivate: [setupCompletedGuard, authGuard],
     children: [
+      ...['fields', 'fieldsets'].map((path) => ({
+        path,
+        loadComponent: () => import('./features/inventory/custom-fields-page.component.js')
+          .then((module) => module.CustomFieldsPageComponent),
+      })),
       ...CORE_INVENTORY_RESOURCES.map((resource) => ({
         path: resource,
         data: { resource },
