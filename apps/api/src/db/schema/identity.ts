@@ -59,6 +59,7 @@ export const users = pgTable(
     displayName: varchar('display_name', { length: 255 }),
     permissions: jsonb('permissions').$type<PermissionMap>().notNull().default({}),
     activated: boolean('activated').notNull().default(false),
+    inventoryOnly: boolean('inventory_only').notNull().default(false),
     activatedAt: timestamp('activated_at', { withTimezone: true }),
     lastLogin: timestamp('last_login', { withTimezone: true }),
     employeeNum: varchar('employee_num', { length: 255 }),

@@ -173,8 +173,7 @@ export class OidcUserProvisioningService {
   }): Promise<typeof users.$inferSelect | null> {
     const { claims, usernameClaim, issuer, subject } = params;
     const claimUsername = asNonEmptyString(extractClaimValue(claims, usernameClaim));
-    const claimEmail =
-      claims['email_verified'] === true ? asNonEmptyString(claims['email']) : null;
+    const claimEmail = claims['email_verified'] === true ? asNonEmptyString(claims['email']) : null;
 
     const candidate = await this.findLinkCandidate(claimUsername, claimEmail);
     if (!candidate) {
@@ -203,6 +202,8 @@ export class OidcUserProvisioningService {
           eq(users.id, candidate.id),
           eq(users.activated, true),
           isNull(users.deletedAt),
+          eq(users.username, candidate.username),
+          candidate.email === null ? isNull(users.email) : eq(users.email, candidate.email),
           candidate.oidcIssuer == null
             ? isNull(users.oidcIssuer)
             : eq(users.oidcIssuer, candidate.oidcIssuer),

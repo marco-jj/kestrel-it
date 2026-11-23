@@ -10,6 +10,8 @@ import {
   hasAccess,
   isAdmin,
   isSuperUser,
+  ALL_PERMISSIONS,
+  hasKeyAccess,
   resolveEffectivePermissions,
   TWO_FACTOR_POLICY,
   type AuthenticatedUserContext,
@@ -650,6 +652,9 @@ export class AuthService {
       userCompanyIds: expandedCompanyIds,
       groupIds: groupRows.map((g) => g.id),
       effectivePermissions,
+      keyPermissions: Object.fromEntries(
+        ALL_PERMISSIONS.map((key) => [key, hasKeyAccess(userPerms, groupPermsList, key)]),
+      ) as AuthenticatedUserContext['keyPermissions'],
       twoFactorEnrolled: user.twoFactorEnrolled,
       twoFactorVerified,
       authMethod,

@@ -96,7 +96,26 @@ Ogni riga restituita da un Transformer include l'oggetto `available_actions` cal
 
 ---
 
-## 2. Mappa Completa dei Moduli NestJS ed Endpoint `/api/v1/*`
+## 2. Mappa dei Moduli NestJS ed Endpoint `/api/v1/*`
+
+### Rotte di inventario disponibili dalla Fase 2
+
+I percorsi sono relativi a `/api/v1`. La [mappa di progetto](#blueprint-di-parità) segue le rotte disponibili e include quelle previste nelle fasi successive. I permessi delle entità seguono la [matrice RBAC](03-rbac-policies-and-fmcs.md), con FMCS dove applicabile.
+
+| Area | Rotte disponibili | Autorizzazione |
+| :--- | :--- | :--- |
+| Directory (`companies`, `groups`, `users`, `locations`, `departments`, `categories`, `manufacturers`, `suppliers`, `statuslabels`) | `GET/POST /<entity>`, `GET/PUT/PATCH/DELETE /<entity>/:id`, `GET /<entity>/selectlist`, `PATCH /<entity>/bulk`, `POST /<entity>/:id/restore` per record con soft-delete | `<entity>.view/create/edit/delete` secondo l'azione. Bulk edit richiede `edit`, bulk delete e restore richiedono `delete`. Gruppi visibili agli amministratori e modificabili solo dai superuser. Gli operatori delegati possono creare un destinatario di inventario (`inventory_only`), utilizzabile per checkout senza accesso all'applicazione. Attivazione per l'accesso, credenziali e modifiche a username o email esistenti richiedono un superuser. Anche i campi webhook aziendali sono riservati ai superuser. |
+| Hardware e modelli | `GET/POST /hardware` e `/models`, `GET/PUT/PATCH/DELETE /hardware/:id` e `/models/:id`, `POST /hardware/:id/restore` e `/models/:id/restore`, `GET /hardware/bytag/:tag`, `/hardware/byserial/:serial`, `/hardware/custom-filter-fields`, `/hardware/form/:modelId`, `/hardware/:id/history`, `/models/:id/assets`, `/models/:id/history`, `POST /models/:id/clone`, `PATCH /hardware/bulk`, selectlist `/hardware`, `/models` e `/depreciations` | `assets.*` e `models.*` secondo l'operazione, con `assets.view.encrypted_custom_fields` per leggere in chiaro i valori cifrati. Il ripristino usa `delete`. |
+| Custom fields e fieldset | `GET/POST /fields` e `/fieldsets`, `GET/PUT/PATCH/DELETE /fields/:id` e `/fieldsets/:id`, `GET /fields/selectlist` e `/fieldsets/selectlist`, `POST /fields/:id/associate`, `/fields/:id/disassociate`, `/fields/fieldsets/:id/order`, `/fieldsets/:id/fields`, `GET/POST /fieldsets/:id/fields/:model` | `customfields.view/create/edit/delete` per il catalogo, con permessi dei modelli per lettura e scrittura dei default. |
+| Ricerche salvate | `GET/POST /saved-searches`, `GET/PUT/PATCH/DELETE /saved-searches/:id` | `assets.view` e proprietà della ricerca. |
+| Checkout e check-in | `GET /hardware/targets/:type`, `POST /hardware/:id/checkout` e `/hardware/bytag/:tag/checkout`, `POST /hardware/:id/checkin`, `/hardware/bytag/:tag/checkin` e `/hardware/checkinbytag` | Chiavi `assets.checkout` e `assets.checkin` secondo l'operazione. Entrambe consentono il selettore `/hardware/targets/location`. I selettori ricevono `companyId` per restringere le opzioni compatibili con FMCS. Il valore `0` rappresenta un asset senza azienda. |
+| Accettazione ed EULA | `GET /account/accept`, `GET/POST /account/accept/:id`, `GET /account/eulas`, `GET /account/accept/:id/eula` (PDF) e `/account/accept/:id/signature` (PNG) | Assegnatario o accesso autorizzato, con verifica FMCS. L'operatore che ha avviato la firma in presenza può raccogliere la risposta con `assets.checkout`. |
+| Richieste personali | `GET /account/requestable/:type` (`hardware`, `models`), `GET /account/requests`, `POST /account/request/:id` e `/account/request/models/:id`, `POST /account/requests/:id/cancel` e varianti `/cancel` per articolo | `assets.view.requestable` per catalogo e creazione, proprietà della richiesta per elenco e annullamento. |
+| Coda operatore | `GET /requests`, `POST /requests/:id/fulfill`, `POST /requests/:id/cancel` | Chiave `assets.checkout` e visibilità FMCS. |
+
+### Blueprint di parità
+
+Questa mappa conserva i riferimenti ai controller Snipe-IT e la struttura prevista per Kestrel-IT. Per lo stato delle funzionalità consultare il [piano](../PLAN.md) e la [mappa di parità](08-upstream-feature-map.md).
 
 | Modulo NestJS (`apps/api/src/modules/*`) | Controller & Transformer Snipe-IT | Endpoint REST (`/api/v1/...`) | Compiti Principali & Regole di Sicurezza |
 | :--- | :--- | :--- | :--- |

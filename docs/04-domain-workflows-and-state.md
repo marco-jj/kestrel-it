@@ -66,10 +66,38 @@ Quando viene invocato `POST /api/v1/hardware/{id}/checkout` (o `/bytag/{tag}/che
    - Scrive una riga in `action_logs` con `action_type = 'checkout'`, `item_type = 'asset'`, `item_id = asset.id`, `target_type = targetType`, `target_id = target.id`, `location_id = asset.locationId`, `note`, `expected_checkin`.
    - Se `target` è `User` e `asset.model.category.requireAcceptance === true`:
      - Crea un record in `checkout_acceptances` (`pending`), salvando uno snapshot del testo EULA attivo (`stored_eula`).
-     - Se `signInPlace === true` (firma immediata allo sportello), allega subito `signature_filename` e marca `accepted_at = now()`.
-   - Invia le notifiche `CheckoutAssetNotification` (Email / Webhook).
+     - In Kestrel-IT, `sign_in_place` mantiene l'accettazione in stato pendente alla fine del checkout. Angular apre `/account/accept/:id` per raccogliere la risposta dell'assegnatario in presenza. Un secondo invio prepara il PDF dell'EULA e l'eventuale firma PNG fuori dal lock globale dell'inventario. La transazione ricontrolla assegnazione, stato e obbligo di firma prima di registrare la decisione. Se il checkout si chiude nel frattempo, rimuove gli artefatti senza riferimenti.
+   - In Kestrel-IT, le notifiche SMTP dei flussi implementati vengono accodate nella transazione.
 
 ---
+
+### Configurazione e operazioni in Kestrel-IT
+
+- Configurare `require_acceptance`, `use_default_eula` ed `eula_text` dalla categoria. Dopo il setup, un operatore con accesso amministrativo a PostgreSQL può configurare il testo globale e l'obbligo di firma aggiornando `settings.default_eula_text` e `settings.require_accept_signature` nella riga di configurazione con ID minore. La Fase 2 usa quella riga e la pagina delle impostazioni globali è prevista in una fase successiva. Le nuove accettazioni conservano lo snapshot dell'EULA creato al checkout. Il requisito di firma è letto quando si apre e si invia l'accettazione.
+- Configurare SMTP con le variabili `SMTP_*`. Il worker preleva le notifiche da `inventory_mail_outbox`, applica il backoff in caso di errore e valorizza `failed_at` dopo otto tentativi. Gli operatori possono correlare l'ID e il tentativo registrati nei log dell'API con una query a PostgreSQL. Dopo aver corretto la configurazione SMTP, l'aggiornamento seguente rimette in coda una singola notifica esaurita. Verificare prima la consegna presso il provider per evitare un invio duplicato.
+
+```sql
+SELECT id, attempts, available_at, failed_at
+FROM inventory_mail_outbox
+WHERE sent_at IS NULL
+ORDER BY available_at, id;
+
+UPDATE inventory_mail_outbox
+SET attempts = 0, available_at = now(), failed_at = NULL
+WHERE id = $1 AND sent_at IS NULL AND failed_at IS NOT NULL;
+```
+
+- Quando un operatore soggetto a FMCS cambia l'azienda di un asset, l'API verifica sia la sede attuale sia quella di rientro, comprese quelle mantenute dalla scheda esistente. Per un asset non assegnato, cambiare la sede di rientro aggiorna anche la sede attuale quando il client la omette.
+- La cancellazione di un modello con richieste pendenti restituisce `409`. Dopo l'annullamento o l'evasione delle richieste e la rimozione degli asset attivi, il modello può essere eliminato. Le richieste concluse del modello restano nello storico del richiedente.
+- Prima della migrazione `0003_low_night_thrasher.sql`, verificare che la query seguente non restituisca duplicati. L'indice univoco `uq_checkout_requests_pending_item` copre le richieste attive in stato `pending`. Se esistono duplicati, scegliere quale richiesta mantenere aperta e registrare le restanti come `canceled` con `canceled_at`, aggiornando eventuali contatori degli asset interessati. La migrazione interrotta è transazionale e può essere ritentata.
+
+```sql
+SELECT user_id, requestable_type, requestable_id, array_agg(id ORDER BY id) AS request_ids
+FROM checkout_requests
+WHERE deleted_at IS NULL AND state = 'pending'
+GROUP BY user_id, requestable_type, requestable_id
+HAVING count(*) > 1;
+```
 
 ### 1.3 Flusso Transazionale di Checkin Asset (`AssetCheckinController` / `Api\AssetsController::checkin`)
 

@@ -1,3 +1,4 @@
+import { CORE_INVENTORY_RESOURCES } from '@kestrel-it/shared';
 import type { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard.js';
 import { setupCompletedGuard, setupIncompleteGuard } from './core/guards/setup.guard.js';
@@ -22,6 +23,43 @@ export const appRoutes: Routes = [
     component: AppShellComponent,
     canActivate: [setupCompletedGuard, authGuard],
     children: [
+      ...['account/accept', 'account/accept/:id', 'account/eulas'].map((path) => ({
+        path,
+        loadComponent: () =>
+          import('./features/inventory/acceptance-page.component.js').then(
+            (module) => module.AcceptancePageComponent,
+          ),
+      })),
+      ...['account/requestable', 'account/requests', 'requests'].map((path) => ({
+        path,
+        loadComponent: () =>
+          import('./features/inventory/checkout-requests-page.component.js').then(
+            (module) => module.CheckoutRequestsPageComponent,
+          ),
+      })),
+      { path: 'account/requestable-assets', pathMatch: 'full', redirectTo: 'account/requestable' },
+      ...['hardware', 'models'].map((path) => ({
+        path,
+        loadComponent: () =>
+          import('./features/inventory/hardware-page.component.js').then(
+            (module) => module.HardwarePageComponent,
+          ),
+      })),
+      ...['fields', 'fieldsets'].map((path) => ({
+        path,
+        loadComponent: () =>
+          import('./features/inventory/custom-fields-page.component.js').then(
+            (module) => module.CustomFieldsPageComponent,
+          ),
+      })),
+      ...CORE_INVENTORY_RESOURCES.map((resource) => ({
+        path: resource,
+        data: { resource },
+        loadComponent: () =>
+          import('./features/inventory/directory-page.component.js').then(
+            (module) => module.DirectoryPageComponent,
+          ),
+      })),
       {
         path: 'dashboard',
         component: DashboardComponent,

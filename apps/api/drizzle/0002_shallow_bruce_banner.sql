@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uq_assets_live_tag" ON "assets" USING btree ("asset_tag") WHERE "assets"."deleted_at" IS NULL;

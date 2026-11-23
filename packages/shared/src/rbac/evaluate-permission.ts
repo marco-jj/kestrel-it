@@ -36,6 +36,18 @@ export function isAdmin(
   return groupPermissionsList.some((group) => group['admin'] === 1);
 }
 
+/** Evaluates a permission key directly, independent of entity policy overrides. */
+export function hasKeyAccess(
+  userPermissions: PermissionMap,
+  groupPermissionsList: PermissionMap[],
+  permission: PermissionKey,
+): boolean {
+  if (isSuperUser(userPermissions, groupPermissionsList)) return true;
+  const direct = userPermissions[permission];
+  if (direct === 1 || direct === -1) return direct === 1;
+  return groupPermissionsList.some((group) => group[permission] === 1);
+}
+
 /**
  * Evaluates a single RBAC permission following Snipe-IT precedence:
  * Superuser > Explicit User Grant/Deny (1 / -1) > Admin (except 'superuser') > Group Grant (1).

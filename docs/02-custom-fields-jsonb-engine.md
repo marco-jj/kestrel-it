@@ -147,19 +147,16 @@ export function buildCustomFieldZodSchema(field: CustomFieldDefinition, isRequir
 
 ### 2.3 Gestione di `is_unique` e `field_encrypted` su JSONB
 1. **Validazione `is_unique`:**
-   Per i campi con `isUnique = true`, il servizio esegue una query Drizzle su PostgreSQL prima del salvataggio:
-   ```sql
-   SELECT id FROM assets
-   WHERE deleted_at IS NULL
-     AND id != $currentAssetId
-     AND custom_fields ->> $dbColumn = $submittedValue
-   LIMIT 1;
-   ```
+   Per i campi con `isUnique = true` il controllo comprende tutti gli asset attivi, escluso l'asset in modifica. Il confronto dei valori in chiaro avviene su JSONB e sulla rappresentazione testuale. Per i campi cifrati il servizio legge solo le righe che contengono la chiave, decifra il valore e confronta il contenuto normalizzato. Ogni cifratura usa un IV casuale, quindi lo stesso valore può produrre ciphertext diversi. Le scritture dell'inventario Fase 2 acquisiscono il lock transazionale PostgreSQL `pg_advisory_xact_lock(64102, 2)`. Il lock serializza i controlli di unicità con il salvataggio, anche durante bulk edit e ripristino.
 2. **Crittografia `field_encrypted`:**
    - I campi con `fieldEncrypted = true` vengono cifrati tramite **AES-256-GCM** (`enc:v1:<iv>:<authTag>:<ciphertext>`) prima di essere scritti in `assets.custom_fields[dbColumn]`.
    - In fase di serializzazione (`CustomFieldValuesTransformer`), se il campo è cifrato:
      - Se l'utente ha il permesso `assets.view.encrypted_custom_fields`, il valore viene decifrato al volo.
      - Altrimenti viene restituita la stringa `"ENCRYPTED"` (esattamente come in [`CustomFieldValuesTransformer.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Http/Transformers/CustomFieldValuesTransformer.php#L32-L34)).
+
+Al cambio del modello, il servizio conserva i valori dei campi comuni e applica i default del nuovo modello ai campi senza valore, salvo un valore inviato dal client. L'API richiede `confirm_custom_field_removal: true` per rimuovere valori salvati che il nuovo fieldset non supporta. Il client Angular mostra i nomi dei campi interessati e chiede conferma. I nuovi requisiti, la rimozione dei valori e il cambio del modello sono gestiti nella stessa transazione, anche in bulk. I valori rimossi, inclusi quelli cifrati, non vengono copiati nei log.
+
+Il filtro hardware usa il containment JSONB (`@>`) per cercare un valore scalare oppure una singola opzione in un campo checkbox. L'operatore è supportato dall'indice GIN su `assets.custom_fields`. I campi cifrati sono esclusi dai filtri.
 
 ### 2.4 Formato di Serializzazione API (`custom_fields` in `AssetsTransformer`)
 La risposta Kestrel prevista per `GET /api/v1/hardware` riprende la struttura di `CustomFieldValuesTransformer`:

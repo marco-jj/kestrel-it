@@ -38,7 +38,20 @@ Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 
 
 ---
 
-## 3. Mappa delle rotte Angular previste (`apps/web/src/app/app.routes.ts`)
+## 3. Mappa delle rotte Angular (`apps/web/src/app/app.routes.ts`)
+
+### Rotte di inventario disponibili dalla Fase 2
+
+| Percorso | Funzioni disponibili |
+| :--- | :--- |
+| `/hardware` | Lista, filtri, ricerche salvate e quickscan. Creazione, dettaglio, modifica, checkout e check-in si aprono in drawer. Il bulk edit mostra i custom field comuni agli asset selezionati oppure quelli del modello di destinazione. |
+| `/models` | Lista, dettaglio, creazione, modifica, clonazione, eliminazione e ripristino tramite drawer. |
+| `/fields`, `/fieldsets` | Catalogo, composizione dei fieldset, obbligatorietà e riordino. |
+| `/companies`, `/groups`, `/users`, `/locations`, `/departments`, `/categories`, `/manufacturers`, `/suppliers`, `/statuslabels` | Directory, con azioni bulk offerte secondo il permesso dell'operatore. Per le risorse con soft-delete, il ripristino bulk è disponibile nella vista dei record eliminati. |
+| `/account/accept`, `/account/accept/:id`, `/account/eulas` | Accettazioni, firma su canvas quando richiesta e download di EULA e firma. |
+| `/account/requestable`, `/account/requests`, `/requests` | Catalogo hardware e modelli, richieste personali e coda per operatori con `assets.checkout`. `/account/requestable-assets` reindirizza al catalogo. |
+
+### Struttura prevista per la parità
 
 L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-it/routes/web.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php) e [`../snipe-it/routes/web/*`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web) con breadcrumb e guard per le rotte protette. Il guard di setup reindirizza a `/setup` finché la configurazione iniziale è incompleta.
 
@@ -102,7 +115,7 @@ L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-i
 │   ├── /profile                        # Modifica profilo, lingua, password, avatar, 2FA TOTP
 │   ├── /view-assets                    # "My Assigned Assets, Licenses, Accessories & Consumables" + scarico EULA firmati
 │   ├── /accept                         # Coda accettazioni pendenti (`/account/accept/:id` con lettura EULA + SignaturePad)
-│   ├── /requestable-assets             # Catalogo Self-Service (Hardware, Models, Accessories, Consumables, Components, Licenses)
+│   ├── /requestable                    # Catalogo Self-Service (Hardware, Models, Accessories, Consumables, Components, Licenses)
 │   └── /api                            # Gestione Personal Access Tokens (se ha permesso `self.api`)
 │
 └── /admin                              # Impostazioni Globali (solo `superuser`):
@@ -128,5 +141,5 @@ L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-i
    - Mantiene `currentUser = signal<UserProfile | null>(null)`, `permissions = computed(...)`, `settings = signal<PublicSettings>(...)`.
    - Espone il metodo `can(permission: PermissionKey): boolean` che usa la stessa funzione pura `@kestrel-it/shared` del backend, più una direttiva strutturale `*kestrelCan="'assets.checkout'"`.
 2. **Reattività Company-Scoped (FMCS nei Form)**:
-   - Nei form di creazione/modifica o checkout, il campo `companyId` è esposto come `Signal<number | null>` (tramite `toSignal(form.controls.companyId.valueChanges)`).
-   - Tutti i `<kestrel-async-select>` figli nella stessa schermata (es. Location, Department, User target, Asset target) ricevono `[companyId]="selectedCompanyId()"` e ricaricano automaticamente i risultati filtrati per quell'azienda quando l'operatore cambia azienda.
+   - I selettori di sedi, dipartimenti e utenti ricaricano le opzioni quando cambia l'azienda del form. Per i form utente, un'appartenenza aziendale singola fornisce il filtro.
+   - I drawer di checkout e check-in usano l'azienda dell'asset per caricare destinatari e sedi di rientro. I filtri delle selectlist seguono le regole FMCS del server, inclusi i record floater e le sedi condivise.

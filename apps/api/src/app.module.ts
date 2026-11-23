@@ -10,6 +10,7 @@ import { validateEnv } from './config/env.schema.js';
 import { DatabaseModule } from './db/database.module.js';
 import { HealthController } from './health/health.controller.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { InventoryModule } from './modules/inventory/inventory.module.js';
 import { SetupModule } from './modules/setup/setup.module.js';
 
 @Module({
@@ -24,6 +25,7 @@ import { SetupModule } from './modules/setup/setup.module.js';
     StorageModule,
     AuthModule,
     SetupModule,
+    InventoryModule,
   ],
   controllers: [HealthController],
   providers: [
