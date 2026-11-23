@@ -547,19 +547,27 @@ export class ReportsController {
       : allowed.filter((field) => !extra.includes(field));
     if (columns.some((field) => !allowed.includes(field)))
       throw new UnprocessableEntityException('Unknown or unavailable report column');
-    const { from, order } = this.projection(source, query);
+    const { baseFrom, from, searchCondition, order } = this.projection(source, query);
     const config = type === 'depreciation' ? await currentSettings(this.db) : undefined;
     const method = config?.depreciationMethod ?? 'default';
     const asOf = query.as_of ?? new Date().toISOString().slice(0, 10);
     const ranked =
-      type === 'depreciation' && query.sort === 'book_value'
-        ? await this.rankBookValues(from, method, asOf, query.order)
+      type === 'depreciation' && (query.sort === 'book_value' || Boolean(query.search))
+        ? await this.rankBookValues(
+            baseFrom,
+            order,
+            searchCondition,
+            method,
+            asOf,
+            query.sort === 'book_value' ? query.order : undefined,
+            query.search,
+          )
         : undefined;
     const pages = async (offset: number, limit: number) => {
       const entries = ranked?.slice(offset, offset + limit);
       if (entries?.length === 0) return [];
       const statement = entries
-        ? sql`select * from (select * ${from}) scoped
+        ? sql`select * ${baseFrom}
             where id in (${sql.join(entries.map(({ id }) => sql`${id}`), sql`, `)})`
         : sql`select * ${from} order by ${order} limit ${limit} offset ${offset}`;
       const records = await this.db.execute<Row>(statement);
@@ -640,24 +648,34 @@ export class ReportsController {
   }
 
   private async rankBookValues(
-    from: SQL,
+    baseFrom: SQL,
+    sqlOrder: SQL,
+    searchCondition: SQL | undefined,
     method: DepreciationMethod,
     asOf: string,
-    order: 'asc' | 'desc',
+    bookOrder: 'asc' | 'desc' | undefined,
+    search: string | undefined,
   ) {
-    // Rank the scoped IDs with the same calculation used by asset and license details.
-    const rows = await this.db.execute<DepreciationInputs>(
-      sql`select id, purchase_cost, purchase_date, _schedule ${from}`,
+    // Evaluate book values with the same calculation used by asset and license details.
+    const rows = await this.db.execute<DepreciationInputs & { _sql_match: boolean }>(
+      sql`select id, purchase_cost, purchase_date, _schedule,
+        ${searchCondition ? sql`coalesce(${searchCondition}, false)` : sql`true`} as _sql_match
+        ${baseFrom}
+        ${bookOrder ? sql`` : sql`order by ${sqlOrder}`}`,
     );
-    const ranked = rows.map((row) => {
+    const needle = search?.toLowerCase();
+    const matched = rows.flatMap((row) => {
       const value = reportBookValue(row, method, asOf);
-      return { id: row.id, value, cents: value === null ? null : moneyInCents(value) };
+      if (needle && !row._sql_match && !(value !== null && value.toLowerCase().includes(needle)))
+        return [];
+      return [{ id: row.id, value, cents: value === null ? null : moneyInCents(value) }];
     });
-    return ranked.sort((a, b) => {
+    if (!bookOrder) return matched;
+    return matched.sort((a, b) => {
       if (a.cents === b.cents) return b.id - a.id;
       if (a.cents === null) return 1;
       if (b.cents === null) return -1;
-      return (a.cents < b.cents ? -1 : 1) * (order === 'asc' ? 1 : -1);
+      return (a.cents < b.cents ? -1 : 1) * (bookOrder === 'asc' ? 1 : -1);
     });
   }
 
@@ -671,18 +689,21 @@ export class ReportsController {
     const searchable = Object.keys(source.fields).filter(
       (name) => !source.hidden?.includes(name) && name !== 'product_key',
     );
-    const search = query.search
-      ? sql`where (${sql.join(
+    const searchCondition = query.search
+      ? sql`(${sql.join(
           searchable.map(
             (name) => sql`${sql.identifier(name)}::text ilike ${'%' + query.search + '%'}`,
           ),
           sql` or `,
         )})`
-      : sql``;
+      : undefined;
+    const baseFrom = sql`from (select ${fields} ${source.from} where ${source.where}) report`;
     const sort = query.sort && searchable.includes(query.sort) ? query.sort : (source.sort ?? 'id');
     const order = sql`${sql.identifier(sort)} ${query.order === 'asc' ? sql`asc` : sql`desc`}, id desc`;
     return {
-      from: sql`from (select ${fields} ${source.from} where ${source.where}) report ${search}`,
+      baseFrom,
+      from: searchCondition ? sql`${baseFrom} where ${searchCondition}` : baseFrom,
+      searchCondition,
       order,
     };
   }

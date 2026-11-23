@@ -1514,6 +1514,40 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     }
   });
 
+  it('keeps shared location attachments accessible when FMCS location scoping is disabled', async () => {
+    await db.update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} || '{"locations.files":1}'::jsonb` })
+      .where(eq(tables.users.id, west));
+    const [sharedNull] = await db
+      .insert(tables.locations)
+      .values({ name: 'Shared null-company location', companyId: null })
+      .returning({ id: tables.locations.id });
+    await db.update(tables.settings).set({ scopeLocationsFmcs: false });
+    try {
+      for (const locationId of [eastLocation, sharedNull!.id]) {
+        const path = `/locations/${locationId}/files`;
+        const content = Buffer.from(`Shared location document ${locationId}`);
+        const upload = await multipart(path, 'west', 'shared.txt', content, 'text/plain');
+        expect(upload.statusCode, upload.body).toBe(201);
+        const [{ id }] = upload.json().payload;
+        expect((await ok('GET', path, 'west')).rows).toContainEqual(
+          expect.objectContaining({ id, filename: 'shared.txt' }),
+        );
+        expect((await http('GET', `${path}/${id}`, 'west')).rawPayload).toEqual(content);
+        await ok('DELETE', `${path}/${id}`, 'west');
+        expect((await http('GET', `${path}/${id}`, 'west')).statusCode).toBe(404);
+        expect(await app.get(StorageDeletionService).deleteOne()).toBe(true);
+      }
+      await db.update(tables.settings).set({ scopeLocationsFmcs: true });
+      expect((await http('GET', `/locations/${eastLocation}/files`, 'west')).statusCode).toBe(404);
+    } finally {
+      await db.update(tables.settings).set({ scopeLocationsFmcs: true });
+      await db.update(tables.users)
+        .set({ permissions: sql`${tables.users.permissions} - 'locations.files'` })
+        .where(eq(tables.users.id, west));
+    }
+  });
+
   it('commits file deletions before storage cleanup and retries without blocking other inventory writes', async () => {
     const asset = await create('file-cleanup');
     const path = `/hardware/${asset.id}/files`;
@@ -1671,6 +1705,21 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
         .toEqual([{ book_value: '640.00' }]);
       expect((await ok('GET', selection + '&limit=1&order=desc', 'west')).rows)
         .toEqual([{ book_value: '640.00' }]);
+      const bookSearch = `/reports/depreciation?model_id=${depreciating.id}&as_of=2024-07-01&columns=asset_tag,book_value`;
+      expect(await ok('GET', bookSearch + '&search=640.00', 'west')).toMatchObject({
+        total: 1,
+        rows: [expect.objectContaining({ book_value: '640.00' })],
+      });
+      expect(await ok('GET', bookSearch + '&search=80.00&sort=book_value&order=asc', 'west')).toMatchObject({
+        total: 1,
+        rows: [expect.objectContaining({ book_value: '80.00' })],
+      });
+      expect((await ok('GET', bookSearch + '&search=book-2023-07-01', 'west')).total).toBe(1);
+      expect((await ok('GET', bookSearch + '&search=999.99', 'west')).total).toBe(0);
+      const searchedCsv = await http('GET', bookSearch + '&search=640.00&format=csv', 'west');
+      expect(parseCsv(searchedCsv.body, { columns: true })).toEqual([
+        expect.objectContaining({ book_value: '640.00' }),
+      ]);
       const csv = await http('GET', selection + '&format=csv&order=asc', 'west');
       expect(parseCsv(csv.body, { columns: true })).toEqual([{ book_value: '80.00' }, { book_value: '640.00' }]);
       const xlsx = await http('GET', selection + '&format=xlsx&order=desc', 'west');
@@ -1779,6 +1828,36 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     expect(imported).toMatchObject({ companyId: westCompany, locationId: westSite!.id });
     expect(await db.select().from(tables.locations).where(eq(tables.locations.name, 'Shared import location')))
       .toHaveLength(2);
+
+    const [westUpdatedSite] = await db.insert(tables.locations).values([
+      { name: 'Updated import location', companyId: westCompany },
+      { name: 'Updated import location', companyId: eastCompany },
+    ]).returning({ id: tables.locations.id });
+    const updateCsv = `Asset Tag,Location\n${tag},Updated import location`;
+    const updateUpload = await multipart(
+      '/imports',
+      'root',
+      'update-without-company.csv',
+      Buffer.from(updateCsv),
+      'text/csv',
+    );
+    expect(updateUpload.statusCode, updateUpload.body).toBe(201);
+    const [{ id: updateId }] = updateUpload.json().payload;
+    await ok('POST', `/imports/process/${updateId}`, 'root', {
+      import_type: 'asset',
+      update_existing: true,
+      field_map: { 0: 'asset_tag', 1: 'location' },
+    });
+    await app.get(ImportsController).processOne();
+    expect((await ok('GET', `/imports/${updateId}/progress`, 'root')).run).toMatchObject({
+      updated: 1,
+      errored: 0,
+    });
+    const [updated] = await db.select().from(tables.assets).where(eq(tables.assets.assetTag, tag));
+    expect(updated).toMatchObject({ companyId: westCompany, locationId: westUpdatedSite!.id });
+    expect(
+      await db.select().from(tables.locations).where(eq(tables.locations.name, 'Updated import location')),
+    ).toHaveLength(2);
   });
 
   it('runs all twelve upstream import types and keeps historical checkouts out of live state', async () => {

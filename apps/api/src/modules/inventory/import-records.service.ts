@@ -20,6 +20,7 @@ import {
   assets,
   categories,
   companies,
+  companyUser,
   customFieldsets,
   departments,
   depreciations,
@@ -184,13 +185,12 @@ export class ImportRecordsService {
                 )
               : undefined,
           );
-    const company = resource === 'locations' ? attrs.company_id : undefined;
+    const company =
+      resource === 'locations' || resource === 'departments' ? attrs.company_id : undefined;
     const id =
-      typeof company === 'number'
-        ? (await this.unique(
-            ctx, locations, resource, and(where, eq(locations.companyId, company)),
-          )) ??
-          (await this.unique(ctx, locations, resource, and(where, isNull(locations.companyId))))
+      typeof company === 'number' && columns.companyId
+        ? (await this.unique(ctx, table, resource, and(where, eq(columns.companyId, company)))) ??
+          (await this.unique(ctx, table, resource, and(where, isNull(columns.companyId))))
         : await this.unique(ctx, table, resource, where);
     if (id !== undefined) return id;
     if (!create) fail(`No visible ${resource} record matches the row`);
@@ -259,6 +259,26 @@ export class ImportRecordsService {
       }
     }
     return this.unique(ctx, table, resource, where);
+  }
+
+  private async existingCompany(ctx: Context, type: ImportType, id: number): Promise<number | null> {
+    if (type === 'user') {
+      const memberships = await ctx.tx
+        .select({ companyId: companyUser.companyId })
+        .from(companyUser)
+        .where(eq(companyUser.userId, id))
+        .limit(2);
+      return memberships.length === 1 ? memberships[0]!.companyId : null;
+    }
+    const [table] = definitions[type];
+    const columns = getTableColumns(table as PgTable);
+    if (!columns.companyId) return null;
+    const [row] = await ctx.tx
+      .select({ companyId: columns.companyId })
+      .from(table)
+      .where(eq(columns.id!, id))
+      .limit(1);
+    return (row?.companyId as number | null | undefined) ?? null;
   }
 
   private async linkedModel(ctx: Context) {
@@ -438,7 +458,15 @@ export class ImportRecordsService {
         type === 'asset' || type === 'license' ? 'supplier_id' : 'default_supplier_id',
         'suppliers',
       );
-    const companyAttrs = company ? { company_id: company } : {};
+    const recordCompany =
+      company !== undefined
+        ? company
+        : 'company' in cells
+          ? null
+          : current !== undefined
+            ? await this.existingCompany(ctx, type, current)
+            : undefined;
+    const companyAttrs = typeof recordCompany === 'number' ? { company_id: recordCompany } : {};
     await setRelation('location', 'location_id', 'locations', companyAttrs);
     await setRelation('rtd_location', 'rtd_location_id', 'locations', companyAttrs);
     await setRelation('parent', 'parent_id', 'locations', companyAttrs);
@@ -496,9 +524,9 @@ export class ImportRecordsService {
           custom.map(([key, value]) => [key.slice(7), value || null]),
         );
       const row = await this.hardware.saveInTransaction(tx, data, actor, current);
-      const target = await this.target(ctx, type, company);
+      const existing = await this.hardware.find(tx, scope, row.id);
+      const target = await this.target(ctx, type, existing.companyId);
       if (target) {
-        const existing = await this.hardware.find(tx, scope, row.id);
         if (
           existing.assignedTo !== target.target_id ||
           existing.assignedType !== target.target_type
@@ -622,9 +650,9 @@ export class ImportRecordsService {
     requireInventoryPermission(ctx.actor, 'assets.edit');
     if (!id) fail('Asset history requires an existing asset');
     if (!ctx.cells.checkout_at) fail('A historical checkout date is required');
-    const target = await this.target(ctx, 'assetHistory', undefined, true);
-    if (!target) fail('A historical checkout target is required');
     const asset = await this.hardware.find(ctx.tx, ctx.scope, id);
+    const target = await this.target(ctx, 'assetHistory', asset.companyId, true);
+    if (!target) fail('A historical checkout target is required');
     const events = [
       {
         type: 'checkout',

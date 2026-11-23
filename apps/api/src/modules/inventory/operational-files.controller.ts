@@ -187,7 +187,9 @@ export class OperationalFilesController {
       bucket,
       scope,
       companyScoped:
-        Boolean(columns.companyId) || resource === 'companies' || resource === 'maintenances',
+        (Boolean(columns.companyId) && (resource !== 'locations' || scope.scopeLocations)) ||
+        resource === 'companies' ||
+        resource === 'maintenances',
       companyId: resource === 'companies' ? id : (parent.company as number | null),
     };
   }
