@@ -284,7 +284,7 @@ export class CheckoutRequestsService {
         .returning();
       if (type === 'asset') await this.bump(tx, id, 1);
       await this.log(tx, record!, user.id, 'requested', item.companyId);
-      await this.notify(tx, 'New checkout request', item.label, user.username);
+      await this.notify(tx, 'New checkout request', item.label, user.username, 'request.created');
       return success(this.present(record!), 'Checkout request submitted');
     });
   }
@@ -338,7 +338,7 @@ export class CheckoutRequestsService {
       .returning();
     if (type === 'asset') await this.bump(tx, row.requestableId, -1);
     await this.log(tx, saved!, user.id, 'canceled', item.companyId);
-    await this.notify(tx, 'Checkout request canceled', item.label, user.username);
+    await this.notify(tx, 'Checkout request canceled', item.label, user.username, 'request.canceled');
     return success(this.present(saved!), 'Checkout request canceled');
   }
 
@@ -507,6 +507,7 @@ export class CheckoutRequestsService {
     subject: string,
     label: string,
     requester: string,
+    event: 'request.created' | 'request.canceled',
   ) {
     const [config] = await tx
       .select({ enabled: settings.alertsEnabled, recipient: settings.alertEmail })
@@ -515,7 +516,7 @@ export class CheckoutRequestsService {
       .limit(1);
     if (!config?.enabled) return;
     const url = new URL('/requests', this.env.get('APP_URL', { infer: true }));
-    await this.mail.enqueue(tx, config.recipient, subject, `${label} — ${requester}\n${url.href}`);
+    await this.mail.enqueue(tx, config.recipient, subject, `${label} — ${requester}\n${url.href}`, event);
   }
 
   private requireRequestable(user: AuthenticatedUserContext) {

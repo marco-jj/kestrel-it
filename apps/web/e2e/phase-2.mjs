@@ -248,3 +248,219 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
     await returnLocations;
   });
 });
+
+test(
+  'Phase 3 inventory and operations through Angular and Chromium',
+  { timeout: 90_000 },
+  async (t) => {
+    const browser = await chromium.launch({ executablePath });
+    t.after(() => browser.close());
+    const page = await signIn(browser, username, password);
+    const marker = randomUUID().slice(0, 8);
+    const create = (path, data) => api(page, 'POST', path, data);
+    const read = (path) => api(page, 'GET', path);
+    const receiverName = 'phase3-' + marker;
+    const receiver = await create('/users', {
+      username: receiverName,
+      first_name: 'Receiver',
+      last_name: marker,
+      activated: true,
+      password: randomUUID(),
+    });
+    const stock = await create('/accessories', { name: 'Browser accessory ' + marker, qty: 2 });
+    const kit = await create('/kits', { name: 'Browser kit ' + marker });
+    await create(`/kits/${kit.id}/accessories`, { item_id: stock.id, quantity: 1 });
+    const category = await create('/categories', {
+      name: 'Browser audit category ' + marker,
+      category_type: 'asset',
+    });
+    const model = await create('/models', {
+      name: 'Browser audit model ' + marker,
+      category_id: category.id,
+    });
+    const [status] = (await read('/statuslabels/selectlist?statusType=deployable')).results;
+    const asset = await create('/hardware', {
+      model_id: model.id,
+      status_id: status.id,
+      asset_tag: 'AUDIT-' + marker,
+    });
+    const dialog = page.getByRole('dialog');
+
+    await t.test('checks out a kit and records its replenishment order', async () => {
+      await page.goto('/kits?detail=' + kit.id);
+      await dialog.getByRole('button', { name: 'Check out', exact: true }).click();
+      await pick(page, 'User', 'Receiver ' + marker);
+      await dialog.getByRole('button', { name: 'Check out', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Change saved.' }).waitFor();
+      const assignments = await read(`/accessories/${stock.id}/checkedout`);
+      assert.equal(assignments.rows[0].target_id, receiver.id);
+
+      await page.goto('/accessories?detail=' + stock.id);
+      await dialog.getByRole('button', { name: 'Adjust quantity', exact: true }).click();
+      await dialog.getByLabel('Quantity adjustment', { exact: true }).fill('3');
+      await dialog.getByLabel('Order number', { exact: true }).fill('PO-' + marker);
+      await dialog.getByLabel('Unit cost', { exact: true }).fill('8.50');
+      await dialog.getByLabel('Currency', { exact: true }).fill('EUR');
+      await dialog.getByRole('button', { name: 'Adjust quantity', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Change saved.' }).waitFor();
+      await dialog.getByRole('button', { name: 'Orders', exact: true }).click();
+      await dialog
+        .getByRole('row')
+        .filter({ hasText: 'PO-' + marker })
+        .waitFor();
+      assert.equal((await read('/accessories/' + stock.id)).remaining, 4);
+    });
+
+    await t.test('records an audit photo and shows the audit in the calendar', async () => {
+      const date = new Date().toISOString().slice(0, 10);
+      await page.goto('/hardware');
+      await page.getByLabel('Search table records').fill(asset.asset_tag);
+      await page
+        .getByRole('row')
+        .filter({ hasText: asset.asset_tag })
+        .getByRole('button', { name: 'audit', exact: true })
+        .click();
+      await dialog.getByLabel('Next audit date', { exact: true }).fill(date);
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACklEQVR4AWPAAAAAEgABKPhxBgAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      await dialog
+        .getByLabel('Audit photo')
+        .setInputFiles({ name: 'audit.png', mimeType: 'image/png', buffer: png });
+      await dialog.getByRole('button', { name: 'Record audit' }).click();
+      await page.getByRole('status').filter({ hasText: 'Audit recorded.' }).waitFor();
+      await page
+        .getByRole('row')
+        .filter({ hasText: asset.asset_tag })
+        .getByRole('button', { name: 'view', exact: true })
+        .click();
+      const download = page.waitForEvent('download');
+      await dialog.getByRole('button', { name: 'Download photo' }).click();
+      assert.match((await download).suggestedFilename(), /^audit-\d+\.png$/);
+      await page.goto('/calendar');
+      await page.getByLabel('Event type').selectOption('asset.audit_due');
+      await page
+        .getByRole('link', { name: 'Audit due · ' + asset.asset_tag, exact: true })
+        .filter({ visible: true })
+        .click();
+      await page.waitForURL('**/hardware?detail=' + asset.id);
+    });
+
+    await t.test('completes maintenance and writes its history', async () => {
+      const types = await read('/maintenance-types/selectlist');
+      const maintenance = await create('/maintenances', {
+        name: 'Browser inspection ' + marker,
+        asset_id: asset.id,
+        maintenance_type_id: types.results[0].id,
+        start_date: new Date().toISOString().slice(0, 10),
+      });
+      await page.goto('/maintenances?detail=' + maintenance.id);
+      await dialog.getByRole('button', { name: 'Complete maintenance' }).click();
+      await dialog.getByLabel('Completion note').fill('Inspection finished in Chromium');
+      await dialog.getByRole('button', { name: 'Complete maintenance' }).click();
+      await page.getByRole('status').filter({ hasText: 'Change saved.' }).waitFor();
+      await dialog.getByRole('button', { name: 'History', exact: true }).click();
+      await dialog.getByText(/Inspection finished in Chromium/).waitFor();
+      assert((await read('/maintenances/' + maintenance.id)).completed_at);
+    });
+  },
+);
+
+test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { timeout: 90_000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath });
+  t.after(() => browser.close());
+  const page = await signIn(browser, username, password);
+  const marker = randomUUID().slice(0, 8);
+  const create = (path, data) => api(page, 'POST', path, data);
+  const read = (path) => api(page, 'GET', path);
+  const category = await create('/categories', { name: 'Operational category ' + marker,
+    category_type: 'asset', require_acceptance: true, alert_on_response: true });
+  const model = await create('/models', { name: 'Operational model ' + marker, category_id: category.id });
+  const [status] = (await read('/statuslabels/selectlist?statusType=deployable')).results;
+  const asset = await create('/hardware', { name: 'Operational asset ' + marker, model_id: model.id,
+    status_id: status.id, asset_tag: 'OP-' + marker });
+  const receiver = await create('/users', { username: 'operations-' + marker,
+    email: 'operations-' + marker + '@example.test', activated: true, password: randomUUID() });
+
+  await t.test('uploads, downloads, and removes an asset attachment', async () => {
+    await page.goto('/hardware?detail=' + asset.id);
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Files', exact: true }).click();
+    await dialog.getByLabel('Attachments').setInputFiles({
+      name: 'asset-manual.txt', mimeType: 'text/plain', buffer: Buffer.from('Operational attachment'),
+    });
+    await dialog.getByLabel('Note', { exact: true }).fill('Browser attachment');
+    await dialog.getByRole('button', { name: 'Upload files' }).click();
+    await dialog.getByRole('status').filter({ hasText: 'Attachments uploaded' }).waitFor();
+    const download = page.waitForEvent('download');
+    await dialog.getByRole('button', { name: 'Download asset-manual.txt' }).click();
+    assert.equal((await download).suggestedFilename(), 'asset-manual.txt');
+    await dialog.getByRole('button', { name: 'Delete asset-manual.txt' }).click();
+    await dialog.getByRole('button', { name: 'Confirm delete' }).click();
+    await dialog.getByRole('status').filter({ hasText: 'Attachment deleted' }).waitFor();
+    assert.equal((await read('/hardware/' + asset.id + '/files')).total, 0);
+  });
+
+  await t.test('previews a custom label and prints a hardware label', async () => {
+    await page.goto('/admin/labels');
+    await page.getByLabel('Template name').fill('Browser label ' + marker);
+    await page.getByRole('button', { name: 'Save label template' }).click();
+    await page.getByRole('status').filter({ hasText: 'Label template saved' }).waitFor();
+    await page.getByRole('button', { name: 'Preview label' }).click();
+    await page.locator('iframe[title="Label preview"]').waitFor();
+    const preview = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download preview PDF' }).click();
+    assert.equal((await preview).suggestedFilename(), 'label-preview.pdf');
+    await page.goto('/hardware?detail=' + asset.id);
+    const download = page.waitForEvent('download');
+    await page.getByRole('dialog').getByRole('button', { name: 'Print label', exact: true }).click();
+    assert.equal((await download).suggestedFilename(), 'asset-labels.pdf');
+  });
+
+  await t.test('saves a custom report template and downloads CSV and Excel', async () => {
+    await page.goto('/reports/custom');
+    await page.getByRole('heading', { name: 'Custom Assets' }).waitFor();
+    await page.getByText('Columns and report templates', { exact: true }).click();
+    await page.getByLabel('Template name').fill('Browser report ' + marker);
+    await page.getByLabel('Share with report viewers').check();
+    await page.getByRole('button', { name: 'Save template' }).click();
+    await page.getByRole('status').filter({ hasText: 'Report template saved' }).waitFor();
+    for (const [label, extension] of [['Export CSV', 'csv'], ['Export Excel', 'xlsx']]) {
+      const download = page.waitForEvent('download');
+      await page.getByRole('button', { name: label, exact: true }).click();
+      assert.equal((await download).suggestedFilename(), 'custom.' + extension);
+    }
+  });
+
+  await t.test('processes a CSV with one rejected row and keeps the successful row', async () => {
+    await page.goto('/import');
+    await page.getByLabel('CSV files', { exact: true }).setInputFiles({
+      name: 'mixed-stock.csv', mimeType: 'text/csv',
+      buffer: Buffer.from('Name,Quantity\nBrowser import ' + marker + ',3\nBroken import ' + marker + ',a'),
+    });
+    await page.getByRole('button', { name: 'Upload CSV files' }).click();
+    await page.getByLabel('Import type').selectOption({ label: 'Accessories' });
+    await page.getByLabel('Map Quantity').locator('option').filter({ hasText: 'qty' }).waitFor({ state: 'attached' });
+    await page.getByRole('button', { name: 'Process CSV' }).click();
+    await page.getByText(/complete · 2 processed · 1 created/).waitFor();
+    await page.getByText(/Row 3:/).waitFor();
+    assert.equal((await read('/accessories?search=' + encodeURIComponent('Browser import ' + marker))).total, 1);
+  });
+
+  await t.test('queues a scoped acceptance reminder and saves notification settings', async () => {
+    await create('/hardware/' + asset.id + '/checkout', { target_type: 'user', target_id: receiver.id });
+    await page.goto('/reports/unaccepted-assets');
+    await page.getByLabel(asset.asset_tag, { exact: true }).check();
+    await page.getByRole('button', { name: 'Send reminders' }).click();
+    await page.getByRole('status').filter({ hasText: '1 reminder(s) queued.' }).waitFor();
+    await page.goto('/admin/notifications');
+    await page.getByLabel('Low-stock buffer').fill('7');
+    await page.getByRole('button', { name: 'Save notification settings' }).click();
+    await page.getByRole('status').filter({ hasText: 'Notification settings saved' }).waitFor();
+    assert.equal((await read('/settings/notifications')).alert_threshold, 7);
+    await page.getByLabel('Test recipient').fill('phase34@example.test');
+    await page.getByRole('button', { name: 'Send test email' }).click();
+    await page.getByRole('status').filter({ hasText: 'Test email queued' }).waitFor();
+  });
+});

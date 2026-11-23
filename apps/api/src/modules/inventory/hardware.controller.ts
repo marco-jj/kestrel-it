@@ -22,7 +22,7 @@ import {
 } from '@kestrel-it/shared';
 import { z } from 'zod';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
-import { permitsEntity } from '../../common/guards/permissions.guard.js';
+import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard.js';
 import { AssetModelsService } from './asset-models.service.js';
 import { HardwareService } from './hardware.service.js';
 import { parse } from './inventory-queries.js';
@@ -65,6 +65,7 @@ export class HardwareController {
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
     if (
+      !(mode === 'audit' && permitsKey(user, 'assets.audit')) &&
       !['view', 'create', 'edit', 'checkout', 'checkin'].some((action) =>
         permitsEntity(user, `assets.${action}` as 'assets.view'),
       )

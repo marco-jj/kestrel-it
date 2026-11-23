@@ -101,9 +101,11 @@ L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-i
 ├── /depreciations                      # Gestione Piani di Ammortamento (Linear, Half-Year, Diminishing)
 │
 ├── /import                             # Wizard CSV Importer (12 tipi)
-├── /reports                            # 8+ Report:
+├── /reports                            # 10 report:
 │   ├── /activity                       # Activity Log globale filtrabile
 │   ├── /custom                         # Custom Asset Report Builder (con salvataggio ReportTemplates)
+│   ├── /custom-components              # Report componenti personalizzabile
+│   ├── /custom-consumables             # Report consumabili personalizzabile
 │   ├── /depreciation                   # Report Ammortamenti e Valore Contabile (Book Value)
 │   ├── /licenses                       # Report Licenze e utilizzo postazioni
 │   ├── /maintenances                   # Report Manutenzioni e costi

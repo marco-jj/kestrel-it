@@ -1,5 +1,7 @@
+import { RecentActivityComponent } from './recent-activity.component.js';
 import { CommonModule } from '@angular/common';
 import { Component, Inject, computed, signal } from '@angular/core';
+import { LowStockComponent } from './low-stock.component.js';
 import { AuthStore } from '../../core/auth/auth.store.js';
 import {
   KestrelAsyncSelectComponent,
@@ -16,6 +18,8 @@ import {
   standalone: true,
   imports: [
     CommonModule,
+    LowStockComponent,
+    RecentActivityComponent,
     KestrelDataGridComponent,
     KestrelStatusBadgeComponent,
     KestrelSlideDrawerComponent,
@@ -68,6 +72,9 @@ import {
           <p class="kpi-note">{{ companyScopeSummary() }}</p>
         </article>
       </div>
+
+      <kestrel-low-stock />
+      <kestrel-recent-activity />
 
       <div class="grid-section">
         <div class="section-header">

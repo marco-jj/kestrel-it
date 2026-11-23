@@ -52,6 +52,7 @@ config:
   nodeEnv: production
   appName: Kestrel-IT
   appUrl: http://kestrel.local
+  schedulerTimezone: UTC
   apiPrefix: api/v1
   dbAutoMigrate: true
   jwtAccessExpiresIn: 15m

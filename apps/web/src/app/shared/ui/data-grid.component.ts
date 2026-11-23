@@ -14,9 +14,11 @@ export interface DataGridColumn<T = Record<string, unknown>> {
 
 export interface DataGridRowActions {
   view?: boolean;
+  files?: boolean;
   request?: boolean;
   cancel?: boolean;
   checkout?: boolean;
+  audit?: boolean;
   checkin?: boolean;
   update?: boolean;
   delete?: boolean;
@@ -33,10 +35,12 @@ export type DataGridRow = Record<string, unknown> & {
 
 const ORDERED_ROW_ACTIONS: readonly DataGridActionType[] = [
   'view',
+  'files',
   'request',
   'cancel',
   'checkout',
   'checkin',
+  'audit',
   'update',
   'clone',
   'delete',
@@ -108,6 +112,7 @@ export function toggleRowSelectionSet(
   template: `
     <div class="grid-shell">
       <div class="grid-toolbar">
+        @if (searchable) {
         <div class="search-box">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="11" cy="11" r="7" />
@@ -122,6 +127,7 @@ export function toggleRowSelectionSet(
             aria-label="Search table records"
           />
         </div>
+        }
 
         <div class="toolbar-right">
           @if (selectedIds().size > 0) {
@@ -129,6 +135,9 @@ export function toggleRowSelectionSet(
               <span class="k-mono bulk-count">{{ selectedIds().size }} selected</span>
               @if (bulkRestore) {
                 <button type="button" class="k-btn k-btn-secondary bulk-btn" (click)="emitBulkAction('bulk_restore')">Restore</button>
+              }
+              @if (bulkAudit) {
+                <button type="button" class="k-btn k-btn-secondary bulk-btn" (click)="emitBulkAction('bulk_audit')">Audit</button>
               }
               @if (bulkEdit) {
               <button
@@ -538,8 +547,10 @@ export class KestrelDataGridComponent {
   @Input() emptyTitle = 'No matching records';
   @Input() emptyDescription = 'Adjust your filters or create a new record to populate this table.';
   @Input() selectable = true;
+  @Input() searchable = true;
   @Input() creatable = true;
   @Input() bulkEdit = true;
+  @Input() bulkAudit = false;
   @Input() bulkDelete = true;
   @Input() bulkRestore = false;
   @Input() idKey = 'id';

@@ -9,7 +9,7 @@ import {
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import type { InventoryField } from './directory-ui.js';
 
-const companyScopedResources = new Set(['locations', 'departments', 'users']);
+const companyScopedResources = new Set(['locations', 'departments', 'users', 'hardware']);
 
 @Component({
   selector: 'kestrel-inventory-form-fields',

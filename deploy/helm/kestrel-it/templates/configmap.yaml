@@ -9,6 +9,7 @@ data:
   APP_NAME: {{ .Values.config.appName | quote }}
   APP_URL: {{ .Values.config.appUrl | quote }}
   API_PORT: {{ .Values.api.service.port | quote }}
+  SCHEDULER_TIMEZONE: {{ .Values.config.schedulerTimezone | default "UTC" | quote }}
   API_PREFIX: {{ .Values.config.apiPrefix | quote }}
   DB_AUTO_MIGRATE: {{ .Values.config.dbAutoMigrate | quote }}
   JWT_ACCESS_EXPIRES_IN: {{ .Values.config.jwtAccessExpiresIn | quote }}

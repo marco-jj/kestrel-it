@@ -1,3 +1,5 @@
+import type { PermissionKey } from '@kestrel-it/shared';
+import { InventoryFilesComponent } from './inventory-files.component.js';
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -22,6 +24,7 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
     KestrelDataGridComponent,
     KestrelSlideDrawerComponent,
     InventoryFormFieldsComponent,
+    InventoryFilesComponent,
   ],
   template: `
     <header class="directory-header">
@@ -56,6 +59,11 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
       (pageChanged)="page.set($event); reload()"
       (bulkAction)="bulk($event)"
     />
+    <kestrel-slide-drawer [open]="fileRecord() !== null" title="Files" (closed)="fileRecord.set(null)">
+      @if (fileRecord(); as itemId) {
+        <kestrel-inventory-files [resource]="resource" [itemId]="itemId" [canWrite]="true" />
+      }
+    </kestrel-slide-drawer>
     <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()" (closed)="drawer.set(false)">
       @if (drawer()) {
         @if (pendingAction()) {
@@ -70,6 +78,9 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
           <form [formGroup]="form()" (ngSubmit)="save()">
             <kestrel-inventory-form-fields [form]="form()" [fields]="fields()" />
           </form>
+          @if (resource === 'users' && currentUserId() && can('edit')) {
+            <button type="button" class="k-btn k-btn-secondary" (click)="sendInventory()">Email current inventory</button>
+          }
         }
         @if (error()) {
           <p role="alert">{{ error() }}</p>
@@ -161,6 +172,8 @@ export class DirectoryPageComponent implements OnInit {
   order: 'asc' | 'desc' = 'asc';
   private request = 0;
   private recordId?: number;
+  readonly fileRecord = signal<number|null>(null);
+  readonly currentUserId = signal<number|null>(null);
 
   ngOnInit(): void {
     void this.reload();
@@ -196,6 +209,18 @@ export class DirectoryPageComponent implements OnInit {
     void this.reload();
   }
 
+  private canFiles() {
+    return ['users','companies','departments','locations','suppliers'].includes(this.resource)
+      && this.auth.can(`${this.resource}.files` as PermissionKey);
+  }
+
+  async sendInventory() {
+    try {
+      await this.api.write('POST',`/users/${this.currentUserId()}/email`);
+      this.message.set('Inventory email queued');
+    } catch (error) { this.error.set(inventoryError(error)); }
+  }
+
   async reload(): Promise<void> {
     const request = ++this.request;
     this.loading.set(true);
@@ -210,7 +235,9 @@ export class DirectoryPageComponent implements OnInit {
         deleted: this.deleted() ? '1' : '0',
       });
       if (request !== this.request) return;
-      this.rows.set(page.rows);
+      this.rows.set(this.canFiles() && !this.deleted() ? page.rows.map((row) => ({
+        ...row, available_actions: { ...row.available_actions, files:true },
+      })) : page.rows);
       this.total.set(page.total);
     } catch (error) {
       if (request === this.request) this.error.set(inventoryError(error));
@@ -258,6 +285,7 @@ export class DirectoryPageComponent implements OnInit {
       const data =
         id === undefined ? {} : await this.api.read<DataGridRow>(`/${this.resource}/${id}`);
       this.recordId = id;
+      this.currentUserId.set(id ?? null);
       this.selectedIds.set([]);
       this.pendingAction.set(null);
       this.toForm(data);
@@ -270,6 +298,7 @@ export class DirectoryPageComponent implements OnInit {
 
   act(event: { action: DataGridActionType; row: DataGridRow }): void {
     if (typeof event.row.id !== 'number') return;
+    if (event.action === 'files') this.fileRecord.set(event.row.id);
     if (event.action === 'update') void this.open(event.row.id);
     if (event.action === 'delete' || event.action === 'restore')
       this.confirm(event.action, [event.row.id]);

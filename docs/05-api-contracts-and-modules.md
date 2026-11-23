@@ -113,6 +113,13 @@ I percorsi sono relativi a `/api/v1`. La [mappa di progetto](#blueprint-di-parit
 | Richieste personali | `GET /account/requestable/:type` (`hardware`, `models`), `GET /account/requests`, `POST /account/request/:id` e `/account/request/models/:id`, `POST /account/requests/:id/cancel` e varianti `/cancel` per articolo | `assets.view.requestable` per catalogo e creazione, proprietà della richiesta per elenco e annullamento. |
 | Coda operatore | `GET /requests`, `POST /requests/:id/fulfill`, `POST /requests/:id/cancel` | Chiave `assets.checkout` e visibilità FMCS. |
 
+### Rotte disponibili dalla Fase 3.1 e 3.2
+
+- **Inventario secondario e kit.** Le risorse `/licenses`, `/accessories`, `/consumables`, `/components` e `/kits` espongono CRUD e flussi di assegnazione. Il checkout riceve `target_type`, `target_id`, `quantity` e una nota facoltativa. Per i kit usare `user_id`. Il check-in dei componenti riceve l’ID dell’assegnazione nel path e una quantità facoltativa.
+- **Audit.** `POST /hardware/audit`, `POST /hardware/:id/audit` e `POST /hardware/audit/bulk` accettano JSON o multipart con `payload` JSON e `photo` PNG/JPEG fino a 5 MB. Il bulk restituisce `results` per asset. `GET /hardware/:id/audits/:auditId/photo` scarica una foto autorizzata.
+- **Manutenzione e ammortamento.** `/maintenances`, `/maintenance-types` e `/depreciations` espongono CRUD. Gli interventi e il completamento richiedono `assets.edit`, mentre la configurazione dei tipi richiede un superuser. Il dettaglio dell’asset e della licenza include `book_value` quando applicabile.
+- **Acquisti, scorte e calendario.** `GET /order-items` accetta `item_type` e `item_id`, oppure `asset_model_id`. L’elenco senza filtri è riservato ai superuser. `GET /low-stock` usa il formato Datatable. `GET /calendar/events` accetta `start`, `end`, `event_type` e restituisce `events`, `total` e `truncated`. La risposta include solo sorgenti visibili al chiamante.
+
 ### Blueprint di parità
 
 Questa mappa conserva i riferimenti ai controller Snipe-IT e la struttura prevista per Kestrel-IT. Per lo stato delle funzionalità consultare il [piano](../PLAN.md) e la [mappa di parità](08-upstream-feature-map.md).
@@ -139,3 +146,11 @@ Questa mappa conserva i riferimenti ai controller Snipe-IT e la struttura previs
 - [Check-in per asset tag](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/api.php#L676-L688). Il client può inviare il tag nel percorso o usare la rotta `/hardware/checkinbytag`.
 - [Revoca del token personale](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/api.php#L150-L169). Il token da revocare è identificato nel percorso.
 - [Backup](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/api.php#L1187-L1206). Snipe-IT espone elenco e download dei backup in `/api/v1/settings/backups`. La copertura Kestrel è [da decidere](08-upstream-feature-map.md).
+
+### Contratti operativi dei Piani 3.3 e 3.4
+
+- **Allegati.** `GET/POST /{object_type}/:id/files`, `GET /{object_type}/:id/files/:file_id` e `DELETE /{object_type}/:id/files/:file_id/delete`. Gli upload accettano campi multipart `file` e `notes`. Il download passa dal controller autenticato.
+- **Etichette.** `GET /labels` e `GET /labels/:name` restituiscono i preset e i template personalizzati. Il superuser può scrivere template e richiedere `POST /labels/preview`. `POST /hardware/labels` accetta `asset_tags`, `template` e `skipped`. La modalità predefinita restituisce `payload.pdf` in base64. `format: "pdf"` restituisce direttamente il PDF.
+- **Report.** `GET /reports/:type` restituisce i risultati paginati e le colonne disponibili. `format=csv` e `format=xlsx` usano gli stessi filtri. `GET /reports/activity/chart` aggrega per giorno. `GET /dashboard/activity` usa la vista con scope per risorsa. I template si gestiscono in `/report-templates` e i solleciti in `POST /unaccepted-acceptances/send-reminders`.
+- **Import.** `POST /imports` accetta più file CSV. `GET /imports/:id?import_type=...` restituisce anteprima e mappatura suggerita. `POST /imports/process/:id` accoda il lavoro con `import_type`, `field_map` (indice CSV a campo), `update_existing`, `preserve_blanks` e `send_welcome`. `GET /imports/:id/progress` restituisce lo stato e gli errori paginati. Download e cancellazione seguono lo scope del proprietario.
+- **Notifiche.** `GET/PATCH /settings/notifications` gestisce alert ed endpoint webhook globali. `POST /settings/notifications/test` accoda il messaggio di prova. `POST /users/:id/email` invia il riepilogo al destinatario. Le risposte di configurazione indicano la presenza di un URL webhook e omettono il valore.

@@ -1,3 +1,7 @@
+import { recordAcquisition } from './acquisitions.js';
+import { hasSecondaryAssignments } from './assignment-integrity.js';
+import { depreciationValue } from './depreciation.js';
+import { currentSettings } from './phase-three-queries.js';
 import {
   ConflictException,
   ForbiddenException,
@@ -23,7 +27,7 @@ import {
   checkoutRequests,
   customFieldDefaults,
   customFields,
-  licenseSeats,
+  depreciations,
   models,
   settings,
   statusLabels,
@@ -139,7 +143,15 @@ export class HardwareService {
       this.status(this.db, row.statusId),
       this.assetFields(this.db, row.modelId),
     ]);
-    return this.serialize(row, status, entries, user);
+    const record = this.serialize(row, status, entries, user);
+    const [[schedule], config] = await Promise.all([
+      row.modelId === null ? Promise.resolve([]) : this.db.select({ schedule: depreciations })
+        .from(models).innerJoin(depreciations, eq(depreciations.id, models.depreciationId))
+        .where(eq(models.id, row.modelId)),
+      currentSettings(this.db),
+    ]);
+    return { ...record, book_value: depreciationValue(schedule?.schedule, row.purchaseCost, row.purchaseDate,
+      config?.depreciationMethod ?? 'default', new Date().toISOString().slice(0, 10)) };
   }
 
   async assetFields(db: InventoryDatabase, modelId: number | null) {
@@ -392,13 +404,16 @@ export class HardwareService {
   }
 
   async save(body: unknown, user: AuthenticatedUserContext, id?: number) {
+    return inventoryWrite(this.db, async (tx) =>
+      success(await this.saveInTransaction(tx, body, user, id)));
+  }
+
+  async saveInTransaction(tx: InventoryTransaction, body: unknown, user: AuthenticatedUserContext, id?: number) {
     const dto =
       id === undefined ? parse(AssetInputSchema, body) : parse(AssetInputSchema.partial(), body);
-    return inventoryWrite(this.db, async (tx) => {
-      const scope = await this.fmcs.resolve(user, tx);
-      const current = id === undefined ? undefined : await this.find(tx, scope, id, { lock: true });
-      return success(await this.persist(tx, dto, scope, user, current));
-    });
+    const scope = await this.fmcs.resolve(user, tx);
+    const current = id === undefined ? undefined : await this.find(tx, scope, id, { lock: true });
+    return this.persist(tx, dto, scope, user, current);
   }
 
   async bulk(input: unknown, user: AuthenticatedUserContext) {
@@ -454,6 +469,9 @@ export class HardwareService {
         'Check in this asset before changing its company or current location',
       );
 
+    if (current && companyId !== current.companyId && await hasSecondaryAssignments(tx, 'asset', current.id)) {
+      throw new ConflictException('Check in secondary inventory before changing this asset company');
+    }
     const locations = await this.resolveLocations(tx, dto, scope, companyId, current);
 
     const serial = dto.serial !== undefined ? dto.serial || null : (current?.serial ?? null);
@@ -510,7 +528,13 @@ export class HardwareService {
           .insert(assets)
           .values({ ...changed, createdBy: user.id })
           .returning();
-    await this.log(tx, row!, user.id, current ? 'update' : 'create');
+    const orderNumber = row!.orderNumber?.trim();
+    const orderItemId = !current && orderNumber ? await recordAcquisition(tx, {
+      number: orderNumber, itemType: 'asset', itemId: row!.id, companyId, supplierId: row!.supplierId,
+      purchaseDate: row!.purchaseDate, quantity: 1, unitCost: row!.purchaseCost, currency: config?.defaultCurrency,
+      createdBy: user.id,
+    }) : undefined;
+    await this.log(tx, row!, user.id, current ? 'update' : 'create', orderItemId);
     return this.serialize(row!, status, entries, user);
   }
 
@@ -642,11 +666,6 @@ export class HardwareService {
           ),
         )
         .limit(1);
-      const [seat] = await tx
-        .select({ id: licenseSeats.id })
-        .from(licenseSeats)
-        .where(and(eq(licenseSeats.assetId, row.id), isNull(licenseSeats.deletedAt)))
-        .limit(1);
       const [request] = await tx
         .select({ id: checkoutRequests.id })
         .from(checkoutRequests)
@@ -659,7 +678,7 @@ export class HardwareService {
           ),
         )
         .limit(1);
-      if (row.assignedTo !== null || child || seat || request)
+      if (row.assignedTo !== null || child || request || await hasSecondaryAssignments(tx, 'asset', row.id))
         throw new ConflictException('This asset is still in use');
     }
     await tx
@@ -669,9 +688,10 @@ export class HardwareService {
     await this.log(tx, row, user.id, restore ? 'restore' : 'delete');
   }
 
-  async log(tx: InventoryTransaction, row: Hardware, actorId: number, actionType: string) {
+  async log(tx: InventoryTransaction, row: Hardware, actorId: number, actionType: string, orderItemId?: number) {
     await tx.insert(actionLogs).values({
       actionType,
+      orderItemId,
       itemType: 'asset',
       itemId: row.id,
       createdBy: actorId,
@@ -720,6 +740,7 @@ export class HardwareService {
         target_id:
           row.targetType !== 'user' || permitsEntity(user, 'users.view') ? row.targetId : null,
         note: row.note,
+        has_photo: row.actionType === 'audit' && !!row.filename,
       })),
       query,
       url,
@@ -762,6 +783,8 @@ export class HardwareService {
       last_checkout: formattedDate(row.lastCheckout),
       last_checkin: formattedDate(row.lastCheckin),
       expected_checkin: formattedDate(row.expectedCheckin),
+      last_audit_date: formattedDate(row.lastAuditDate),
+      next_audit_date: formattedDate(row.nextAuditDate),
       checkout_counter: row.checkoutCounter,
       checkin_counter: row.checkinCounter,
       requests_counter: row.requestsCounter,
@@ -777,6 +800,7 @@ export class HardwareService {
             delete: canDelete && row.assignedTo === null,
             checkout: permitsKey(user, 'assets.checkout') && currentStatus === 'deployable',
             checkin: permitsKey(user, 'assets.checkin') && row.assignedTo !== null,
+            audit: permitsKey(user, 'assets.audit'),
             bulk_selectable: { edit: canEdit, delete: canDelete && row.assignedTo === null },
           },
     };

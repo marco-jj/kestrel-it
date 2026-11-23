@@ -65,7 +65,17 @@ export class InventoryApi {
     );
   }
 
-  blob(path: string) {
-    return firstValueFrom(this.http.get(this.prefix + path, { responseType: 'blob' }));
+  command<T>(path: string, body: unknown) {
+    return firstValueFrom(this.http.post<T>(this.prefix + path, body));
+  }
+
+  blob(path: string, query: Record<string, string | number | boolean> = {}) {
+    return firstValueFrom(this.http.get(this.prefix + path, {
+      responseType: 'blob', params: new HttpParams({ fromObject: query }),
+    }));
+  }
+
+  postBlob(path: string, body: unknown) {
+    return firstValueFrom(this.http.post(this.prefix + path, body, { responseType: 'blob' }));
   }
 }

@@ -192,7 +192,7 @@ Mappato da [`LabelsController.php`](https://github.com/grokability/snipe-it/blob
 Mappato da [`app/Console/Kernel.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Console/Kernel.php):
 
 > [!NOTE]
-> **Architettura senza Redis:** La cache (`settings`, chiavi JWKS OIDC) è gestita **In-Memory** (con invalidazione multi-pod opzionale tramite PostgreSQL `LISTEN/NOTIFY`) e i cron job utilizzano `@nestjs/schedule` coordinato tramite **PostgreSQL Advisory Locks** (`pg_try_advisory_lock`), senza alcuna dipendenza da Redis.
+> **Architettura senza Redis:** La cache (`settings`, chiavi JWKS OIDC) è gestita **In-Memory** (con invalidazione multi-pod opzionale tramite PostgreSQL `LISTEN/NOTIFY`) e i cron job utilizzano `@nestjs/schedule` coordinato tramite **PostgreSQL Advisory Locks** (`pg_try_advisory_xact_lock`), senza alcuna dipendenza da Redis.
 
 - **Ogni 15 minuti:** Pulizia token di reset password e challenge 2FA scaduti (`auth:clear-resets`).
 - **Ogni giorno (se `settings.alerts_enabled === true`):**
@@ -200,4 +200,6 @@ Mappato da [`app/Console/Kernel.php`](https://github.com/grokability/snipe-it/bl
   2. `expiring-alerts`: Controlla Asset con garanzia/EOL e Licenze con `expiration_date` entro `settings.alert_interval` giorni e invia `ExpiringAssetsNotification` / `ExpiringLicenseNotification`.
   3. `expected-checkin`: Controlla Asset con `expected_checkin` scaduta o entro `settings.due_checkin_days` e invia `ExpectedCheckinNotification` + `ExpectedCheckinAdminNotification`.
   4. `upcoming-audits`: Controlla Asset con `next_audit_date` scaduta o entro `settings.audit_warning_days` e invia `SendUpcomingAuditNotification`.
-- **Ogni giorno:** Pulizia export/backup temporanei scaduti.
+- **Ogni giorno:** Pulizia dei record di consegna conclusi e dei registri dello scheduler dopo 90 giorni.
+
+- **Ogni settimana:** acceptance-reminders raggruppa le accettazioni pendenti per destinatario. Il fuso orario si configura con SCHEDULER_TIMEZONE (UTC per impostazione predefinita). I periodi registrati in PostgreSQL coordinano le repliche.

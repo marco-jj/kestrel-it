@@ -29,6 +29,7 @@ import {
   selectlist,
   success,
   type InventoryDatabase,
+  type InventoryTransaction,
 } from './inventory-queries.js';
 
 type AssetModel = typeof models.$inferSelect;
@@ -121,93 +122,100 @@ export class AssetModelsService {
   }
 
   async save(body: unknown, user: AuthenticatedUserContext, id?: number) {
+    return inventoryWrite(this.db, async (tx) =>
+      success(await this.saveInTransaction(tx, body, user, id)),
+    );
+  }
+
+  async saveInTransaction(
+    tx: InventoryTransaction,
+    body: unknown,
+    user: AuthenticatedUserContext,
+    id?: number,
+  ) {
     const dto =
       id === undefined
         ? parse(AssetModelInputSchema, body)
         : parse(AssetModelInputSchema.partial(), body);
-    return inventoryWrite(this.db, async (tx) => {
-      const current = id === undefined ? undefined : await this.find(tx, id);
-      const scope = await this.fmcs.resolve(user, tx);
-      if (dto.manufacturer_id != null)
-        await this.directory.reference(tx, scope, 'manufacturers', dto.manufacturer_id);
-      if (dto.category_id != null) {
-        const category = await this.directory.reference(tx, scope, 'categories', dto.category_id);
-        if (category.categoryType !== 'asset')
-          fieldIssue('category_id', 'Choose an asset category');
-      }
-      if (dto.depreciation_id != null) {
-        const [value] = await tx
-          .select({ id: depreciations.id })
-          .from(depreciations)
-          .where(eq(depreciations.id, dto.depreciation_id))
-          .limit(1);
-        if (!value) fieldIssue('depreciation_id', 'Depreciation schedule not found');
-      }
-      if (dto.fieldset_id != null) {
-        const [value] = await tx
-          .select({ id: customFieldsets.id })
-          .from(customFieldsets)
-          .where(eq(customFieldsets.id, dto.fieldset_id))
-          .limit(1);
-        if (!value) fieldIssue('fieldset_id', 'Fieldset not found');
-      }
-      if (current && dto.fieldset_id !== undefined && dto.fieldset_id !== current.fieldsetId) {
-        const [linked] = await tx
-          .select({ id: assets.id })
-          .from(assets)
-          .where(eq(assets.modelId, current.id))
-          .limit(1);
-        if (linked)
-          throw new ConflictException('Move existing assets before changing this fieldset');
-        await tx.delete(customFieldDefaults).where(eq(customFieldDefaults.modelId, current.id));
-      }
-      if (current && dto.require_serial === true && !current.requireSerial) {
-        const [missing] = await tx
-          .select({ id: assets.id })
-          .from(assets)
-          .where(
-            and(
-              eq(assets.modelId, current.id),
-              isNull(assets.deletedAt),
-              or(isNull(assets.serial), eq(assets.serial, '')),
-            ),
-          )
-          .limit(1);
-        if (missing) fieldIssue('require_serial', 'Existing assets need serial numbers first');
-      }
-      const fields = {
-        modelNumber: dto.model_number,
-        manufacturerId: dto.manufacturer_id,
-        categoryId: dto.category_id,
-        fieldsetId: dto.fieldset_id,
-        depreciationId: dto.depreciation_id,
-        eol: dto.eol,
-        minAmt: dto.min_amt,
-        requireSerial: dto.require_serial,
-        requestable: dto.requestable,
-        notes: dto.notes,
-        updatedAt: new Date(),
-      };
-      const [saved] = current
-        ? await tx
-            .update(models)
-            .set({ ...fields, name: dto.name })
-            .where(eq(models.id, current.id))
-            .returning()
-        : await tx
-            .insert(models)
-            .values({ ...fields, name: dto.name!, createdBy: user.id })
-            .returning();
-      await tx.insert(actionLogs).values({
-        actionType: current ? 'update' : 'create',
-        itemType: 'model',
-        itemId: saved!.id,
-        createdBy: user.id,
-        actionDate: new Date(),
-        actionSource: 'api',
-      });
-      return success(this.serialize(saved!, user));
+    const current = id === undefined ? undefined : await this.find(tx, id);
+    const scope = await this.fmcs.resolve(user, tx);
+    if (dto.manufacturer_id != null)
+      await this.directory.reference(tx, scope, 'manufacturers', dto.manufacturer_id);
+    if (dto.category_id != null) {
+      const category = await this.directory.reference(tx, scope, 'categories', dto.category_id);
+      if (category.categoryType !== 'asset') fieldIssue('category_id', 'Choose an asset category');
+    }
+    if (dto.depreciation_id != null) {
+      const [value] = await tx
+        .select({ id: depreciations.id })
+        .from(depreciations)
+        .where(eq(depreciations.id, dto.depreciation_id))
+        .limit(1);
+      if (!value) fieldIssue('depreciation_id', 'Depreciation schedule not found');
+    }
+    if (dto.fieldset_id != null) {
+      const [value] = await tx
+        .select({ id: customFieldsets.id })
+        .from(customFieldsets)
+        .where(eq(customFieldsets.id, dto.fieldset_id))
+        .limit(1);
+      if (!value) fieldIssue('fieldset_id', 'Fieldset not found');
+    }
+    if (current && dto.fieldset_id !== undefined && dto.fieldset_id !== current.fieldsetId) {
+      const [linked] = await tx
+        .select({ id: assets.id })
+        .from(assets)
+        .where(eq(assets.modelId, current.id))
+        .limit(1);
+      if (linked) throw new ConflictException('Move existing assets before changing this fieldset');
+      await tx.delete(customFieldDefaults).where(eq(customFieldDefaults.modelId, current.id));
+    }
+    if (current && dto.require_serial === true && !current.requireSerial) {
+      const [missing] = await tx
+        .select({ id: assets.id })
+        .from(assets)
+        .where(
+          and(
+            eq(assets.modelId, current.id),
+            isNull(assets.deletedAt),
+            or(isNull(assets.serial), eq(assets.serial, '')),
+          ),
+        )
+        .limit(1);
+      if (missing) fieldIssue('require_serial', 'Existing assets need serial numbers first');
+    }
+    const fields = {
+      modelNumber: dto.model_number,
+      manufacturerId: dto.manufacturer_id,
+      categoryId: dto.category_id,
+      fieldsetId: dto.fieldset_id,
+      depreciationId: dto.depreciation_id,
+      eol: dto.eol,
+      minAmt: dto.min_amt,
+      requireSerial: dto.require_serial,
+      requestable: dto.requestable,
+      notes: dto.notes,
+      updatedAt: new Date(),
+    };
+    const [saved] = current
+      ? await tx
+          .update(models)
+          .set({ ...fields, name: dto.name })
+          .where(eq(models.id, current.id))
+          .returning()
+      : await tx
+          .insert(models)
+          .values({ ...fields, name: dto.name!, createdBy: user.id })
+          .returning();
+    await tx.insert(actionLogs).values({
+      actionType: current ? 'update' : 'create',
+      itemType: 'model',
+      itemId: saved!.id,
+      createdBy: user.id,
+      actionDate: new Date(),
+      actionSource: 'api',
     });
+    return this.serialize(saved!, user);
   }
 
   async clone(id: number, name: string, user: AuthenticatedUserContext) {

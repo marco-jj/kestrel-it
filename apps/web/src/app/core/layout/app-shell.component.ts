@@ -17,6 +17,9 @@ export interface NavItem {
 }
 
 export const NAVIGATION_ITEMS: readonly NavItem[] = [
+  { label: 'Calendar', route: '/calendar', section: 'overview' },
+  { label: 'Maintenance', route: '/maintenances', section: 'operations', requiredPermission: 'assets.view' },
+  { label: 'Depreciation', route: '/depreciations', section: 'operations', requiredPermission: 'depreciations.view' },
   { label: 'Dashboard', route: '/dashboard', section: 'overview' },
   { label: 'Assets', route: '/hardware', section: 'inventory', requiredPermission: 'assets.view' },
   { label: 'Asset Models', route: '/models', section: 'inventory', requiredPermission: 'models.view' },
@@ -76,13 +79,15 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
   { label: 'My Requests', route: '/account/requests', section: 'operations' },
   { label: 'Checkout Requests', route: '/requests', section: 'operations',
     requiredPermission: 'assets.checkout', directPermission: true },
-  { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import' },
+  { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import', directPermission: true },
   {
     label: 'Reports',
     route: '/reports',
     section: 'operations',
     requiredPermission: 'reports.view',
+    directPermission: true,
   },
+  { label: 'Labels', route: '/admin/labels', section: 'admin', requiredPermission: 'superuser' },
   {
     label: 'Settings',
     route: '/admin/settings',
@@ -93,7 +98,10 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
 
 export function filterNavigationItems(store: AuthStore): NavItem[] {
   return NAVIGATION_ITEMS.filter(
-    (item) => !item.requiredPermission || (item.directPermission
+    (item) => item.route === '/calendar'
+      ? store.isSuperUser() || store.isAdmin() || store.can('assets.view') || store.can('licenses.view') ||
+        store.can('users.view') || store.currentUser()?.keyPermissions?.['assets.checkout'] === true
+      : !item.requiredPermission || (item.directPermission
       ? store.currentUser()?.isSuperUser === true || store.currentUser()?.keyPermissions?.[item.requiredPermission] === true
       : store.can(item.requiredPermission)),
   );

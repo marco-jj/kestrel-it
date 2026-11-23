@@ -157,9 +157,9 @@ Un `PredefinedKit` raggruppa quantità predefinite dei seguenti articoli.
 1. La pre-validazione raccoglie i candidati e gli errori di giacenza o di compatibilità FMCS. Se ci sono errori, il servizio termina prima di scrivere. [Pre-validazione](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/PredefinedKitCheckoutService.php#L43-L52)
 2. La transazione rilegge i candidati sotto lock e ricontrolla disponibilità e quantità. Quando un candidato è diventato indisponibile, il servizio registra l'errore, salta quella voce e continua. Le altre assegnazioni possono essere confermate anche quando l'esito contiene errori. [Commit e concorrenza](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/app/Services/PredefinedKitCheckoutService.php#L225-L341)
 
-**Comportamento previsto in Kestrel-IT (Piano 3.1).** Il checkout del kit è atomico. Il servizio acquisisce i lock `SELECT ... FOR UPDATE` sulle righe coinvolte in ordine stabile e rivalida disponibilità, quantità e compatibilità FMCS nella stessa transazione. Se una voce risulta indisponibile o un'assegnazione fallisce, il servizio annulla l'intera transazione e restituisce il motivo del fallimento. Assegnazioni, contatori e audit log si confermano insieme. Le notifiche di successo partono dopo il commit. [Piano 3.1](../PLAN.md)
+**Comportamento di Kestrel-IT (Piano 3.1).** Il checkout del kit è atomico. Il servizio acquisisce i lock `SELECT ... FOR UPDATE` sulle righe coinvolte in ordine stabile e rivalida disponibilità, quantità e compatibilità FMCS nella stessa transazione. Se una voce risulta indisponibile o un'assegnazione fallisce, il servizio annulla l'intera transazione e restituisce il motivo del fallimento. Assegnazioni, contatori e audit log si confermano insieme. Le notifiche di successo partono dopo il commit. [Piano 3.1](../PLAN.md)
 
-Il rollback dell'intero kit è una differenza intenzionale rispetto alla conferma parziale osservata upstream. Il test di concorrenza dovrà coprire due checkout che competono per l'ultima unità e verificare che la richiesta perdente termini senza assegnazioni o log di checkout residui.
+Il rollback dell'intero kit è una differenza intenzionale rispetto alla conferma parziale osservata upstream. Il test di concorrenza copre due checkout che competono per l'ultima unità e verificare che la richiesta perdente termini senza assegnazioni o log di checkout residui.
 
 ---
 
@@ -206,6 +206,8 @@ Dalla funzione `calculateDepreciation()` in [`Depreciable.php`](https://github.c
 
 ---
 
+Kestrel-IT applica il valore residuo a tutti e quattro i metodi. Il valore contabile resta compreso fra il minimo configurato e il costo iniziale. La chiave `default` seleziona il metodo lineare. Il calcolo usa la data di valutazione e conserva la precisione dei centesimi.
+
 ## 5. Rifornimento Scorte & Adjust Quantity (`AdjustsQuantity` + `OrderItems`)
 
 Introdotto per **Accessories**, **Consumables** e **Components** (`POST /api/v1/{entity}/{id}/adjust-quantity`):
@@ -215,3 +217,7 @@ Introdotto per **Accessories**, **Consumables** e **Components** (`POST /api/v1/
   - Se vengono forniti metadati d'acquisto (`order_number`, `supplier_id`, `unit_cost`, `currency`, `purchase_date`), crea o aggiorna l'`Order` e inserisce una riga in `order_items` collegata all'`Actionlog`.
 - **Se `amount < 0` (Rettifica / Perdita / Scarto):**
   - Ignora i metadati d'acquisto, decrementa `item.qty` e registra l'`Actionlog` con eventuale nota obbligatoria se `settings.requireAdjustQuantityNotes === true`.
+
+Il numero d’ordine identifica l’acquisizione insieme all’azienda e al fornitore. Le righe di acquisto riportano quantità, costo unitario, valuta e data. La migrazione del Piano 3.2 recupera gli ordini già indicati sui record di inventario. Dal dettaglio della risorsa, la scheda **Orders** mostra le acquisizioni visibili all’operatore.
+
+Per i consumabili, la disponibilità a scaffale sottrae tutte le unità consegnate, incluse quelle consumate. L’avviso di scorta bassa sottrae solo quelle marcate come consumate. Un secondo invio della stessa operazione di consumo non crea un altro evento.

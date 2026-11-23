@@ -36,6 +36,20 @@
       "when": 1795438611510,
       "tag": "0004_inventory_only_users",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795438611511,
+      "tag": "0005_phase_three_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795438611512,
+      "tag": "0006_operational_workflows",
+      "breakpoints": true
     }
   ]
 }

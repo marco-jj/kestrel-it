@@ -1,7 +1,26 @@
+import { NotificationsController } from './notifications.controller.js';
+import { ImportsController } from './imports.controller.js';
+import { ImportRecordsService } from './import-records.service.js';
+import { OperationalFilesController } from './operational-files.controller.js';
+import { LabelsController } from './labels.controller.js';
+import { ReportsController } from './reports.controller.js';
+import { AuthModule } from '../auth/auth.module.js';
+import { AssetAuditsController } from './asset-audits.controller.js';
+import { AssetAuditsService } from './asset-audits.service.js';
+import { DepreciationController } from './depreciation.controller.js';
+import { InventoryReadModelsController } from './inventory-read-models.controller.js';
+import { InventoryReadModelsService } from './inventory-read-models.service.js';
+import { MaintenanceController, MaintenanceTypesController } from './maintenance.controller.js';
+import { MaintenanceService } from './maintenance.service.js';
+import { ConsumableActionsController, LicenseSeatsController, SecondaryInventoryController } from './secondary-inventory.controller.js';
+import { PredefinedKitsController } from './predefined-kits.controller.js';
+import { PredefinedKitsService } from './predefined-kits.service.js';
+import { SecondaryAssignmentsService } from './secondary-assignments.service.js';
+import { SecondaryCatalogService } from './secondary-catalog.service.js';
 import { AssetCheckoutService } from './asset-checkout.service.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
 import { CheckoutRequestsService } from './checkout-requests.service.js';
-import { InventoryMailService } from './inventory-mail.service.js';
+import { InventoryMailModule } from './inventory-mail.module.js';
 import {
   AssetWorkflowsController,
   InventoryAccountController,
@@ -25,8 +44,18 @@ import { DirectoryService } from './directory.service.js';
 import { FmcsScopeService } from './fmcs-scope.service.js';
 
 @Module({
-  imports: [StorageModule],
+  imports: [StorageModule, AuthModule, InventoryMailModule],
   controllers: [
+    OperationalFilesController, LabelsController, ReportsController, ImportsController, NotificationsController,
+    SecondaryInventoryController,
+    LicenseSeatsController,
+    ConsumableActionsController,
+    PredefinedKitsController,
+    AssetAuditsController,
+    DepreciationController,
+    InventoryReadModelsController,
+    MaintenanceController,
+    MaintenanceTypesController,
     DirectoryController,
     CustomFieldsController,
     CustomFieldsetsController,
@@ -39,6 +68,13 @@ import { FmcsScopeService } from './fmcs-scope.service.js';
     InventoryRequestsController,
   ],
   providers: [
+    ImportRecordsService,
+    SecondaryCatalogService,
+    SecondaryAssignmentsService,
+    PredefinedKitsService,
+    AssetAuditsService,
+    InventoryReadModelsService,
+    MaintenanceService,
     DirectoryService,
     FmcsScopeService,
     CustomFieldsService,
@@ -48,7 +84,6 @@ import { FmcsScopeService } from './fmcs-scope.service.js';
     AssetCheckoutService,
     CheckoutAcceptancesService,
     CheckoutRequestsService,
-    InventoryMailService,
   ],
 })
 export class InventoryModule {}

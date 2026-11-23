@@ -1,12 +1,13 @@
 import 'reflect-metadata';
 import fastifyCookie from '@fastify/cookie';
+import fastifyMultipart from '@fastify/multipart';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { randomBytes } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:net';
 import { join } from 'node:path';
@@ -18,14 +19,24 @@ import { JwtService } from '../common/crypto/jwt.util.js';
 import { STORAGE_PROVIDER, type StorageProvider } from '../common/storage/storage.interface.js';
 import type { DrizzleDb } from '../db/database.tokens.js';
 import * as tables from '../db/schema/index.js';
-import { InventoryMailService } from '../modules/inventory/inventory-mail.service.js';
+import { depreciationValue } from '../modules/inventory/depreciation.js';
+import { REPORT_TYPES, IMPORT_TYPES } from '@kestrel-it/shared';
+import { parse as parseCsv } from 'csv-parse/sync';
+import ExcelJS from 'exceljs';
+import { ImportsController } from '../modules/inventory/imports.controller.js';
+import { NotificationsController } from '../modules/inventory/notifications.controller.js';
+import {
+  InventoryMailService,
+  notificationEvents,
+} from '../modules/inventory/inventory-mail.service.js';
+import * as webhookDelivery from '../modules/inventory/webhook-delivery.js';
 
 const clusterUrl = process.env.INVENTORY_TEST_DATABASE_URL;
 const migrations = fileURLToPath(new URL('../../drizzle/', import.meta.url));
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 type Token = 'root' | 'west' | 'east' | 'admin' | 'westPat';
 
-describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => {
+describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () => {
   const databaseName = `kestrel_inventory_test_${randomBytes(6).toString('hex')}`;
   const upgradeName = databaseName + '_upgrade';
   let cluster: ReturnType<typeof postgres>;
@@ -82,6 +93,7 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
       logger: false,
     });
     await app.register(fastifyCookie);
+    await app.register(fastifyMultipart);
     app.setGlobalPrefix('api/v1');
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
@@ -109,6 +121,10 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
             'users.edit': 1,
             'users.create': 1,
             'assets.checkout': 1,
+            'assets.audit': 1,
+            'accessories.view': 1,
+            'accessories.checkout': 1,
+            'licenses.view': 1,
             'locations.view': 1,
             'self.api': 1,
           },
@@ -427,14 +443,18 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
         })
       ).statusCode,
     ).toBe(403);
-    expect((await ok('PATCH', companyPath, 'root', webhook)).payload).toMatchObject(webhook);
-    expect(await ok('GET', companyPath, 'root')).toMatchObject(webhook);
+    const { webhook_endpoint, ...publicWebhook } = webhook;
+    expect((await ok('PATCH', companyPath, 'root', webhook)).payload).toMatchObject({
+      ...publicWebhook,
+      webhook_configured: true,
+    });
+    expect(await ok('GET', companyPath, 'root')).not.toHaveProperty('webhook_endpoint');
     expect(await ok('GET', companyPath, 'admin')).not.toHaveProperty('webhook_endpoint');
     const { payload: company } = await ok('POST', '/companies', 'root', {
       name: 'Webhook company',
       ...webhook,
     });
-    expect(company).toMatchObject(webhook);
+    expect(company).toMatchObject({ ...publicWebhook, webhook_configured: true });
   });
 
   it('shows shared location breadcrumbs without exposing other companies or deleted ancestors', async () => {
@@ -1072,4 +1092,1014 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
       await rm(old, { recursive: true, force: true });
     }
   }, 20_000);
+  it('rotates and retires license seats without exposing product keys', async () => {
+    const data = (
+      await ok('POST', '/licenses', 'root', {
+        name: 'Scoped software',
+        serial: 'private-product-key',
+        company_id: westCompany,
+        seats: 2,
+        reassignable: false,
+      })
+    ).payload;
+    expect(data.serial).toBe('private-product-key');
+    expect((await ok('GET', `/licenses/${data.id}`, 'west')).serial).toBeNull();
+    expect((await ok('GET', '/licenses?search=private-product-key', 'west')).total).toBe(0);
+    expect((await http('GET', `/licenses/${data.id}`, 'east')).statusCode).toBe(403);
+    const [seat] = (await ok('GET', `/licenses/${data.id}/seats`, 'root')).rows;
+    await ok('POST', `/licenses/${data.id}/checkout`, 'root', {
+      target_type: 'user',
+      target_id: west,
+      seat_id: seat.id,
+    });
+    expect(
+      (
+        await http('POST', `/licenses/${data.id}/checkout`, 'root', {
+          target_type: 'user',
+          target_id: east,
+          seat_id: seat.id,
+          reassign: true,
+        })
+      ).statusCode,
+    ).toBe(409);
+    await ok('POST', `/licenses/${data.id}/checkin`, 'root', { seat_id: seat.id });
+    expect(
+      (await ok('GET', `/licenses/${data.id}/seats/${seat.id}`, 'root')).unreassignable_seat,
+    ).toBe(true);
+    await ok('PATCH', `/licenses/${data.id}`, 'root', { seats: 1 });
+    expect((await ok('GET', `/licenses/${data.id}`, 'west')).remaining).toBe(0);
+    expect((await ok('GET', `/licenses/${data.id}/history`, 'root')).rows).not.toEqual([]);
+    expect((await http('GET', `/licenses/${data.id}/history`, 'root')).body).not.toContain(
+      'private-product-key',
+    );
+  });
+
+  it('rolls back a losing kit and serializes competing adjustments', async () => {
+    const category = (
+      await ok('POST', '/categories', 'root', {
+        name: 'Kit acceptance category',
+        category_type: 'accessory',
+        require_acceptance: true,
+      })
+    ).payload.id;
+    const acc = (
+      await ok('POST', '/accessories', 'root', {
+        name: 'Kit accessory',
+        qty: 2,
+        company_id: westCompany,
+        category_id: category,
+      })
+    ).payload.id;
+    const consumable = (
+      await ok('POST', '/consumables', 'root', {
+        name: 'Last available kit item',
+        qty: 1,
+        company_id: westCompany,
+      })
+    ).payload.id;
+    const kit = (await ok('POST', '/kits', 'root', { name: 'Limited onboarding kit' })).payload.id;
+    await ok('POST', `/kits/${kit}/accessories`, 'root', { item_id: acc, quantity: 1 });
+    await ok('POST', `/kits/${kit}/consumables`, 'root', { item_id: consumable, quantity: 1 });
+    const results = await Promise.all(
+      [1, 2].map(() => http('POST', `/kits/${kit}/checkout`, 'root', { user_id: west })),
+    );
+    expect(results.map((response) => response.statusCode).sort()).toEqual([201, 409]);
+    const logs =
+      await connection`select id from action_logs where item_type = 'accessory' and item_id = ${acc} and action_type = 'checkout'`;
+    const acceptances =
+      await connection`select id from checkout_acceptances where checkoutable_type = 'accessory' and checkoutable_id = ${acc}`;
+    const mail =
+      await connection`select channel from inventory_mail_outbox where subject = 'Inventory checked out: Kit accessory' order by channel`;
+    expect([logs.length, acceptances.length]).toEqual([1, 1]);
+    expect(mail).toEqual([{ channel: 'email' }, { channel: 'webhook' }]);
+    expect((await ok('GET', '/account/accept', 'west')).rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: acceptances[0]!.id, item_type: 'accessory' }),
+      ]),
+    );
+    await ok('POST', `/account/accept/${acceptances[0]!.id}`, 'west', {
+      decision: 'accept',
+      signature: signature(),
+    });
+    const competing = await Promise.all(
+      [1, 2].map(() =>
+        http('POST', `/accessories/${acc}/adjust-quantity`, 'root', {
+          amount: -1,
+          note: 'Count correction',
+        }),
+      ),
+    );
+    expect(competing.map((response) => response.statusCode).sort()).toEqual([201, 422]);
+    const attempt = await http('POST', `/accessories/${acc}/adjust-quantity`, 'root', {
+      amount: 3,
+      unit_cost: '1.50',
+      order_number: 'UNWRITTEN',
+      supplier_id: 2147483647,
+    });
+    expect(attempt.statusCode).toBe(404);
+    expect(await connection`select id from orders where order_number = 'UNWRITTEN'`).toHaveLength(
+      0,
+    );
+    await ok('POST', `/accessories/${acc}/adjust-quantity`, 'root', {
+      amount: 3,
+      unit_cost: '1.50',
+      order_number: 'KIT-ORDER',
+      currency: 'EUR',
+    });
+    expect(
+      (await ok('GET', `/order-items?item_type=accessory&item_id=${acc}`, 'west')).rows,
+    ).toEqual([
+      expect.objectContaining({
+        order_number: 'KIT-ORDER',
+        quantity: 3,
+        unit_cost: '1.50',
+        currency: 'EUR',
+      }),
+    ]);
+    expect((await http('GET', '/order-items', 'west')).statusCode).toBe(403);
+  });
+
+  it('returns partial component quantities and records terminal consumption once', async () => {
+    const asset = await create('COMPONENT-TARGET');
+    const component = (
+      await ok('POST', '/components', 'root', { name: 'Module', qty: 5, company_id: westCompany })
+    ).payload.id;
+    const [pivot] = (
+      await ok('POST', `/components/${component}/checkout`, 'root', {
+        target_type: 'asset',
+        target_id: asset.id,
+        quantity: 4,
+      })
+    ).payload.assignment_ids;
+    await ok('POST', `/components/${pivot}/checkin`, 'root', { quantity: 2 });
+    expect((await ok('GET', `/components/${component}`, 'root')).remaining).toBe(3);
+    expect((await http('DELETE', `/components/${component}`, 'root')).statusCode).toBe(409);
+    await ok('POST', `/components/${pivot}/checkin`, 'root', {});
+    const consumable = (
+      await ok('POST', '/consumables', 'root', {
+        name: 'Terminal consumable',
+        qty: 1,
+        min_amt: 1,
+        company_id: westCompany,
+      })
+    ).payload.id;
+    const [issue] = (
+      await ok('POST', `/consumables/${consumable}/checkout`, 'root', {
+        target_type: 'user',
+        target_id: west,
+      })
+    ).payload.assignment_ids;
+    const endpoint = `/consumables/${consumable}/consume/${issue}`;
+    expect((await ok('POST', endpoint, 'root')).payload.consumed).toBe(1);
+    expect((await ok('POST', endpoint, 'root')).payload.consumed).toBe(0);
+    expect(
+      (await http('POST', `/consumables/${consumable}/adjust-quantity`, 'root', { amount: -1 }))
+        .statusCode,
+    ).toBe(422);
+    expect((await ok('GET', '/low-stock?search=Terminal%20consumable', 'root')).rows).toEqual([
+      expect.objectContaining({ id: consumable, type: 'consumables', remaining: 0 }),
+    ]);
+    expect((await ok('GET', '/low-stock?search=Terminal%20consumable', 'west')).total).toBe(0);
+  });
+
+  it('records mixed audits, protects photos, and projects only visible calendar sources', async () => {
+    const visible = await create('AUDIT-WEST');
+    const hidden = await create('AUDIT-EAST', eastCompany);
+    const audits = await ok('POST', '/hardware/audit/bulk', 'west', {
+      ids: [visible.id, hidden.id],
+      next_audit_date: '2040-03-03',
+      note: 'Mixed audit',
+    });
+    expect(audits.results.map((row: { status: string }) => row.status)).toEqual([
+      'success',
+      'error',
+    ]);
+    await ok('POST', `/hardware/${hidden.id}/audit`, 'root', { next_audit_date: '2040-03-04' });
+    const calendar = '/calendar/events?start=2040-03-01&end=2040-04-01&event_type=asset.audit_due';
+    expect((await ok('GET', calendar, 'west')).total).toBe(1);
+    expect((await ok('GET', calendar, 'root')).total).toBe(2);
+    const boundary = 'phase-three-audit-boundary';
+    const png = PNG.sync.write(new PNG({ width: 12, height: 12 }));
+    const multipart = (data: object) =>
+      Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="payload"\r\n\r\n${JSON.stringify(data)}\r\n--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="audit.png"\r\nContent-Type: image/png\r\n\r\n`,
+        ),
+        png,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/hardware/${visible.id}/audit`,
+      payload: multipart({ next_audit_date: '2040-03-05' }),
+      headers: {
+        authorization: 'Bearer ' + tokens.get('west'),
+        'content-type': 'multipart/form-data; boundary=' + boundary,
+      },
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    const endpoint = `/hardware/${visible.id}/audits/${response.json().payload.audit_id}/photo`;
+    expect((await http('GET', endpoint, 'west')).rawPayload).toEqual(png);
+    expect((await http('GET', endpoint, 'east')).statusCode).toBe(404);
+    const stored = await readdir(join(storageRoot, 'audits'));
+    const invalid = await app.inject({
+      method: 'POST',
+      url: `/api/v1/hardware/${visible.id}/audit`,
+      payload: multipart({
+        location_id: eastLocation,
+        update_location: true,
+        next_audit_date: '2040-03-06',
+      }),
+      headers: {
+        authorization: 'Bearer ' + tokens.get('west'),
+        'content-type': 'multipart/form-data; boundary=' + boundary,
+      },
+    });
+    expect(invalid.statusCode).toBe(422);
+    expect(await readdir(join(storageRoot, 'audits'))).toEqual(stored);
+    expect((await ok('GET', calendar, 'west')).events).toEqual([
+      expect.objectContaining({ start: '2040-03-05' }),
+    ]);
+    await ok('DELETE', `/hardware/${visible.id}`, 'root');
+    expect((await ok('GET', calendar, 'west')).total).toBe(0);
+  });
+
+  it('completes maintenance once and applies depreciation floors to all methods', async () => {
+    const asset = await create('MAINTENANCE-ASSET');
+    const types = await ok('GET', '/maintenance-types', 'root');
+    expect(types.total).toBe(8);
+    const type = (await ok('POST', '/maintenance-types', 'root', { name: 'Inspections' })).payload
+      .id;
+    const item = (
+      await ok('POST', '/maintenances', 'root', {
+        name: 'Brake inspection',
+        asset_id: asset.id,
+        maintenance_type_id: type,
+        start_date: '2024-01-01',
+        is_warranty: true,
+        cost: '15.00',
+      })
+    ).payload.id;
+    expect((await http('DELETE', `/maintenance-types/${type}`, 'root')).statusCode).toBe(409);
+    expect((await http('GET', `/maintenances/${item}`, 'east')).statusCode).toBe(404);
+    const finished = await Promise.all(
+      [1, 2].map(() =>
+        http('POST', `/maintenances/${item}/complete`, 'root', {
+          completed_at: '2024-01-10',
+          note: 'Fixed',
+        }),
+      ),
+    );
+    expect(finished.map((response) => response.statusCode).sort()).toEqual([201, 409]);
+    expect((await ok('GET', `/maintenances/${item}`, 'west')).duration_days).toBe(9);
+    const plan = (
+      await ok('POST', '/depreciations', 'root', {
+        name: 'Fixed floor plan',
+        months: 12,
+        depreciation_min: '500',
+        depreciation_type: 'amount',
+        fiscal_year_start_month: 7,
+      })
+    ).payload;
+    expect((await ok('GET', `/depreciations/${plan.id}`, 'root')).depreciation_min).toBe('500.00');
+  });
+
+  async function multipart(
+    path: string,
+    actor: Token,
+    filename: string,
+    bytes: Buffer,
+    mime: string,
+  ) {
+    const boundary = 'kestrel-parity-boundary';
+    return app.inject({
+      method: 'POST',
+      url: '/api/v1' + path,
+      headers: {
+        authorization: 'Bearer ' + tokens.get(actor),
+        'content-type': 'multipart/form-data; boundary=' + boundary,
+      },
+      payload: Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`,
+        ),
+        bytes,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+  }
+
+  it('matches attachment parent and model read/write policy and rolls back failed storage writes', async () => {
+    const asset = await create('file-parity');
+    const before = (await ok('GET', `/models/${model}/files`, 'west')).total;
+    const document = Buffer.from('Inventory manual');
+    const upload = await multipart(
+      `/models/${model}/files`,
+      'root',
+      'manual.txt',
+      document,
+      'text/plain',
+    );
+    expect(upload.statusCode, upload.body).toBe(201);
+    const file = upload.json().payload[0];
+    expect((await ok('GET', `/models/${model}/files?search=manual`, 'west')).total).toBe(
+      before + 1,
+    );
+    expect((await http('GET', `/models/${model}/files/${file.id}`, 'west')).rawPayload).toEqual(
+      document,
+    );
+    expect(
+      (await multipart(`/models/${model}/files`, 'west', 'edit.txt', document, 'text/plain'))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await http('DELETE', `/models/${model}/files/${file.id}/delete`, 'west')).statusCode,
+    ).toBe(403);
+    expect((await http('GET', `/assets/${asset.id}/files/${file.id}`, 'root')).statusCode).toBe(
+      404,
+    );
+    expect(
+      (
+        await multipart(
+          `/hardware/${asset.id}/files`,
+          'root',
+          'unsafe.svg',
+          Buffer.from('<svg/>'),
+          'image/svg+xml',
+        )
+      ).statusCode,
+    ).toBe(422);
+    const store = app.get<StorageProvider>(STORAGE_PROVIDER);
+    const failure = vi
+      .spyOn(store, 'deleteObject')
+      .mockRejectedValueOnce(new Error('Simulated delete failure'));
+    expect(
+      (await http('DELETE', `/models/${model}/files/${file.id}/delete`, 'root')).statusCode,
+    ).toBe(500);
+    failure.mockRestore();
+    expect((await http('GET', `/models/${model}/files/${file.id}`, 'west')).statusCode).toBe(200);
+    await ok('DELETE', `/models/${model}/files/${file.id}/delete`, 'root');
+    expect((await http('GET', `/models/${model}/files/${file.id}`, 'west')).statusCode).toBe(404);
+  });
+
+  it('prints asset labels as valid PDF and rejects an out-of-scope tag', async () => {
+    const westAsset = await create('barcode-west');
+    const eastAsset = await create('barcode-east', eastCompany);
+    const print = await http('POST', '/hardware/labels', 'west', {
+      asset_tags: [westAsset.asset_tag],
+    });
+    expect(print.statusCode, print.body).toBe(200);
+    expect(Buffer.from(print.json().payload.pdf, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+    expect(
+      (
+        await http('POST', '/hardware/labels', 'west', {
+          asset_tags: [westAsset.asset_tag, eastAsset.asset_tag],
+        })
+      ).statusCode,
+    ).toBe(404);
+    const binary = await http('POST', '/hardware/labels', 'west', {
+      asset_tags: [westAsset.asset_tag],
+      format: 'pdf',
+    });
+    expect(binary.headers['content-type']).toContain('application/pdf');
+    expect(binary.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('offers all ten reports in both formats and protects masked data and scoped activity', async () => {
+    const westAsset = (
+      await ok('POST', '/hardware', 'root', {
+        ...body('report-west'),
+        name: '=Formula-like asset',
+        notes: 'Line one\nLine two',
+      })
+    ).payload;
+    const eastAsset = await create('report-east', eastCompany);
+    for (const type of REPORT_TYPES) {
+      const preview = await ok('GET', `/reports/${type}?limit=1`, 'root');
+      const csv = await http('GET', `/reports/${type}?format=csv`, 'root');
+      expect(csv.statusCode, `CSV ${type}: ${csv.body.slice(0, 300)}`).toBe(200);
+      const records = parseCsv(csv.body) as string[][];
+      expect(records[0]).toEqual(preview.columns);
+      expect(records.length - 1).toBe(preview.total);
+      const xlsx = await http('GET', `/reports/${type}?format=xlsx`, 'root');
+      expect(xlsx.statusCode, `XLSX ${type}`).toBe(200);
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(xlsx.rawPayload as unknown as ArrayBuffer);
+      expect(workbook.worksheets[0]!.getRow(1).values).toEqual([, ...preview.columns]);
+    }
+    const csv = await http(
+      'GET',
+      '/reports/custom?format=csv&columns=asset_tag,name,notes',
+      'root',
+    );
+    expect(parseCsv(csv.body)).toContainEqual([
+      westAsset.asset_tag,
+      "'=Formula-like asset",
+      'Line one\nLine two',
+    ]);
+    const scoped = await ok(
+      'GET',
+      '/reports/activity?scoped=true&item_type=asset&limit=100',
+      'west',
+    );
+    expect(scoped.rows).toContainEqual(expect.objectContaining({ item_id: westAsset.id }));
+    expect(scoped.rows).not.toContainEqual(expect.objectContaining({ item_id: eastAsset.id }));
+    expect((await http('GET', '/reports/licenses', 'west')).statusCode).toBe(403);
+    const report = await ok('POST', '/report-templates', 'root', {
+      name: 'Private inventory report',
+      report: 'custom',
+      options: { columns: 'asset_tag,name' },
+    });
+    expect(
+      (await ok('GET', `/report-templates/${report.payload.id}`, 'root')).payload.options.columns,
+    ).toBe('asset_tag,name');
+    await db
+      .update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} || '{"reports.view":1}'::jsonb` })
+      .where(eq(tables.users.id, west));
+    expect((await http('GET', `/report-templates/${report.payload.id}`, 'west')).statusCode).toBe(
+      404,
+    );
+    await ok('PATCH', `/report-templates/${report.payload.id}`, 'root', {
+      name: 'Shared inventory report',
+      report: 'custom',
+      is_shared: true,
+      options: { columns: 'asset_tag,name' },
+    });
+    expect(
+      (await ok('GET', `/report-templates/${report.payload.id}`, 'west')).payload.isShared,
+    ).toBe(true);
+    expect(
+      (await http('DELETE', `/report-templates/${report.payload.id}`, 'west')).statusCode,
+    ).toBe(404);
+    await db
+      .update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} - 'reports.view'` })
+      .where(eq(tables.users.id, west));
+  }, 30_000);
+
+  it('runs all twelve upstream import types and keeps historical checkouts out of live state', async () => {
+    const csvs: Record<(typeof IMPORT_TYPES)[number], string> = {
+      asset: 'Asset Tag,Model,Status,Asset Name\nCSV-ASSET,CSV Model,Deployed,CSV fixture asset',
+      assetHistory:
+        'Asset Tag,Assigned To,Checkout Date,Checkin Date\nCSV-ASSET,west,2025-04-01,2025-04-06',
+      assetModel: 'Name,Model Number,Category\nCSV Model,CSV-123,CSV asset category',
+      user: 'Username,Email,First Name,Last Name\ncsv-user,csv-user@example.test,Csv,User',
+      license: 'Name,Product Key,Seats\nCSV License,PRIVATE-CSV-KEY,2',
+      accessory: 'Name,Quantity\nCSV Accessory,10',
+      consumable: 'Name,Item Number,Quantity\nCSV Consumable,CSV-C,10',
+      component: 'Name,Serial,Quantity\nCSV Component,CSV-CM,10',
+      location: 'Name,City\nCSV Location,Rome',
+      category: 'Name,Category Type\nCSV asset category,asset',
+      manufacturer: 'Name,Support URL\nCSV Manufacturer,https://example.test/support',
+      supplier: 'Name,City\nCSV Supplier,Rome',
+    };
+    const ordered = [
+      'category',
+      'assetModel',
+      'asset',
+      'assetHistory',
+      ...IMPORT_TYPES.filter(
+        (type) => !['category', 'assetModel', 'asset', 'assetHistory'].includes(type),
+      ),
+    ] as (typeof IMPORT_TYPES)[number][];
+    for (const type of ordered) {
+      const uploaded = await multipart(
+        '/imports',
+        'root',
+        `${type}.csv`,
+        Buffer.from(csvs[type]),
+        'text/csv',
+      );
+      expect(uploaded.statusCode, uploaded.body).toBe(201);
+      expect(uploaded.body).not.toContain('PRIVATE-CSV-KEY');
+      const [{ id }] = uploaded.json().payload;
+      const { payload } = await ok('GET', `/imports/${id}?import_type=${type}`, 'root');
+      const input = { import_type: type, field_map: payload.suggested_map };
+      await Promise.all([
+        ok('POST', `/imports/process/${id}`, 'root', input),
+        ok('POST', `/imports/process/${id}`, 'root', input),
+      ]);
+      await app.get(ImportsController).processOne();
+      const { run } = await ok('GET', `/imports/${id}/progress`, 'root');
+      expect(run, `Import ${type}`).toMatchObject({
+        state: 'complete',
+        processed: 1,
+        created: 1,
+        errored: 0,
+      });
+      const next = await multipart(
+        '/imports',
+        'root',
+        `${type}-update.csv`,
+        Buffer.from(csvs[type]),
+        'text/csv',
+      );
+      const [{ id: updateId }] = next.json().payload;
+      await ok('POST', `/imports/process/${updateId}`, 'root', { ...input, update_existing: true });
+      await app.get(ImportsController).processOne();
+      const updated = (await ok('GET', `/imports/${updateId}/progress`, 'root')).run;
+      expect(updated, `Update ${type}`).toMatchObject({
+        state: 'complete',
+        processed: 1,
+        updated: type === 'assetHistory' ? 0 : 1,
+        skipped: type === 'assetHistory' ? 1 : 0,
+        errored: 0,
+      });
+    }
+    const asset = await ok('GET', '/hardware/bytag/CSV-ASSET', 'root');
+    expect(asset.assigned_to).toBeNull();
+    expect(
+      (await ok('GET', `/hardware/${asset.id}/history`, 'root')).rows.map(
+        (row: Record<string, unknown>) => row.action_type,
+      ),
+    ).toEqual(expect.arrayContaining(['checkout', 'checkin from']));
+    const uploaded = await multipart(
+      '/imports',
+      'root',
+      'mixed.csv',
+      Buffer.from('Name,Quantity\nCSV valid,6\nCSV invalid,abc'),
+      'text/csv',
+    );
+    const [{ id }] = uploaded.json().payload;
+    await ok('POST', `/imports/process/${id}`, 'root', {
+      import_type: 'accessory',
+      field_map: { 0: 'name', 1: 'qty' },
+    });
+    await app.get(ImportsController).processOne();
+    const result = await ok('GET', `/imports/${id}/progress`, 'root');
+    expect(result.run).toMatchObject({ created: 1, errored: 1, processed: 2 });
+    expect(result.rows[0].row_number).toBe(3);
+    expect((await ok('GET', '/accessories?search=CSV%20invalid', 'root')).total).toBe(0);
+  }, 30_000);
+
+  it('queues scheduled workflows once and applies sign-in-place and company-scoped reminder authorization', async () => {
+    await ok('PATCH', '/settings/notifications', 'root', {
+      alerts_enabled: true,
+      alert_email: 'operations@example.test',
+      alert_interval: 30,
+      due_checkin_days: 7,
+      audit_warning_days: 14,
+    });
+    expect(
+      (
+        await http('PATCH', '/settings/notifications', 'root', {
+          webhook_selected: 'general',
+          webhook_endpoint: 'https://127.0.0.1/hooks',
+        })
+      ).statusCode,
+    ).toBe(422);
+    const asset = await create('scheduled-west');
+    const checked = await ok('POST', `/hardware/${asset.id}/checkout`, 'root', {
+      target_type: 'user',
+      target_id: west,
+      sign_in_place: true,
+      expected_checkin: '2035-05-23',
+    });
+    const acceptance = checked.payload.acceptance_id;
+    const direct = await db
+      .select()
+      .from(tables.inventoryMailOutbox)
+      .where(
+        and(
+          eq(tables.inventoryMailOutbox.event, 'checkout.asset'),
+          sql`${tables.inventoryMailOutbox.subject} like ${'%' + asset.asset_tag}`,
+          eq(tables.inventoryMailOutbox.channel, 'email'),
+        ),
+      );
+    expect(direct).toHaveLength(0);
+    expect(
+      (await http('POST', '/unaccepted-acceptances/send-reminders', 'east', { ids: [acceptance] }))
+        .statusCode,
+    ).toBe(403);
+    const reminder = await ok('POST', '/unaccepted-acceptances/send-reminders', 'west', {
+      ids: [acceptance],
+    });
+    expect(reminder.payload.queued).toBe(1);
+    await ok('POST', '/settings/notifications/test', 'root', { email: 'test@example.test' });
+    await ok('POST', `/users/${west}/email`, 'root', {});
+    const scheduler = app.get(NotificationsController);
+    const now = new Date('2035-05-22T14:45:00Z');
+    await Promise.all([scheduler.runDue(now), scheduler.runDue(now)]);
+    const jobs = await db
+      .select()
+      .from(tables.scheduledJobRuns)
+      .where(eq(tables.scheduledJobRuns.period, '2035-05-22'));
+    expect(jobs.map((row) => row.job).sort()).toEqual([
+      'expected-checkin',
+      'expiring-alerts',
+      'inventory-alerts',
+      'operational-cleanup',
+      'upcoming-audits',
+    ]);
+    const expected = await db
+      .select()
+      .from(tables.inventoryMailOutbox)
+      .where(
+        and(
+          eq(tables.inventoryMailOutbox.event, 'expected.user'),
+          sql`${tables.inventoryMailOutbox.subject} like ${'%' + asset.asset_tag}`,
+        ),
+      );
+    expect(expected).toHaveLength(1);
+  }, 20_000);
+
+  it('preserves assignment IDs, return permissions, and scoped acquisition counts', async () => {
+    const { payload: recipient } = await ok('POST', '/users', 'root', {
+      username: 'assignment-parity-recipient',
+      activated: true,
+      company_ids: [westCompany],
+    });
+    const accessory = (
+      await ok('POST', '/accessories', 'root', {
+        name: 'Assignment parity',
+        qty: 3,
+        company_id: westCompany,
+      })
+    ).payload;
+    const first = (
+      await ok('POST', `/accessories/${accessory.id}/checkout`, 'west', {
+        target_type: 'user',
+        target_id: recipient.id,
+        note: 'First assignment',
+      })
+    ).payload.assignment_ids[0];
+    const second = (
+      await ok('POST', `/accessories/${accessory.id}/checkout`, 'west', {
+        target_type: 'user',
+        target_id: recipient.id,
+        note: 'Second assignment',
+      })
+    ).payload.assignment_ids[0];
+    expect(first).not.toBe(second);
+    expect(
+      (await http('POST', `/accessories/${accessory.id}/checkin`, 'west', { assignment_id: first }))
+        .statusCode,
+    ).toBe(403);
+    await ok('POST', `/accessories/${accessory.id}/checkin`, 'root', { assignment_id: first });
+    const assignments = await ok('GET', `/accessories/${accessory.id}/checkedout`, 'west');
+    expect(assignments.rows).toEqual([
+      expect.objectContaining({ id: second, note: 'Second assignment' }),
+    ]);
+    await ok('POST', `/accessories/${accessory.id}/adjust-quantity`, 'root', {
+      amount: 3,
+      order_number: 'PARITY-ORDER',
+      unit_cost: '1.50',
+      note: 'Purchase',
+    });
+    const orders = `/order-items?item_id=${accessory.id}&item_type=accessory`;
+    expect((await ok('GET', orders, 'west')).total).toBe(1);
+    expect((await http('GET', orders, 'east')).statusCode).toBe(403);
+    expect((await http('GET', '/order-items', 'west')).statusCode).toBe(403);
+    const plan = (
+      await ok('POST', '/depreciations', 'root', { name: 'Parity depreciation', months: 36 })
+    ).payload;
+    const deleted = await http('DELETE', `/depreciations/${plan.id}`, 'root');
+    expect(deleted.statusCode).toBe(200);
+  });
+
+  it('resumes a durable import and applies update-mode adjustments and checkout without replay', async () => {
+    const csv = Buffer.from(
+      'Name,Quantity,Assigned To\nResumed access,5,west\nUpdated stock,5,west',
+    );
+    const existing = (
+      await ok('POST', '/accessories', 'root', {
+        name: 'Updated stock',
+        qty: 3,
+        notes: 'Keep this note',
+        company_id: westCompany,
+      })
+    ).payload;
+    const resumed = (
+      await ok('POST', '/accessories', 'root', {
+        name: 'Resumed access',
+        qty: 5,
+        company_id: westCompany,
+      })
+    ).payload;
+    await ok('POST', `/accessories/${resumed.id}/checkout`, 'root', {
+      target_type: 'user',
+      target_id: west,
+    });
+    const upload = await multipart('/imports', 'root', 'resume.csv', csv, 'text/csv');
+    const [{ id }] = upload.json().payload;
+    await db
+      .update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} || '{"import":1}'::jsonb` })
+      .where(eq(tables.users.id, west));
+    expect((await http('GET', `/imports/${id}`, 'west')).statusCode).toBe(404);
+    await db
+      .update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} - 'import'` })
+      .where(eq(tables.users.id, west));
+    const run = {
+      state: 'running' as const,
+      worker: 'terminated-worker',
+      actorId: root,
+      cursor: 1,
+      created: 1,
+      updated: 0,
+      errored: 0,
+      skipped: 0,
+      updateExisting: true,
+      preserveBlanks: true,
+      sendWelcome: false,
+    };
+    await db
+      .update(tables.imports)
+      .set({
+        run,
+        importType: 'accessory',
+        fieldMap: { 0: 'name', 1: 'qty', 2: 'assigned_to' },
+        processingStartedAt: new Date('2020-01-01T00:00:00Z'),
+      })
+      .where(eq(tables.imports.id, id));
+    await app.get(ImportsController).processOne();
+    const result = await ok('GET', `/imports/${id}/progress`, 'root');
+    expect(result.run).toMatchObject({
+      state: 'complete',
+      processed: 2,
+      created: 1,
+      updated: 1,
+      errored: 0,
+    });
+    expect((await ok('GET', `/accessories/${resumed.id}/checkedout`, 'root')).total).toBe(1);
+    expect(await ok('GET', `/accessories/${existing.id}`, 'root')).toMatchObject({
+      qty: 5,
+      notes: 'Keep this note',
+    });
+    expect((await ok('GET', `/accessories/${existing.id}/checkedout`, 'root')).total).toBe(1);
+    expect(
+      await connection`select action_source, quantity from action_logs where item_type='accessory'
+      and item_id=${existing.id} and action_type='adjust quantity'`,
+    ).toEqual([{ action_source: 'importer', quantity: 2 }]);
+  }, 20_000);
+
+  it('queues checkout, check-in, acceptance, request, stock, and expiry behavior through their actual workflows', async () => {
+    await ok('PATCH', '/settings/notifications', 'root', {
+      alerts_enabled: true,
+      alert_email: 'operations@example.test',
+      admin_cc_email: 'cc@example.test',
+      admin_cc_always: true,
+      alert_interval: 30,
+      due_checkin_days: 14,
+      audit_warning_days: 30,
+      webhook_selected: 'general',
+      webhook_endpoint: 'https://global.example.test/alerts',
+    });
+    const asset = (
+      await ok('POST', '/hardware', 'root', {
+        ...body('notification-parity'),
+        asset_eol_date: '2036-01-07',
+      })
+    ).payload;
+    const assigned = (
+      await ok('POST', `/hardware/${asset.id}/checkout`, 'root', {
+        target_type: 'user',
+        target_id: west,
+        expected_checkin: '2036-01-03',
+      })
+    ).payload;
+    await ok('POST', `/account/accept/${assigned.acceptance_id}`, 'west', {
+      decision: 'decline',
+      note: 'Wrong hardware',
+    });
+    await ok('POST', `/hardware/${asset.id}/audit`, 'root', { next_audit_date: '2036-01-05' });
+    for (const [resource, type] of [
+      ['licenses', 'license'],
+      ['accessories', 'accessory'],
+      ['consumables', 'consumable'],
+      ['components', 'component'],
+    ] as const) {
+      const category = (
+        await ok('POST', '/categories', 'root', {
+          name: `Notification ${type}`,
+          category_type: type,
+          checkin_email: true,
+        })
+      ).payload;
+      const item = (
+        await ok('POST', `/${resource}`, 'root', {
+          name: `Lifecycle ${type}`,
+          company_id: westCompany,
+          category_id: category.id,
+          min_amt: 4,
+          ...(type === 'license' ? { seats: 2, expiration_date: '2036-01-08' } : { qty: 5 }),
+        })
+      ).payload;
+      const checkout = (
+        await ok('POST', `/${resource}/${item.id}/checkout`, 'root', {
+          target_type: type === 'component' ? 'asset' : 'user',
+          target_id: type === 'component' ? asset.id : west,
+        })
+      ).payload;
+      const assignment = checkout.assignment_ids[0];
+      if (type === 'license')
+        await ok('POST', `/licenses/${item.id}/checkin`, 'root', { seat_id: assignment });
+      if (type === 'accessory')
+        await ok('POST', `/accessories/${item.id}/checkin`, 'root', { assignment_id: assignment });
+      if (type === 'component')
+        await ok('POST', `/components/${assignment}/checkin`, 'root', { quantity: 1 });
+    }
+    await app.get(NotificationsController).runDue(new Date('2036-01-02T12:00:00Z'));
+    await ok('POST', `/hardware/${asset.id}/checkin`, 'root', {});
+    const request = (await ok('POST', `/account/request/${asset.id}`, 'west', {})).payload;
+    await ok('POST', `/account/requests/${request.id}/cancel`, 'west');
+    const accepted = (
+      await ok('POST', `/hardware/${asset.id}/checkout`, 'root', {
+        target_type: 'user',
+        target_id: west,
+      })
+    ).payload;
+    await ok('POST', `/account/accept/${accepted.acceptance_id}`, 'west', {
+      decision: 'accept',
+      signature: signature(),
+    });
+    await ok('POST', '/users', 'root', {
+      username: 'receive-welcome-message',
+      email: 'welcome@example.test',
+      send_welcome: true,
+    });
+    const events = new Set(
+      (
+        await db
+          .select({ event: tables.inventoryMailOutbox.event })
+          .from(tables.inventoryMailOutbox)
+      ).map((row) => row.event),
+    );
+    expect(
+      notificationEvents.filter((event) => event !== 'first-admin' && !events.has(event)),
+    ).toEqual([]);
+    const checkoutRecipients = await db
+      .select({ recipient: tables.inventoryMailOutbox.recipient })
+      .from(tables.inventoryMailOutbox)
+      .where(
+        and(
+          eq(tables.inventoryMailOutbox.event, 'checkout.asset'),
+          eq(tables.inventoryMailOutbox.channel, 'email'),
+          eq(tables.inventoryMailOutbox.subject, `Asset checked out: ${asset.asset_tag}`),
+        ),
+      );
+    expect(checkoutRecipients.map((row) => row.recipient)).toEqual(
+      expect.arrayContaining(['west@example.test', 'cc@example.test']),
+    );
+  }, 20_000);
+
+  it('delivers through fake SMTP and all webhook transports with company override precedence', async () => {
+    const outbound = app.get(InventoryMailService);
+    const transport = (
+      outbound as unknown as { transport: { sendMail: (data: unknown) => Promise<unknown> } }
+    ).transport;
+    const smtpSend = vi.spyOn(transport, 'sendMail').mockResolvedValue({});
+    const webhookSend = vi.spyOn(webhookDelivery, 'postWebhook').mockResolvedValue();
+    try {
+      const [email] = await db
+        .insert(tables.inventoryMailOutbox)
+        .values({
+          recipient: 'delivery@example.test',
+          event: 'mail-test',
+          subject: 'SMTP delivery fixture',
+          message: 'Delivery test',
+          availableAt: new Date('2010-01-01'),
+        })
+        .returning();
+      await outbound.deliverOne();
+      expect(smtpSend).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'delivery@example.test', subject: 'SMTP delivery fixture' }),
+      );
+      expect(
+        (
+          await db
+            .select()
+            .from(tables.inventoryMailOutbox)
+            .where(eq(tables.inventoryMailOutbox.id, email!.id))
+        )[0]?.sentAt,
+      ).toBeInstanceOf(Date);
+      for (const provider of ['slack', 'microsoft', 'google', 'general'] as const) {
+        const endpoint = `https://company.example.test/${provider}`;
+        await ok('PATCH', `/companies/${westCompany}`, 'root', {
+          webhook_selected: provider,
+          webhook_endpoint: endpoint,
+        });
+        const [job] = await db
+          .insert(tables.inventoryMailOutbox)
+          .values({
+            recipient: '',
+            companyId: westCompany,
+            channel: 'webhook',
+            event: 'checkout.asset',
+            subject: 'Webhook delivery fixture',
+            message: 'Delivery test',
+            availableAt: new Date('2010-01-01'),
+          })
+          .returning();
+        await outbound.deliverOne();
+        expect(webhookSend).toHaveBeenLastCalledWith(
+          endpoint,
+          expect.any(Object),
+          `inventory-${job!.id}`,
+        );
+      }
+    } finally {
+      smtpSend.mockRestore();
+      webhookSend.mockRestore();
+    }
+  });
+
+  it('preserves queued SMTP mail when upgrading from populated Phase 3.2', async () => {
+    const name = databaseName + '_phase32';
+    await cluster`create database ${cluster(name)}`;
+    const source = postgres(databaseUrl(name), { max: 1 });
+    const folder = await mkdtemp(join(tmpdir(), 'kestrel-phase32-migrations-'));
+    try {
+      await cp(migrations, folder, { recursive: true });
+      const journalPath = join(folder, 'meta', '_journal.json');
+      const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+      journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx <= 5);
+      await writeFile(journalPath, JSON.stringify(journal));
+      await migrate(drizzle(source), { migrationsFolder: folder });
+      await source`insert into inventory_mail_outbox (recipient,subject,message,attempts) values ('user@example.test','Pending checkout','Pending details',2)`;
+      await source`insert into report_templates (name) values ('Existing template')`;
+      await migrate(drizzle(source), { migrationsFolder: migrations });
+      expect(
+        await source`select channel,attempts,subject,sent_at from inventory_mail_outbox`,
+      ).toEqual([{ channel: 'email', attempts: 2, subject: 'Pending checkout', sent_at: null }]);
+      expect(await source`select is_shared from report_templates`).toEqual([{ is_shared: false }]);
+    } finally {
+      await source.end();
+      await cluster`drop database if exists ${cluster(name)} with (force)`;
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  it('backfills calendar dates from a populated Phase 2 database', async () => {
+    const name = databaseName + '_phase2';
+    await cluster`create database ${cluster(name)}`;
+    const source = postgres(databaseUrl(name), { max: 1 });
+    const folder = await mkdtemp(join(tmpdir(), 'kestrel-phase2-migrations-'));
+    try {
+      await cp(migrations, folder, { recursive: true });
+      const journalPath = join(folder, 'meta', '_journal.json');
+      const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+      journal.entries = journal.entries.filter((entry: { idx: number }) => entry.idx <= 4);
+      await writeFile(journalPath, JSON.stringify(journal));
+      await migrate(drizzle(source), { migrationsFolder: folder });
+      await source`insert into assets (asset_tag, next_audit_date, order_number, purchase_cost) values ('PHASE-2', '2030-05-01', 'LEGACY-PO', 24.50)`;
+      await source`insert into licenses (name, expiration_date) values ('Legacy', '2030-07-01')`;
+      await migrate(drizzle(source), { migrationsFolder: migrations });
+      expect(await source`select event_type from calendar_events order by event_type`).toEqual([
+        { event_type: 'asset.audit_due' },
+        { event_type: 'license.expiration' },
+      ]);
+      expect(await source`select id from maintenance_types`).toHaveLength(8);
+      expect(
+        await source`select order_number, unit_cost, quantity from order_items join orders on orders.id = order_id`,
+      ).toEqual([{ order_number: 'LEGACY-PO', unit_cost: '24.50', quantity: 1 }]);
+    } finally {
+      await source.end();
+      await cluster`drop database if exists ${cluster(name)} with (force)`;
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Phase 3 depreciation', () => {
+  it('caps fixed and percentage floors and respects month and fiscal boundaries', () => {
+    const schedule = {
+      months: 24,
+      depreciationMin: '100',
+      depreciationType: 'amount' as const,
+      fiscalYearStartMonth: 7,
+      rateMultiplier: '2',
+    };
+    for (const method of ['default', 'half_1', 'half_2', 'diminish'] as const) {
+      expect(depreciationValue(schedule, '800', '2020-01-31', method, '2030-01-01')).toBe('100.00');
+      expect(
+        depreciationValue(
+          { ...schedule, depreciationType: 'percent', depreciationMin: '25' },
+          '800',
+          '2020-01-31',
+          method,
+          '2030-01-01',
+        ),
+      ).toBe('200.00');
+      expect(
+        depreciationValue(
+          { ...schedule, depreciationMin: '900' },
+          '800',
+          '2020-01-31',
+          method,
+          '2030-01-01',
+        ),
+      ).toBe('800.00');
+    }
+    expect(depreciationValue(schedule, '800', '2020-01-31', 'default', '2020-02-01')).toBe(
+      '800.00',
+    );
+    expect(depreciationValue(schedule, '800', '2024-06-30', 'diminish', '2024-07-01')).toBe(
+      '795.62',
+    );
+    expect(depreciationValue(schedule, '800', '2020-01-01', 'half_1', '2020-06-01')).toBe('800.00');
+    expect(depreciationValue(schedule, '800', '2020-01-01', 'half_2', '2020-06-01')).toBe('600.00');
+  });
 });

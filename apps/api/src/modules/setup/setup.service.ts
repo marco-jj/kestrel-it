@@ -1,3 +1,4 @@
+import { InventoryMailService } from '../inventory/inventory-mail.service.js';
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type {
@@ -22,6 +23,7 @@ export class SetupService {
     @Inject(DatabaseBootstrapService)
     private readonly bootstrapService: DatabaseBootstrapService,
     @Inject(CryptoService) private readonly cryptoService: CryptoService,
+    @Inject(InventoryMailService) private readonly mail: InventoryMailService,
     @Inject(AuthService) private readonly authService: AuthService,
   ) {}
 
@@ -111,6 +113,8 @@ export class SetupService {
         note: 'Initial superuser created via first-run setup wizard',
       });
 
+      await this.mail.enqueue(tx, dto.email, 'Kestrel-IT is ready',
+        `Your administrator account for ${dto.siteName} has been created.`, 'first-admin');
       return adminUser.id;
     });
 

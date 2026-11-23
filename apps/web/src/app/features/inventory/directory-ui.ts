@@ -102,6 +102,8 @@ export const DIRECTORY_UI: Record<CoreInventoryResource, InventoryPageDefinition
       field('email', 'Email'),
       field('employee_num', 'Employee number'),
       field('jobtitle', 'Job title'),
+      field('start_date', 'Start date', 'date'),
+      field('end_date', 'End date', 'date'),
       phone,
       manager,
       location,
