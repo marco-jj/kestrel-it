@@ -43,6 +43,7 @@ export interface AuthenticatedUserContext {
   userCompanyIds: number[];
   groupIds: number[];
   effectivePermissions: Record<PermissionKey, boolean>;
+  keyPermissions?: Record<PermissionKey, boolean>;
   twoFactorEnrolled: boolean;
   twoFactorVerified: boolean;
   authMethod: 'jwt' | 'pat';
@@ -58,6 +59,7 @@ export const AuthenticatedUserContextSchema = z.object({
   userCompanyIds: z.array(z.number().int()),
   groupIds: z.array(z.number().int()),
   effectivePermissions: z.record(z.boolean()),
+  keyPermissions: z.record(z.boolean()).optional(),
   twoFactorEnrolled: z.boolean(),
   twoFactorVerified: z.boolean(),
   authMethod: z.enum(['jwt', 'pat']),

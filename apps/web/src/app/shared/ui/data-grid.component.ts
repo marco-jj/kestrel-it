@@ -139,7 +139,7 @@ export function toggleRowSelectionSet(
                 Clear
               </button>
             </div>
-          } @else {
+          } @else if (creatable) {
             <button
               type="button"
               class="k-btn k-btn-primary"
@@ -525,6 +525,7 @@ export class KestrelDataGridComponent {
   @Input() emptyTitle = 'No matching records';
   @Input() emptyDescription = 'Adjust your filters or create a new record to populate this table.';
   @Input() selectable = true;
+  @Input() creatable = true;
   @Input() idKey = 'id';
   @Input() createLabel = 'New Record';
 

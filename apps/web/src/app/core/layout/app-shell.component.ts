@@ -64,6 +64,11 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
     section: 'people',
     requiredPermission: 'locations.view',
   },
+  { label: 'Departments', route: '/departments', section: 'people', requiredPermission: 'departments.view' },
+  { label: 'Categories', route: '/categories', section: 'inventory', requiredPermission: 'categories.view' },
+  { label: 'Manufacturers', route: '/manufacturers', section: 'inventory', requiredPermission: 'manufacturers.view' },
+  { label: 'Suppliers', route: '/suppliers', section: 'inventory', requiredPermission: 'suppliers.view' },
+  { label: 'Status Labels', route: '/statuslabels', section: 'inventory', requiredPermission: 'statuslabels.view' },
   { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import' },
   {
     label: 'Reports',

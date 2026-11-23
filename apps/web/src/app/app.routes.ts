@@ -1,3 +1,4 @@
+import { CORE_INVENTORY_RESOURCES } from '@kestrel-it/shared';
 import type { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard.js';
 import { setupCompletedGuard, setupIncompleteGuard } from './core/guards/setup.guard.js';
@@ -22,6 +23,12 @@ export const appRoutes: Routes = [
     component: AppShellComponent,
     canActivate: [setupCompletedGuard, authGuard],
     children: [
+      ...CORE_INVENTORY_RESOURCES.map((resource) => ({
+        path: resource,
+        data: { resource },
+        loadComponent: () => import('./features/inventory/directory-page.component.js')
+          .then((module) => module.DirectoryPageComponent),
+      })),
       {
         path: 'dashboard',
         component: DashboardComponent,
