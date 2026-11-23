@@ -1,4 +1,5 @@
 import type { CheckoutTargetType, CustomFieldElement } from '@kestrel-it/shared';
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   date,
@@ -187,6 +188,7 @@ export const assets = pgTable(
   },
   (table) => [
     index('idx_assets_asset_tag').on(table.assetTag),
+    uniqueIndex('uq_assets_live_tag').on(table.assetTag).where(sql`${table.deletedAt} IS NULL`),
     index('idx_assets_serial').on(table.serial),
     index('idx_assets_model_id').on(table.modelId),
     index('idx_assets_status_id').on(table.statusId),

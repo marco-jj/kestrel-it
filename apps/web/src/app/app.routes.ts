@@ -23,6 +23,11 @@ export const appRoutes: Routes = [
     component: AppShellComponent,
     canActivate: [setupCompletedGuard, authGuard],
     children: [
+      ...['hardware', 'models'].map((path) => ({
+        path,
+        loadComponent: () => import('./features/inventory/hardware-page.component.js')
+          .then((module) => module.HardwarePageComponent),
+      })),
       ...['fields', 'fieldsets'].map((path) => ({
         path,
         loadComponent: () => import('./features/inventory/custom-fields-page.component.js')

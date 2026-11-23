@@ -13,6 +13,7 @@ export interface DataGridColumn<T = Record<string, unknown>> {
 }
 
 export interface DataGridRowActions {
+  view?: boolean;
   checkout?: boolean;
   checkin?: boolean;
   update?: boolean;
@@ -29,6 +30,7 @@ export type DataGridRow = Record<string, unknown> & {
 };
 
 const ORDERED_ROW_ACTIONS: readonly DataGridActionType[] = [
+  'view',
   'checkout',
   'checkin',
   'update',
@@ -121,6 +123,10 @@ export function toggleRowSelectionSet(
           @if (selectedIds().size > 0) {
             <div class="bulk-bar">
               <span class="k-mono bulk-count">{{ selectedIds().size }} selected</span>
+              @if (bulkRestore) {
+                <button type="button" class="k-btn k-btn-secondary bulk-btn" (click)="emitBulkAction('bulk_restore')">Restore</button>
+              }
+              @if (bulkEdit) {
               <button
                 type="button"
                 class="k-btn k-btn-secondary bulk-btn"
@@ -128,6 +134,8 @@ export function toggleRowSelectionSet(
               >
                 Bulk Edit
               </button>
+              }
+              @if (bulkDelete) {
               <button
                 type="button"
                 class="k-btn k-btn-danger bulk-btn"
@@ -135,6 +143,7 @@ export function toggleRowSelectionSet(
               >
                 Delete
               </button>
+              }
               <button type="button" class="k-btn k-btn-ghost bulk-btn" (click)="clearSelection()">
                 Clear
               </button>
@@ -526,6 +535,9 @@ export class KestrelDataGridComponent {
   @Input() emptyDescription = 'Adjust your filters or create a new record to populate this table.';
   @Input() selectable = true;
   @Input() creatable = true;
+  @Input() bulkEdit = true;
+  @Input() bulkDelete = true;
+  @Input() bulkRestore = false;
   @Input() idKey = 'id';
   @Input() createLabel = 'New Record';
 

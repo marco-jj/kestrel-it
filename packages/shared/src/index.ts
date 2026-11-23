@@ -6,3 +6,4 @@ export * from './schemas/auth-and-setup.js';
 export * from './schemas/custom-field-validator.js';
 export * from './schemas/core-inventory.js';
 export * from './schemas/inventory-custom-fields.js';
+export * from './schemas/hardware.js';

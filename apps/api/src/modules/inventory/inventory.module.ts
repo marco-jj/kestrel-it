@@ -1,3 +1,11 @@
+import {
+  AssetModelsController,
+  DepreciationSelectorController,
+  HardwareController,
+} from './hardware.controller.js';
+import { AssetModelsService } from './asset-models.service.js';
+import { HardwareService } from './hardware.service.js';
+import { SavedSearchesController } from './saved-searches.controller.js';
 import { Module } from '@nestjs/common';
 import { CustomFieldsController, CustomFieldsetsController } from './custom-fields.controller.js';
 import { CustomFieldsService } from './custom-fields.service.js';
@@ -7,12 +15,22 @@ import { DirectoryService } from './directory.service.js';
 import { FmcsScopeService } from './fmcs-scope.service.js';
 
 @Module({
-  controllers: [DirectoryController, CustomFieldsController, CustomFieldsetsController],
+  controllers: [
+    DirectoryController,
+    CustomFieldsController,
+    CustomFieldsetsController,
+    AssetModelsController,
+    HardwareController,
+    DepreciationSelectorController,
+    SavedSearchesController,
+  ],
   providers: [
     DirectoryService,
     FmcsScopeService,
     CustomFieldsService,
     CustomFieldsValidationService,
+    AssetModelsService,
+    HardwareService,
   ],
 })
 export class InventoryModule {}
