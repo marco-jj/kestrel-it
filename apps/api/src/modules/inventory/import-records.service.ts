@@ -187,11 +187,16 @@ export class ImportRecordsService {
           );
     const company =
       resource === 'locations' || resource === 'departments' ? attrs.company_id : undefined;
-    const id =
-      typeof company === 'number' && columns.companyId
-        ? (await this.unique(ctx, table, resource, and(where, eq(columns.companyId, company)))) ??
-          (await this.unique(ctx, table, resource, and(where, isNull(columns.companyId))))
-        : await this.unique(ctx, table, resource, where);
+    let id: number | undefined;
+    if (typeof company === 'number' && columns.companyId) {
+      id = await this.unique(ctx, table, resource, and(where, eq(columns.companyId, company)));
+    }
+    if (id === undefined && company !== undefined && columns.companyId) {
+      id = await this.unique(ctx, table, resource, and(where, isNull(columns.companyId)));
+    }
+    if (id === undefined && (company == null || (resource === 'locations' && !ctx.scope.scopeLocations))) {
+      id = await this.unique(ctx, table, resource, where);
+    }
     if (id !== undefined) return id;
     if (!create) fail(`No visible ${resource} record matches the row`);
     requireInventoryPermission(ctx.actor, `${resource}.create` as PermissionKey);
@@ -234,10 +239,13 @@ export class ImportRecordsService {
       const secondaryColumn =
         discriminator &&
         col[discriminator.replace(/_([a-z])/g, (_m, char: string) => char.toUpperCase())];
-      const sameName = and(
-        this.same(col.name, c.name),
-        typeof companyId === 'number' && col.companyId ? eq(col.companyId, companyId) : undefined,
-      );
+      const companyFilter =
+        typeof companyId === 'number' && col.companyId
+          ? eq(col.companyId, companyId)
+          : type === 'location' && companyId === null
+            ? isNull(locations.companyId)
+            : undefined;
+      const sameName = and(this.same(col.name, c.name), companyFilter);
       where = and(
         sameName,
         secondaryColumn && discriminator && c[discriminator]
@@ -261,24 +269,29 @@ export class ImportRecordsService {
     return this.unique(ctx, table, resource, where);
   }
 
-  private async existingCompany(ctx: Context, type: ImportType, id: number): Promise<number | null> {
+  private async existingCompany(
+    ctx: Context,
+    type: ImportType,
+    id: number,
+  ): Promise<number | null | undefined> {
     if (type === 'user') {
       const memberships = await ctx.tx
         .select({ companyId: companyUser.companyId })
         .from(companyUser)
         .where(eq(companyUser.userId, id))
         .limit(2);
-      return memberships.length === 1 ? memberships[0]!.companyId : null;
+      if (memberships.length === 0) return null;
+      return memberships.length === 1 ? memberships[0]!.companyId : undefined;
     }
     const [table] = definitions[type];
     const columns = getTableColumns(table as PgTable);
-    if (!columns.companyId) return null;
+    if (!columns.companyId) return undefined;
     const [row] = await ctx.tx
       .select({ companyId: columns.companyId })
       .from(table)
       .where(eq(columns.id!, id))
       .limit(1);
-    return (row?.companyId as number | null | undefined) ?? null;
+    return row?.companyId as number | null | undefined;
   }
 
   private async linkedModel(ctx: Context) {
@@ -335,7 +348,7 @@ export class ImportRecordsService {
         ctx,
         'locations',
         value,
-        companyId ? { company_id: companyId } : {},
+        companyId === undefined ? {} : { company_id: companyId },
         !history,
       );
       return { target_type: 'location' as const, target_id: id! };
@@ -378,10 +391,18 @@ export class ImportRecordsService {
     }
     const scope = await this.fmcs.resolve(actor, tx);
     const ctx = { tx, actor, scope, cells };
+    const defaultCompany =
+      scope.enabled && scope.companyIds.length === 1 ? scope.companyIds[0] : undefined;
+    const preserveRequiredMembership =
+      type === 'user' && scope.enabled && !scope.floater && scope.companyIds.length > 0;
     const company = cells.company
       ? await this.relation(ctx, 'companies', cells.company)
-      : undefined;
-    const current = await this.matches(ctx, type, company);
+      : cells.company === '' && !preserveRequiredMembership
+        ? null
+        : undefined;
+    const assignedCompany = company === null && !scope.floater ? (defaultCompany ?? null) : company;
+    const locationCompany = assignedCompany === undefined ? defaultCompany : assignedCompany;
+    const current = await this.matches(ctx, type, type === 'location' ? locationCompany : company);
     if (type === 'assetHistory') return this.history(ctx, current);
     if (current && !options.updateExisting) {
       if (type === 'asset') fail('The asset tag is already in use');
@@ -424,9 +445,9 @@ export class ImportRecordsService {
       if (cells[field] !== undefined)
         data[key] = await this.relation(ctx, table, cells[field]!, attrs, create);
     };
-    if (company !== undefined || 'company' in cells) {
-      if (type === 'user') data.company_ids = company ? [company] : [];
-      else data.company_id = company ?? null;
+    if (company !== undefined) {
+      if (type === 'user') data.company_ids = company === null ? [] : [company];
+      else data.company_id = company;
     }
     const categoryType = (
       {
@@ -459,18 +480,12 @@ export class ImportRecordsService {
         'suppliers',
       );
     const recordCompany =
-      company !== undefined
-        ? company
-        : 'company' in cells
-          ? scope.enabled && !scope.floater && scope.companyIds.length === 1
-            ? scope.companyIds[0]!
-            : null
-          : current !== undefined
-            ? await this.existingCompany(ctx, type, current)
-            : scope.enabled && scope.companyIds.length === 1
-              ? scope.companyIds[0]!
-              : undefined;
-    const companyAttrs = typeof recordCompany === 'number' ? { company_id: recordCompany } : {};
+      assignedCompany !== undefined
+        ? assignedCompany
+        : current !== undefined
+          ? await this.existingCompany(ctx, type, current)
+          : defaultCompany;
+    const companyAttrs = recordCompany === undefined ? {} : { company_id: recordCompany };
     await setRelation('location', 'location_id', 'locations', companyAttrs);
     await setRelation('rtd_location', 'rtd_location_id', 'locations', companyAttrs);
     await setRelation('parent', 'parent_id', 'locations', companyAttrs);

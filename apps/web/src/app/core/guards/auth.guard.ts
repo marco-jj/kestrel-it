@@ -18,7 +18,7 @@ export function sanitizeRedirectPath(target: string | null | undefined): string 
   }
   try {
     const parsed = new URL(trimmed, 'http://kestrel.local');
-    if (parsed.origin !== 'http://kestrel.local') {
+    if (parsed.origin !== 'http://kestrel.local' || parsed.pathname.startsWith('//')) {
       return '/dashboard';
     }
     if (

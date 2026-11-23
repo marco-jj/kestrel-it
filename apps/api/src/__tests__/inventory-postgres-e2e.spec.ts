@@ -1923,6 +1923,98 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     }
   });
 
+  it('scopes location updates and preserves required user companies in shared-location imports', async () => {
+    const twin = 'FMCS import twin';
+    const shared = 'FMCS import shared';
+    const unassigned = 'FMCS import unassigned';
+    const [westTwin, eastTwin, westShared, unassignedSite] = await db
+      .insert(tables.locations)
+      .values([
+        { name: twin, companyId: westCompany, city: 'West' },
+        { name: twin, companyId: eastCompany, city: 'East' },
+        { name: shared, companyId: westCompany, city: 'West' },
+        { name: unassigned },
+        { name: unassigned, companyId: westCompany },
+      ])
+      .returning({ id: tables.locations.id });
+    const [operator] = await db.select({ permissions: tables.users.permissions })
+      .from(tables.users).where(eq(tables.users.id, east));
+    await db.update(tables.settings).set({ scopeLocationsFmcs: false });
+    await db.update(tables.users).set({
+      permissions: {
+        ...operator!.permissions,
+        import: 1, 'assets.create': 1, 'locations.create': 1, 'locations.edit': 1,
+        'users.create': 1, 'users.edit': 1,
+      },
+    }).where(eq(tables.users.id, east));
+
+    async function runCsv(
+      type: (typeof IMPORT_TYPES)[number],
+      fieldMap: Record<number, string>,
+      csv: string,
+      actor: Token = 'east',
+    ) {
+      const upload = await multipart('/imports', actor, 'company-scope.csv', Buffer.from(csv), 'text/csv');
+      expect(upload.statusCode, upload.body).toBe(201);
+      const [{ id }] = upload.json().payload;
+      await ok('POST', `/imports/process/${id}`, actor, {
+        import_type: type, field_map: fieldMap, update_existing: true, preserve_blanks: false,
+      });
+      await app.get(ImportsController).processOne();
+      return (await ok('GET', `/imports/${id}/progress`, actor)).run;
+    }
+
+    try {
+      const modelName = 'FMCS shared-location import model';
+      const baseModel = await ok('GET', `/models/${model}`, 'root');
+      await ok('POST', '/models', 'root', { name: modelName, category_id: baseModel.category_id });
+      const assetFields = { 0: 'asset_tag', 1: 'model', 2: 'company', 3: 'location' };
+      expect(await runCsv('asset', assetFields,
+        `Asset Tag,Model,Company,Location\nFMCS-SHARED,${modelName},,${shared}`,
+      )).toMatchObject({ created: 1, errored: 0 });
+      const [linked] = await db.select().from(tables.assets).where(eq(tables.assets.assetTag, 'FMCS-SHARED'));
+      expect(linked).toMatchObject({ companyId: eastCompany, locationId: westShared!.id });
+      expect(await db.select().from(tables.locations).where(eq(tables.locations.name, shared))).toHaveLength(1);
+
+      expect(await runCsv('asset', assetFields,
+        `Asset Tag,Model,Company,Location\nFMCS-GLOBAL,${modelName},,${unassigned}`, 'root',
+      )).toMatchObject({ created: 1, errored: 0 });
+      const [global] = await db.select().from(tables.assets).where(eq(tables.assets.assetTag, 'FMCS-GLOBAL'));
+      expect(global).toMatchObject({ companyId: null, locationId: unassignedSite!.id });
+
+      expect(await runCsv('location', { 0: 'name', 1: 'city' },
+        `Name,City\n${twin},Milan`,
+      )).toMatchObject({ updated: 1, errored: 0 });
+      expect(await runCsv('location', { 0: 'name', 1: 'company', 2: 'city' },
+        `Name,Company,City\n${twin},,Turin\n${shared},,East office`,
+      )).toMatchObject({ created: 1, updated: 1, errored: 0 });
+      const sites = await db.select().from(tables.locations)
+        .where(inArray(tables.locations.name, [twin, shared]));
+      expect(sites).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: westTwin!.id, companyId: westCompany, city: 'West' }),
+        expect.objectContaining({ id: eastTwin!.id, companyId: eastCompany, city: 'Turin' }),
+        expect.objectContaining({ id: westShared!.id, companyId: westCompany, city: 'West' }),
+        expect.objectContaining({ name: shared, companyId: eastCompany, city: 'East office' }),
+      ]));
+
+      const userName = 'fmcs-import-user';
+      const userFields = { 0: 'username', 1: 'company', 2: 'first_name' };
+      expect(await runCsv('user', userFields, `Username,Company,First Name\n${userName},,New`))
+        .toMatchObject({ created: 1, errored: 0 });
+      const [recipient] = await db.select().from(tables.users).where(eq(tables.users.username, userName));
+      const memberships = () => db.select({ id: tables.companyUser.companyId }).from(tables.companyUser)
+        .where(eq(tables.companyUser.userId, recipient!.id)).orderBy(tables.companyUser.companyId);
+      expect(await memberships()).toEqual([{ id: eastCompany }]);
+      await db.insert(tables.companyUser).values({ userId: recipient!.id, companyId: westCompany });
+      expect(await runCsv('user', userFields, `Username,Company,First Name\n${userName},,Edited`))
+        .toMatchObject({ updated: 1, errored: 0 });
+      expect(await memberships()).toEqual([{ id: westCompany }, { id: eastCompany }]);
+    } finally {
+      await db.update(tables.settings).set({ scopeLocationsFmcs: true });
+      await db.update(tables.users).set({ permissions: operator!.permissions }).where(eq(tables.users.id, east));
+    }
+  });
+
   it('runs all twelve upstream import types and keeps historical checkouts out of live state', async () => {
     const csvs: Record<(typeof IMPORT_TYPES)[number], string> = {
       asset: 'Asset Tag,Model,Status,Asset Name\nCSV-ASSET,CSV Model,Deployed,CSV fixture asset',

@@ -67,7 +67,7 @@ interface OidcDiscoveryDoc {
 const MAX_SSO_REDIRECT_BYTES = 2048;
 
 export function sanitizeSsoRedirectPath(target: string | null | undefined): string {
-  if (!target) {
+  if (typeof target !== 'string') {
     return '/dashboard';
   }
   const trimmed = target.trim();
@@ -81,7 +81,7 @@ export function sanitizeSsoRedirectPath(target: string | null | undefined): stri
   }
   try {
     const parsed = new URL(trimmed, 'http://kestrel.local');
-    if (parsed.origin !== 'http://kestrel.local') {
+    if (parsed.origin !== 'http://kestrel.local' || parsed.pathname.startsWith('//')) {
       return '/dashboard';
     }
     if (
@@ -429,7 +429,7 @@ export class AuthService {
     stateCookieToken: string;
     remoteIp?: string;
     userAgent?: string;
-  }): Promise<LoginResponse> {
+  }): Promise<{ result: LoginResponse; destination: string }> {
     const verifiedState = await this.jwtService.verifyToken<OidcStatePayload>(
       params.stateCookieToken,
       'oidc_state',
@@ -477,9 +477,10 @@ export class AuthService {
       loginVia: oidcConfig.protocol,
     });
 
-    return this.completeUserAuthentication(user, {
+    const result = await this.completeUserAuthentication(user, {
       federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(mergedClaims),
     });
+    return { result, destination: sanitizeSsoRedirectPath(verifiedState.redirect) };
   }
 
   private async exchangeAuthorizationCode(params: {

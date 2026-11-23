@@ -28,7 +28,6 @@ import { z } from 'zod';
 import {
   JwtService,
   type AccessTokenPayload,
-  type OidcStatePayload,
   type TwoFactorChallengePayload,
 } from '../../common/crypto/jwt.util.js';
 import { CurrentUser, Public } from '../../common/decorators/auth.decorators.js';
@@ -38,7 +37,7 @@ import {
   REFRESH_TOKEN_COOKIE,
   type HttpCookieRequest,
 } from '../../common/guards/jwt-or-pat-auth.guard.js';
-import { AuthService, sanitizeSsoRedirectPath } from './auth.service.js';
+import { AuthService } from './auth.service.js';
 import { BetterAuthService } from './better-auth.service.js';
 
 interface HttpCookieReply {
@@ -208,7 +207,7 @@ export class AuthController {
       throw new BadRequestException('Missing OIDC callback code, state, or state cookie');
     }
 
-    const result = await this.authService.handleOidcCallback({
+    const { result, destination } = await this.authService.handleOidcCallback({
       code,
       state,
       stateCookieToken,
@@ -225,12 +224,6 @@ export class AuthController {
       reply.send(result);
       return;
     }
-
-    const verifiedState = await this.jwtService.verifyToken<OidcStatePayload>(
-      stateCookieToken,
-      'oidc_state',
-    );
-    const destination = sanitizeSsoRedirectPath(verifiedState.redirect);
 
     if (result.status === 'authenticated') {
       reply.redirect(destination, 303);

@@ -156,6 +156,7 @@ describe('Setup, Auth & Permission Route Guards + Navigation', () => {
     expect(sanitizeRedirectPath('//evil.example/phish')).toBe('/dashboard');
     expect(sanitizeRedirectPath('/\\evil.example')).toBe('/dashboard');
     expect(sanitizeRedirectPath('/login?redirect=/hardware')).toBe('/dashboard');
+    expect(sanitizeRedirectPath('/settings/..//network-path')).toBe('/dashboard');
 
     store.applyLoginResponse({
       status: 'authenticated',

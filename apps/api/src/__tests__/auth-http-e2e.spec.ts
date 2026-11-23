@@ -1041,6 +1041,20 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     expect(unsafeSuccess.statusCode).toBe(303);
     expect(unsafeSuccess.headers['location']).toBe('/dashboard');
 
+    const verifyToken = vi.spyOn(app.get(JwtService), 'verifyToken');
+    try {
+      const normalized = await performOidcFlow('text/html', '/settings/..//network-path');
+      expect(normalized.statusCode).toBe(303);
+      expect(normalized.headers['location']).toBe('/dashboard');
+      const stateChecks = verifyToken.mock.results.filter(
+        (_, index) => verifyToken.mock.calls[index]?.[1] === 'oidc_state',
+      );
+      expect(stateChecks).toHaveLength(1);
+      await expect(stateChecks[0]!.value).resolves.not.toHaveProperty('redirect');
+    } finally {
+      verifyToken.mockRestore();
+    }
+
     // Subject rebinding attempt with different sub on same issuer & username must fail with 401
     oidcSubjectMode = 'rebinding_attack';
     const rebindingRes = await performOidcFlow();
