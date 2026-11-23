@@ -12,6 +12,7 @@ import {
 } from '@kestrel-it/shared';
 import { firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { sanitizeRedirectPath } from '../../core/guards/auth.guard.js';
 import { ThemeStore } from '../../core/theme/theme.store.js';
 
 @Component({
@@ -415,6 +416,10 @@ export class LoginComponent implements OnInit {
     }
   }
 
+  private postLoginRedirect(): string {
+    return sanitizeRedirectPath(this.route?.snapshot.queryParamMap.get('redirect'));
+  }
+
   async handleLoginResponse(response: LoginResponse): Promise<void> {
     this.authStore.applyLoginResponse(response);
     if (response.status === '2fa_required') {
@@ -430,7 +435,7 @@ export class LoginComponent implements OnInit {
       return;
     }
 
-    await this.router?.navigateByUrl('/dashboard');
+    await this.router?.navigateByUrl(this.postLoginRedirect());
   }
 
   async submitTwoFactor(): Promise<void> {
@@ -455,7 +460,7 @@ export class LoginComponent implements OnInit {
       );
       this.authStore.applyLoginResponse(response);
       if (response.status === 'authenticated') {
-        await this.router?.navigateByUrl('/dashboard');
+        await this.router?.navigateByUrl(this.postLoginRedirect());
       }
     } catch {
       this.errorMessage.set('Invalid two-factor verification code.');

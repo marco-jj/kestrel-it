@@ -449,6 +449,18 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
     await page.getByRole('heading', { name: 'Due and overdue audits', exact: true }).waitFor();
     await page.getByRole('link', { name: 'Overdue audits', exact: true }).click();
     await page.getByRole('heading', { name: 'Overdue audits', exact: true }).waitFor();
+
+    const fresh = await browser.newContext({ baseURL });
+    const freshPage = await fresh.newPage();
+    freshPage.setDefaultTimeout(10_000);
+    await freshPage.goto('/hardware/audit/due-or-overdue');
+    await freshPage.waitForURL('**/login?redirect=*');
+    await freshPage.getByLabel('Username', { exact: true }).fill(username);
+    await freshPage.getByLabel('Password', { exact: true }).fill(password);
+    await freshPage.locator('button[type=submit]').click();
+    await freshPage.waitForURL('**/hardware/audit/due-or-overdue');
+    await freshPage.getByRole('heading', { name: 'Due and overdue audits', exact: true }).waitFor();
+    await fresh.close();
   });
 
   await t.test('processes a CSV with one rejected row and keeps the successful row', async () => {

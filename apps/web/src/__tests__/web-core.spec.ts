@@ -13,7 +13,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { appRoutes } from '../app/app.routes.js';
 import { buildAuthHeaders } from '../app/core/auth/auth.interceptor.js';
 import { AuthStore } from '../app/core/auth/auth.store.js';
-import { evaluateAuthGuard, evaluatePermissionGuard } from '../app/core/guards/auth.guard.js';
+import {
+  evaluateAuthGuard,
+  evaluatePermissionGuard,
+  sanitizeRedirectPath,
+} from '../app/core/guards/auth.guard.js';
 import {
   evaluateSetupCompletedGuard,
   evaluateSetupIncompleteGuard,
@@ -141,6 +145,17 @@ describe('Setup, Auth & Permission Route Guards + Navigation', () => {
     expect(evaluateSetupIncompleteGuard(store)).toBe('/dashboard');
     expect(evaluateSetupCompletedGuard(store)).toBe(true);
     expect(evaluateAuthGuard(store)).toBe('/login');
+    expect(evaluateAuthGuard(store, '/hardware/audit/due-or-overdue')).toBe(
+      '/login?redirect=%2Fhardware%2Faudit%2Fdue-or-overdue',
+    );
+    expect(evaluateAuthGuard(store, '/dashboard')).toBe('/login');
+    expect(sanitizeRedirectPath('/hardware/audit/due-or-overdue?search=TAG-1')).toBe(
+      '/hardware/audit/due-or-overdue?search=TAG-1',
+    );
+    expect(sanitizeRedirectPath('https://evil.example/phish')).toBe('/dashboard');
+    expect(sanitizeRedirectPath('//evil.example/phish')).toBe('/dashboard');
+    expect(sanitizeRedirectPath('/\\evil.example')).toBe('/dashboard');
+    expect(sanitizeRedirectPath('/login?redirect=/hardware')).toBe('/dashboard');
 
     store.applyLoginResponse({
       status: 'authenticated',
@@ -347,6 +362,67 @@ describe('LoginComponent (Local + 2FA + SSO Providers)', () => {
     expect(store.isAuthenticated()).toBe(true);
     expect(store.accessToken()).toBe('final-jwt');
     expect(routerMock.navigateByUrl).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('redirects back to a safe requested destination after credential and 2FA login', async () => {
+    const store = new AuthStore();
+    const routerMock = {
+      navigateByUrl: vi.fn(async () => true),
+    } as unknown as Router;
+    const targetRoute = {
+      snapshot: {
+        queryParamMap: convertToParamMap({ redirect: '/hardware/audit/due-or-overdue' }),
+      },
+    } as ActivatedRoute;
+    const directHttp = {
+      post: vi.fn(() =>
+        of({
+          status: 'authenticated' as const,
+          accessToken: 'direct-jwt',
+          refreshToken: 'direct-ref',
+          user: makeUser(),
+        }),
+      ),
+    } as unknown as HttpClient;
+
+    const directLogin = new LoginComponent(store, directHttp, routerMock, undefined, targetRoute);
+    directLogin.loginForm.setValue({ username: 'marco', password: 'password123' });
+    await directLogin.submitCredentials();
+    expect(routerMock.navigateByUrl).toHaveBeenLastCalledWith('/hardware/audit/due-or-overdue');
+
+    const twoFactorHttp = {
+      post: vi.fn((url: string) =>
+        of(
+          url === '/api/v1/auth/login'
+            ? {
+                status: '2fa_required' as const,
+                requiresTwoFactor: true as const,
+                requiresEnrollment: false,
+                challengeToken: 'challenge-redirect',
+              }
+            : {
+                status: 'authenticated' as const,
+                accessToken: '2fa-jwt',
+                refreshToken: '2fa-ref',
+                user: makeUser({ twoFactorEnrolled: true, twoFactorVerified: true }),
+              },
+        ),
+      ),
+    } as unknown as HttpClient;
+    const twoFactorLogin = new LoginComponent(store, twoFactorHttp, routerMock, undefined, targetRoute);
+    twoFactorLogin.loginForm.setValue({ username: 'marco', password: 'password123' });
+    await twoFactorLogin.submitCredentials();
+    twoFactorLogin.totpForm.setValue({ code: '654321' });
+    await twoFactorLogin.submitTwoFactor();
+    expect(routerMock.navigateByUrl).toHaveBeenLastCalledWith('/hardware/audit/due-or-overdue');
+
+    const unsafeRoute = {
+      snapshot: { queryParamMap: convertToParamMap({ redirect: '//evil.example/phish' }) },
+    } as ActivatedRoute;
+    const unsafeLogin = new LoginComponent(store, directHttp, routerMock, undefined, unsafeRoute);
+    unsafeLogin.loginForm.setValue({ username: 'marco', password: 'password123' });
+    await unsafeLogin.submitCredentials();
+    expect(routerMock.navigateByUrl).toHaveBeenLastCalledWith('/dashboard');
   });
 });
 
