@@ -213,10 +213,17 @@ describe('SetupWizardComponent (3-Step Pre-Flight, Instance, Superuser)', () => 
       }),
       post: vi.fn(() =>
         of({
-          status: 'authenticated' as const,
-          accessToken: 'setup-jwt',
-          refreshToken: 'setup-ref',
-          user: makeUser({ isSuperUser: true, effectivePermissions: makePermissions(['superuser']) }),
+          status: 'success' as const,
+          messages: 'Setup completed successfully.',
+          payload: {
+            status: 'authenticated' as const,
+            accessToken: 'setup-jwt',
+            refreshToken: 'setup-ref',
+            user: makeUser({
+              isSuperUser: true,
+              effectivePermissions: makePermissions(['superuser']),
+            }),
+          },
         }),
       ),
     } as unknown as HttpClient;
