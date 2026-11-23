@@ -28,6 +28,7 @@ import { z } from 'zod';
 import {
   JwtService,
   type AccessTokenPayload,
+  type OidcStatePayload,
   type TwoFactorChallengePayload,
 } from '../../common/crypto/jwt.util.js';
 import { CurrentUser, Public } from '../../common/decorators/auth.decorators.js';
@@ -37,7 +38,7 @@ import {
   REFRESH_TOKEN_COOKIE,
   type HttpCookieRequest,
 } from '../../common/guards/jwt-or-pat-auth.guard.js';
-import { AuthService } from './auth.service.js';
+import { AuthService, sanitizeSsoRedirectPath } from './auth.service.js';
 import { BetterAuthService } from './better-auth.service.js';
 
 interface HttpCookieReply {
@@ -173,9 +174,12 @@ export class AuthController {
   @Public()
   @Get('auth/oidc/login')
   @ApiOperation({ summary: 'Initiate OIDC Authorization Code + PKCE flow' })
-  async oidcLogin(@Res() reply: HttpCookieReply): Promise<void> {
+  async oidcLogin(
+    @Query('redirect') redirect: string | undefined,
+    @Res() reply: HttpCookieReply,
+  ): Promise<void> {
     const { redirectUrl, stateCookieToken } =
-      await this.authService.buildOidcAuthorizationRedirect();
+      await this.authService.buildOidcAuthorizationRedirect(redirect);
     const isProd = process.env['NODE_ENV'] === 'production';
 
     reply.clearCookie(SSO_CHALLENGE_COOKIE, { path: '/' });
@@ -222,8 +226,14 @@ export class AuthController {
       return;
     }
 
+    const verifiedState = await this.jwtService.verifyToken<OidcStatePayload>(
+      stateCookieToken,
+      'oidc_state',
+    );
+    const destination = sanitizeSsoRedirectPath(verifiedState.redirect);
+
     if (result.status === 'authenticated') {
-      reply.redirect('/dashboard', 303);
+      reply.redirect(destination, 303);
     } else {
       reply.setCookie(SSO_CHALLENGE_COOKIE, result.challengeToken, {
         httpOnly: true,
@@ -232,7 +242,11 @@ export class AuthController {
         path: '/',
         maxAge: 300,
       });
-      reply.redirect('/login?sso=challenge', 303);
+      const challengeUrl =
+        destination !== '/dashboard' && destination !== '/'
+          ? `/login?sso=challenge&redirect=${encodeURIComponent(destination)}`
+          : '/login?sso=challenge';
+      reply.redirect(challengeUrl, 303);
     }
   }
 
@@ -257,8 +271,11 @@ export class AuthController {
   @Public()
   @Get('auth/oauth/login')
   @ApiOperation({ summary: 'Initiate OAuth 2.0 / OAuth 2.1 Authorization Code + PKCE (S256) flow' })
-  async oauthLogin(@Res() reply: HttpCookieReply): Promise<void> {
-    return this.oidcLogin(reply);
+  async oauthLogin(
+    @Query('redirect') redirect: string | undefined,
+    @Res() reply: HttpCookieReply,
+  ): Promise<void> {
+    return this.oidcLogin(redirect, reply);
   }
 
   @Public()

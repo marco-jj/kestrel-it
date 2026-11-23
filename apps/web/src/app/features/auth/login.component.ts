@@ -325,9 +325,13 @@ export class LoginComponent implements OnInit {
   readonly totpEnrollment = signal<TwoFactorEnrollResponse | null>(null);
 
   readonly ssoEnabled = computed(() => this.authStore.providersStatus()?.sso.enabled ?? false);
-  readonly ssoLoginPath = computed(
-    () => this.authStore.providersStatus()?.sso.loginPath ?? '/api/v1/auth/oidc/login',
-  );
+  readonly ssoLoginPath = computed(() => {
+    const base = this.authStore.providersStatus()?.sso.loginPath ?? '/api/v1/auth/oidc/login';
+    const destination = this.postLoginRedirect();
+    return destination !== '/dashboard' && destination !== '/'
+      ? `${base}?redirect=${encodeURIComponent(destination)}`
+      : base;
+  });
   readonly ssoLabel = computed(() => {
     const protocol = this.authStore.providersStatus()?.sso.protocol ?? 'oidc';
     return protocol === 'oidc' ? 'OpenID Connect (OIDC)' : `OAuth (${protocol.toUpperCase()})`;

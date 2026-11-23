@@ -386,6 +386,9 @@ describe('LoginComponent (Local + 2FA + SSO Providers)', () => {
     } as unknown as HttpClient;
 
     const directLogin = new LoginComponent(store, directHttp, routerMock, undefined, targetRoute);
+    expect(directLogin.ssoLoginPath()).toBe(
+      '/api/v1/auth/oidc/login?redirect=%2Fhardware%2Faudit%2Fdue-or-overdue',
+    );
     directLogin.loginForm.setValue({ username: 'marco', password: 'password123' });
     await directLogin.submitCredentials();
     expect(routerMock.navigateByUrl).toHaveBeenLastCalledWith('/hardware/audit/due-or-overdue');
@@ -420,6 +423,7 @@ describe('LoginComponent (Local + 2FA + SSO Providers)', () => {
       snapshot: { queryParamMap: convertToParamMap({ redirect: '//evil.example/phish' }) },
     } as ActivatedRoute;
     const unsafeLogin = new LoginComponent(store, directHttp, routerMock, undefined, unsafeRoute);
+    expect(unsafeLogin.ssoLoginPath()).toBe('/api/v1/auth/oidc/login');
     unsafeLogin.loginForm.setValue({ username: 'marco', password: 'password123' });
     await unsafeLogin.submitCredentials();
     expect(routerMock.navigateByUrl).toHaveBeenLastCalledWith('/dashboard');

@@ -935,8 +935,16 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
   });
 
   it('executes OIDC PKCE S256 login + RS256 JWKS callback, enforces MFA policy, and blocks subject rebinding', async () => {
-    const performOidcFlow = async (accept = 'application/json') => {
-      const loginRes = await app.inject({ method: 'GET', url: '/api/v1/auth/oidc/login' });
+    const performOidcFlow = async (
+      accept = 'application/json',
+      redirect?: string,
+      protocol: 'oidc' | 'oauth' = 'oidc',
+    ) => {
+      const loginUrl =
+        redirect !== undefined
+          ? `/api/v1/auth/${protocol}/login?redirect=${encodeURIComponent(redirect)}`
+          : `/api/v1/auth/${protocol}/login`;
+      const loginRes = await app.inject({ method: 'GET', url: loginUrl });
       expect(loginRes.statusCode).toBe(302);
       const stateCookie = getCookieValue(loginRes.cookies, 'kestrel_oidc_state')!;
       expect(stateCookie).toBeTruthy();
@@ -952,7 +960,7 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
 
       return app.inject({
         method: 'GET',
-        url: `/api/v1/auth/oidc/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
+        url: `/api/v1/auth/${protocol}/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
         headers: { cookie: `kestrel_oidc_state=${stateCookie}`, accept },
       });
     };
@@ -969,6 +977,15 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     const browserChallenge = await performOidcFlow('text/html');
     expect(browserChallenge.statusCode).toBe(303);
     expect(browserChallenge.headers['location']).toBe('/login?sso=challenge');
+    const redirectedChallenge = await performOidcFlow(
+      'text/html',
+      '/hardware/audit/due-or-overdue',
+      'oauth',
+    );
+    expect(redirectedChallenge.statusCode).toBe(303);
+    expect(redirectedChallenge.headers['location']).toBe(
+      '/login?sso=challenge&redirect=%2Fhardware%2Faudit%2Fdue-or-overdue',
+    );
     const challengeCookie = browserChallenge.cookies.find((c) => c.name === 'kestrel_sso_challenge');
     expect(challengeCookie).toMatchObject({ httpOnly: true });
     const handoff = await app.inject({
@@ -995,6 +1012,14 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     expect(browserSuccess.statusCode).toBe(303);
     expect(browserSuccess.headers['location']).toBe('/dashboard');
     expect(getCookieValue(browserSuccess.cookies, 'kestrel_access_token')).toBeTruthy();
+
+    const redirectedSuccess = await performOidcFlow('text/html', '/hardware/audit/due-or-overdue');
+    expect(redirectedSuccess.statusCode).toBe(303);
+    expect(redirectedSuccess.headers['location']).toBe('/hardware/audit/due-or-overdue');
+
+    const unsafeSuccess = await performOidcFlow('text/html', '//evil.example/phish', 'oauth');
+    expect(unsafeSuccess.statusCode).toBe(303);
+    expect(unsafeSuccess.headers['location']).toBe('/dashboard');
 
     // Subject rebinding attempt with different sub on same issuer & username must fail with 401
     oidcSubjectMode = 'rebinding_attack';

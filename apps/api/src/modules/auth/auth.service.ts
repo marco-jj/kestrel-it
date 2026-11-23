@@ -63,6 +63,38 @@ interface OidcDiscoveryDoc {
   userinfo_endpoint?: string;
 }
 
+export function sanitizeSsoRedirectPath(target: string | null | undefined): string {
+  if (!target) {
+    return '/dashboard';
+  }
+  const trimmed = target.trim();
+  if (
+    !trimmed.startsWith('/') ||
+    trimmed.startsWith('//') ||
+    trimmed.includes('\\') ||
+    /[\x00-\x1f\x7f]/.test(trimmed)
+  ) {
+    return '/dashboard';
+  }
+  try {
+    const parsed = new URL(trimmed, 'http://kestrel.local');
+    if (parsed.origin !== 'http://kestrel.local') {
+      return '/dashboard';
+    }
+    if (
+      parsed.pathname === '/login' ||
+      parsed.pathname.startsWith('/login/') ||
+      parsed.pathname === '/setup' ||
+      parsed.pathname.startsWith('/setup/')
+    ) {
+      return '/dashboard';
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return '/dashboard';
+  }
+}
+
 @Injectable()
 export class AuthService {
   private static readonly FEDERATED_MFA_AMR_VALUES = new Set([
@@ -338,7 +370,7 @@ export class AuthService {
     };
   }
 
-  async buildOidcAuthorizationRedirect(): Promise<{
+  async buildOidcAuthorizationRedirect(redirect?: string): Promise<{
     redirectUrl: string;
     stateCookieToken: string;
   }> {
@@ -359,10 +391,12 @@ export class AuthService {
       expectedRedirectUri: oidcConfig.redirectUri,
     });
 
+    const destination = sanitizeSsoRedirectPath(redirect);
     const stateCookieToken = await this.jwtService.signOidcState({
       state,
       nonce,
       codeVerifier,
+      ...(destination !== '/dashboard' && destination !== '/' ? { redirect: destination } : {}),
     });
 
     const authUrl = new URL(discovery.authorization_endpoint);
