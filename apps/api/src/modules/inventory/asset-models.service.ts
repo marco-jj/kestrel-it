@@ -15,6 +15,7 @@ import {
   customFieldDefaults,
   customFieldsets,
   depreciations,
+  kitsModels,
   models,
 } from '../../db/schema/index.js';
 import { DirectoryService } from './directory.service.js';
@@ -265,6 +266,13 @@ export class AssetModelsService {
           .where(and(eq(assets.modelId, id), isNull(assets.deletedAt)))
           .limit(1);
         if (asset) throw new ConflictException('The model has active assets');
+        const [kit] = await tx
+          .select({ id: kitsModels.id })
+          .from(kitsModels)
+          .where(eq(kitsModels.modelId, id))
+          .limit(1);
+        if (kit)
+          throw new ConflictException('Remove the model from its predefined kits before deleting it');
         const [request] = await tx
           .select({ id: checkoutRequests.id })
           .from(checkoutRequests)

@@ -184,7 +184,14 @@ export class ImportRecordsService {
                 )
               : undefined,
           );
-    const id = await this.unique(ctx, table, resource, where);
+    const company = resource === 'locations' ? attrs.company_id : undefined;
+    const id =
+      typeof company === 'number'
+        ? (await this.unique(
+            ctx, locations, resource, and(where, eq(locations.companyId, company)),
+          )) ??
+          (await this.unique(ctx, locations, resource, and(where, isNull(locations.companyId))))
+        : await this.unique(ctx, table, resource, where);
     if (id !== undefined) return id;
     if (!create) fail(`No visible ${resource} record matches the row`);
     requireInventoryPermission(ctx.actor, `${resource}.create` as PermissionKey);

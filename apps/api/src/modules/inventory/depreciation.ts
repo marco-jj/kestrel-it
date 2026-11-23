@@ -36,7 +36,7 @@ function halfYear(date: Date) {
   };
 }
 
-function cents(value: string): bigint {
+export function moneyInCents(value: string): bigint {
   const [whole, fractional = ''] = value.split('.');
   const sign = value.startsWith('-') ? -1n : 1n;
   return BigInt(whole!) * 100n + sign * BigInt(fractional.padEnd(2, '0'));
@@ -48,7 +48,7 @@ function roundDivide(value: bigint, divisor: bigint): bigint {
 
 function diminishing(from: Date, to: Date, cost: bigint, schedule: Schedule, floor: bigint) {
   const fiscalMonth = Math.min(12, Math.max(1, schedule.fiscalYearStartMonth ?? 1)) - 1;
-  const rate = cents(schedule.rateMultiplier ?? '2') * 12n;
+  const rate = moneyInCents(schedule.rateMultiplier ?? '2') * 12n;
   const divisor = BigInt(schedule.months) * 36_500n;
   // Keep fractions of a cent between fiscal periods and round only the final value.
   const scale = 10n ** 16n;
@@ -75,12 +75,12 @@ export function depreciationValue(
   asOf: string,
 ): string | null {
   if (purchaseCost === null) return null;
-  const cost = cents(purchaseCost);
+  const cost = moneyInCents(purchaseCost);
   if (!schedule || schedule.months <= 0 || !purchaseDate || cost <= 0n || asOf <= purchaseDate)
     return purchaseCost;
   const start = new Date(purchaseDate);
   const end = new Date(asOf);
-  const minimum = cents(schedule.depreciationMin ?? '0');
+  const minimum = moneyInCents(schedule.depreciationMin ?? '0');
   const residual =
     schedule.depreciationType === 'percent' ? roundDivide(cost * minimum, 10_000n) : minimum;
   const floor = residual < 0n ? 0n : residual > cost ? cost : residual;

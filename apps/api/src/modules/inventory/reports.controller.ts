@@ -20,6 +20,7 @@ import {
   REPORT_TYPES,
   ReportQuerySchema,
   type AuthenticatedUserContext,
+  type DepreciationMethod,
   type PermissionKey,
   type ReportType,
 } from '@kestrel-it/shared';
@@ -52,7 +53,7 @@ import {
   users,
 } from '../../db/schema/index.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
-import { depreciationValue } from './depreciation.js';
+import { depreciationValue, moneyInCents } from './depreciation.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
 import { HardwareService } from './hardware.service.js';
 import { datatable, pageOffset, parse, success } from './inventory-queries.js';
@@ -62,6 +63,18 @@ import { usedStock } from './secondary-catalog.service.js';
 
 type ReportQuery = z.output<typeof ReportQuerySchema>;
 type Row = Record<string, unknown>;
+type DepreciationInputs = {
+  id: number;
+  purchase_cost: string | null;
+  purchase_date: string | null;
+  _schedule: {
+    months: number;
+    depreciation_min: number | null;
+    depreciation_type: 'percent' | 'amount';
+    fiscal_year_start_month: number | null;
+    rate_multiplier: number | null;
+  } | null;
+};
 type ReportSource = {
   fields: Record<string, unknown>;
   from: SQL;
@@ -77,6 +90,25 @@ const templateInput = z.object({
   is_shared: z.boolean().default(false),
   options: ReportQuerySchema,
 });
+
+function reportBookValue(row: DepreciationInputs, method: DepreciationMethod, asOf: string) {
+  const schedule = row._schedule;
+  return depreciationValue(
+    schedule
+      ? {
+          months: schedule.months,
+          depreciationMin: schedule.depreciation_min?.toString() ?? null,
+          depreciationType: schedule.depreciation_type,
+          fiscalYearStartMonth: schedule.fiscal_year_start_month,
+          rateMultiplier: schedule.rate_multiplier?.toString() ?? null,
+        }
+      : undefined,
+    row.purchase_cost,
+    row.purchase_date,
+    method,
+    asOf,
+  );
+}
 
 export function csvCell(value: unknown) {
   const text =
@@ -517,37 +549,31 @@ export class ReportsController {
       throw new UnprocessableEntityException('Unknown or unavailable report column');
     const { from, order } = this.projection(source, query);
     const config = type === 'depreciation' ? await currentSettings(this.db) : undefined;
+    const method = config?.depreciationMethod ?? 'default';
     const asOf = query.as_of ?? new Date().toISOString().slice(0, 10);
+    const ranked =
+      type === 'depreciation' && query.sort === 'book_value'
+        ? await this.rankBookValues(from, method, asOf, query.order)
+        : undefined;
     const pages = async (offset: number, limit: number) => {
-      const records = await this.db.execute<Row>(
-        sql`select * ${from} order by ${order} limit ${limit} offset ${offset}`,
-      );
+      const entries = ranked?.slice(offset, offset + limit);
+      if (entries?.length === 0) return [];
+      const statement = entries
+        ? sql`select * from (select * ${from}) scoped
+            where id in (${sql.join(entries.map(({ id }) => sql`${id}`), sql`, `)})`
+        : sql`select * ${from} order by ${order} limit ${limit} offset ${offset}`;
+      const records = await this.db.execute<Row>(statement);
+      const byId = entries && new Map(records.map((row) => [row.id, row]));
+      const orderedRecords = entries && byId
+        ? entries.flatMap(({ id, value }) => {
+            const row = byId.get(id);
+            return row ? [{ ...row, book_value: value }] : [];
+          })
+        : records;
       return Promise.all(
-        records.map(async (row) => {
-          if (type === 'depreciation') {
-            const schedule = row._schedule as {
-              months: number;
-              depreciation_min: number | null;
-              depreciation_type: 'percent' | 'amount';
-              fiscal_year_start_month: number | null;
-              rate_multiplier: number | null;
-            } | null;
-            row.book_value = depreciationValue(
-              schedule
-                ? {
-                    months: schedule.months,
-                    depreciationMin: schedule.depreciation_min?.toString() ?? null,
-                    depreciationType: schedule.depreciation_type,
-                    fiscalYearStartMonth: schedule.fiscal_year_start_month,
-                    rateMultiplier: schedule.rate_multiplier?.toString() ?? null,
-                  }
-                : undefined,
-              row.purchase_cost == null ? null : String(row.purchase_cost),
-              row.purchase_date == null ? null : String(row.purchase_date).slice(0, 10),
-              config?.depreciationMethod ?? 'default',
-              asOf,
-            );
-          }
+        orderedRecords.map(async (row: Row) => {
+          if (type === 'depreciation' && !entries)
+            row.book_value = reportBookValue(row as DepreciationInputs, method, asOf);
           if (type === 'custom' && columns.some((column) => extra.includes(column))) {
             const asset = await this.hardware.get(Number(row.id), user);
             for (const [key, field] of Object.entries(asset.custom_fields))
@@ -562,7 +588,7 @@ export class ReportsController {
         for (let offset = 0; ; offset += 500) {
           const batch = await pages(offset, 500);
           yield* batch;
-          if (batch.length < 500) return;
+          if (ranked ? offset + 500 >= ranked.length : batch.length < 500) return;
         }
       };
       if (query.format === 'csv') {
@@ -601,13 +627,37 @@ export class ReportsController {
       ).send(stream);
     }
     const [total, rows] = await Promise.all([
-      this.db.execute<{ total: number }>(sql`select count(*)::int as total ${from}`),
+      ranked?.length ??
+        this.db.execute<{ total: number }>(sql`select count(*)::int as total ${from}`)
+          .then(([result]) => result!.total),
       pages(pageOffset(query), query.limit),
     ]);
     return reply.send({
-      ...datatable(total[0]!.total, rows, query, req.url),
+      ...datatable(total, rows, query, req.url),
       columns,
       available_columns: allowed,
+    });
+  }
+
+  private async rankBookValues(
+    from: SQL,
+    method: DepreciationMethod,
+    asOf: string,
+    order: 'asc' | 'desc',
+  ) {
+    // Rank the scoped IDs with the same calculation used by asset and license details.
+    const rows = await this.db.execute<DepreciationInputs>(
+      sql`select id, purchase_cost, purchase_date, _schedule ${from}`,
+    );
+    const ranked = rows.map((row) => {
+      const value = reportBookValue(row, method, asOf);
+      return { id: row.id, value, cents: value === null ? null : moneyInCents(value) };
+    });
+    return ranked.sort((a, b) => {
+      if (a.cents === b.cents) return b.id - a.id;
+      if (a.cents === null) return 1;
+      if (b.cents === null) return -1;
+      return (a.cents < b.cents ? -1 : 1) * (order === 'asc' ? 1 : -1);
     });
   }
 

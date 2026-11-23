@@ -433,6 +433,24 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
     }
   });
 
+  await t.test('persists the depreciation method and opens the complete audit queue', async () => {
+    await page.goto('/depreciations');
+    const method = page.getByLabel('Depreciation method', { exact: true });
+    await method.selectOption('half_2');
+    await page.getByRole('button', { name: 'Save method', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Depreciation method saved' }).waitFor();
+    assert.equal((await read('/depreciations/settings')).depreciation_method, 'half_2');
+    await page.reload();
+    assert.equal(await method.inputValue(), 'half_2');
+    await method.selectOption('default');
+    await page.getByRole('button', { name: 'Save method', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Depreciation method saved' }).waitFor();
+    await page.goto('/hardware/audit/due-or-overdue');
+    await page.getByRole('heading', { name: 'Due and overdue audits', exact: true }).waitFor();
+    await page.getByRole('link', { name: 'Overdue audits', exact: true }).click();
+    await page.getByRole('heading', { name: 'Overdue audits', exact: true }).waitFor();
+  });
+
   await t.test('processes a CSV with one rejected row and keeps the successful row', async () => {
     await page.goto('/import');
     await page.getByLabel('CSV files', { exact: true }).setInputFiles({

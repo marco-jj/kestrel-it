@@ -30,7 +30,13 @@ import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../common/storage/storage.interface.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
-import { customFields, importRowErrors, imports, type ImportRun } from '../../db/schema/index.js';
+import {
+  customFields,
+  importRowErrors,
+  imports,
+  storageDeletionQueue,
+  type ImportRun,
+} from '../../db/schema/index.js';
 import { AuthService } from '../auth/auth.service.js';
 import { automaticMapping, csvRows, importFields, normalizedHeader } from './import-mapping.js';
 import { ImportRecordsService } from './import-records.service.js';
@@ -269,8 +275,10 @@ export class ImportsController {
       const file = await this.file(id, user, tx);
       if (file.run?.state === 'queued' || file.run?.state === 'running')
         throw new ConflictException('The CSV is processing');
-      if (await this.storage.exists('imports', file.filePath))
-        await this.storage.deleteObject('imports', file.filePath);
+      await tx
+        .insert(storageDeletionQueue)
+        .values({ category: 'imports', objectKey: file.filePath })
+        .onConflictDoNothing();
       await tx.delete(imports).where(eq(imports.id, id));
       return success(null);
     });

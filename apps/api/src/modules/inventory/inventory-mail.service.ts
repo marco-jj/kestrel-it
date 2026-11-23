@@ -240,21 +240,21 @@ export class InventoryMailService {
                   .select()
                   .from(companies)
                   .where(and(eq(companies.id, row.companyId), isNull(companies.deletedAt)));
-          const target = company?.webhookEndpoint ? company : config;
-          if (target?.webhookEndpoint && target.webhookSelected) {
-            await postWebhook(
-              target.webhookEndpoint,
-              webhookPayload(
-                target.webhookSelected,
-                row.event ?? 'inventory',
-                row.subject,
-                row.message,
-                target.webhookChannel,
-                target.webhookBotname,
-              ),
-              `inventory-${row.id}`,
-            );
-          }
+          const target = company?.webhookEndpoint && company.webhookSelected ? company : config;
+          if (!target?.webhookEndpoint || !target.webhookSelected)
+            throw new Error('No webhook destination is configured for this delivery');
+          await postWebhook(
+            target.webhookEndpoint,
+            webhookPayload(
+              target.webhookSelected,
+              row.event ?? 'inventory',
+              row.subject,
+              row.message,
+              target.webhookChannel,
+              target.webhookBotname,
+            ),
+            `inventory-${row.id}`,
+          );
         } else {
           const logo = config?.showImagesInEmail
             ? await this.emailLogo(config.emailLogo)

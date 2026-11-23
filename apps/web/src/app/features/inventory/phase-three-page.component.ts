@@ -1,4 +1,4 @@
-import type { PermissionKey } from '@kestrel-it/shared';
+import type { DepreciationMethod, PermissionKey, StandardApiResponse } from '@kestrel-it/shared';
 import { InventoryFilesComponent } from './inventory-files.component.js';
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
@@ -85,6 +85,20 @@ const adjustmentFields = [
         <a class="k-btn k-btn-secondary" routerLink="/maintenance-types">Maintenance types</a>
       }
     </header>
+    @if (depreciationMethod() !== null) {
+      <form class="toolbar" (ngSubmit)="saveDepreciationMethod()">
+        <label for="depreciation-method">Depreciation method</label>
+        <select id="depreciation-method" name="depreciation_method" [(ngModel)]="depreciationMethod">
+          <option value="default">Monthly straight-line</option>
+          <option value="half_1">Half-year method 1</option>
+          <option value="half_2">Half-year method 2</option>
+          <option value="diminish">Diminishing balance</option>
+        </select>
+        <button type="submit" class="k-btn k-btn-secondary" [disabled]="saving()">
+          Save method
+        </button>
+      </form>
+    }
     @if (message()) {
       <p role="status">{{ message() }}</p>
     }
@@ -409,6 +423,7 @@ export class PhaseThreePageComponent implements OnInit {
   search = '';
   order: 'asc' | 'desc' = 'asc';
   target: keyof typeof this.targetLabels = 'user';
+  readonly depreciationMethod = signal<DepreciationMethod | null>(null);
   private ids: number[] = [];
   private entry: DataGridRow | null = null;
   private kitKind: KitResource = 'models';
@@ -443,8 +458,39 @@ export class PhaseThreePageComponent implements OnInit {
 
   ngOnInit(): void {
     void this.load();
+    if (this.resource === 'depreciations' && this.auth.isSuperUser())
+      void this.loadDepreciationMethod();
     const detail = Number(this.route.snapshot.queryParamMap.get('detail'));
     if (detail > 0) void this.openDetail(detail);
+  }
+
+  private async loadDepreciationMethod() {
+    try {
+      const response = await this.api.read<StandardApiResponse<{ depreciation_method: DepreciationMethod }>>(
+        '/depreciations/settings',
+      );
+      this.depreciationMethod.set(response.payload?.depreciation_method ?? null);
+    } catch (error) {
+      this.error.set(inventoryError(error));
+    }
+  }
+
+  async saveDepreciationMethod() {
+    const method = this.depreciationMethod();
+    if (method === null) return;
+    this.saving.set(true);
+    this.error.set('');
+    this.message.set('');
+    try {
+      await this.api.write('PATCH', '/depreciations/settings', {
+        depreciation_method: method,
+      });
+      this.message.set('Depreciation method saved');
+    } catch (error) {
+      this.error.set(inventoryError(error));
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   can(action: 'view' | 'create' | 'edit' | 'delete') {

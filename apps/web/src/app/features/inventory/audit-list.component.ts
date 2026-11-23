@@ -17,14 +17,14 @@ import { InventoryApi, inventoryError } from './inventory-api.js';
   ],
   template: `
     <header>
-      <h1>{{ status === 'overdue' ? 'Overdue audits' : 'Audits due' }}</h1>
+      <h1>{{ titles[status] }}</h1>
       <a class="k-btn k-btn-secondary" routerLink="/hardware">All assets</a>
-      <a
-        class="k-btn k-btn-secondary"
-        [routerLink]="status === 'overdue' ? '/hardware/audit/due' : '/hardware/audit/overdue'"
-      >
-        {{ status === 'overdue' ? 'Audits due' : 'Overdue audits' }}
-      </a>
+      @if (status !== 'due') {
+        <a class="k-btn k-btn-secondary" routerLink="/hardware/audit/due">Audits due</a>
+      }
+      @if (status !== 'overdue') {
+        <a class="k-btn k-btn-secondary" routerLink="/hardware/audit/overdue">Overdue audits</a>
+      }
     </header>
     @if (error()) {
       <p role="alert">{{ error() }}</p>
@@ -80,7 +80,12 @@ export class AuditListComponent implements OnInit {
   private readonly auth = inject(AuthStore);
   private readonly route = inject(ActivatedRoute);
   private readonly grid = viewChild(KestrelDataGridComponent);
-  readonly status = this.route.snapshot.data['status'] as string;
+  readonly titles = {
+    due: 'Audits due',
+    overdue: 'Overdue audits',
+    'due-or-overdue': 'Due and overdue audits',
+  };
+  readonly status = this.route.snapshot.data['status'] as keyof typeof this.titles;
   readonly rows = signal<DataGridRow[]>([]);
   readonly total = signal(0);
   readonly page = signal(1);

@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 import { PNG } from 'pngjs';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -30,6 +31,7 @@ import {
   notificationEvents,
 } from '../modules/inventory/inventory-mail.service.js';
 import * as webhookDelivery from '../modules/inventory/webhook-delivery.js';
+import { StorageDeletionService } from '../modules/inventory/storage-deletion.service.js';
 
 const clusterUrl = process.env.INVENTORY_TEST_DATABASE_URL;
 const migrations = fileURLToPath(new URL('../../drizzle/', import.meta.url));
@@ -1134,6 +1136,25 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     );
   });
 
+  it('keeps a kit accessible when a model retirement conflicts with its composition', async () => {
+    const currentModel = await ok('GET', `/models/${model}`, 'root');
+    const { payload: member } = await ok('POST', '/models', 'root', {
+      name: 'Kit retirement model',
+      category_id: currentModel.category_id,
+    });
+    const { payload: kit } = await ok('POST', '/kits', 'root', { name: 'Kit retirement check' });
+    await ok('POST', `/kits/${kit.id}/models`, 'root', { item_id: member.id, quantity: 1 });
+    const blocked = await http('DELETE', `/models/${member.id}`, 'root');
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.body).toContain('predefined kits');
+    expect(await ok('GET', `/kits/${kit.id}/models`, 'root')).toEqual([
+      { id: member.id, name: member.name, quantity: 1 },
+    ]);
+    await ok('DELETE', `/kits/${kit.id}/models/${member.id}`, 'root');
+    await ok('DELETE', `/models/${member.id}`, 'root');
+    expect(await ok('GET', `/kits/${kit.id}/models`, 'root')).toEqual([]);
+  });
+
   it('rolls back a losing kit and serializes competing adjustments', async () => {
     const category = (
       await ok('POST', '/categories', 'root', {
@@ -1389,7 +1410,7 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     });
   }
 
-  it('matches attachment parent and model read/write policy and rolls back failed storage writes', async () => {
+  it('matches attachment parent and model read/write policy', async () => {
     const asset = await create('file-parity');
     const before = (await ok('GET', `/models/${model}/files`, 'west')).total;
     const document = Buffer.from('Inventory manual');
@@ -1429,17 +1450,134 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
         )
       ).statusCode,
     ).toBe(422);
-    const store = app.get<StorageProvider>(STORAGE_PROVIDER);
-    const failure = vi
-      .spyOn(store, 'deleteObject')
-      .mockRejectedValueOnce(new Error('Simulated delete failure'));
-    expect(
-      (await http('DELETE', `/models/${model}/files/${file.id}/delete`, 'root')).statusCode,
-    ).toBe(500);
-    failure.mockRestore();
-    expect((await http('GET', `/models/${model}/files/${file.id}`, 'west')).statusCode).toBe(200);
     await ok('DELETE', `/models/${model}/files/${file.id}/delete`, 'root');
     expect((await http('GET', `/models/${model}/files/${file.id}`, 'west')).statusCode).toBe(404);
+    expect(await app.get(StorageDeletionService).deleteOne()).toBe(true);
+  });
+
+  it('checks the current and upload company for attachments after a hardware transfer', async () => {
+    await db.update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} || '{"assets.files":1}'::jsonb` })
+      .where(inArray(tables.users.id, [west, east]));
+    try {
+      const asset = await create('file-company-transfer');
+      const path = `/hardware/${asset.id}/files`;
+      const upload = await multipart(path, 'west', 'original.txt', Buffer.from('Original company document'), 'text/plain');
+      expect(upload.statusCode, upload.body).toBe(201);
+      const [{ id }] = upload.json().payload;
+      expect((await ok('GET', path, 'west')).total).toBe(1);
+      expect((await http('GET', `${path}/${id}`, 'west')).statusCode).toBe(200);
+      const storage = app.get<StorageProvider>(STORAGE_PROVIDER);
+      const putObject = storage.putObject.bind(storage);
+      let enterUpload!: () => void;
+      let releaseUpload!: () => void;
+      const entered = new Promise<void>((resolve) => { enterUpload = resolve; });
+      const released = new Promise<void>((resolve) => { releaseUpload = resolve; });
+      const slow = vi.spyOn(storage, 'putObject').mockImplementation(async (...args) => {
+        await putObject(...args);
+        enterUpload();
+        await released;
+      });
+      const staged = multipart(path, 'root', 'staged.txt', Buffer.from('Staged document'), 'text/plain');
+      try {
+        await Promise.race([
+          entered,
+          staged.then(() => { throw new Error('Upload finished before the transfer'); }),
+        ]);
+        await ok('PATCH', `/hardware/${asset.id}`, 'root', {
+          company_id: eastCompany,
+          rtd_location_id: eastLocation,
+        });
+        const [, stagedKey] = slow.mock.calls[0]!;
+        releaseUpload();
+        expect((await staged).statusCode).toBe(409);
+        expect(await storage.exists('assets', stagedKey)).toBe(false);
+      } finally {
+        releaseUpload();
+        await staged;
+        slow.mockRestore();
+      }
+      expect((await http('GET', path, 'west')).statusCode).toBe(404);
+      const newUpload = await multipart(path, 'east', 'received.txt', Buffer.from('Receiving company document'), 'text/plain');
+      expect(newUpload.statusCode, newUpload.body).toBe(201);
+      const [{ id: newId }] = newUpload.json().payload;
+      expect((await ok('GET', path, 'east')).total).toBe(1);
+      expect((await ok('GET', path, 'east')).rows[0].id).toBe(newId);
+      expect((await http('GET', `${path}/${id}`, 'east')).statusCode).toBe(404);
+      expect((await http('DELETE', `${path}/${id}`, 'east')).statusCode).toBe(404);
+      expect((await ok('GET', path, 'root')).total).toBe(2);
+      expect((await http('GET', `${path}/${id}`, 'root')).statusCode).toBe(200);
+    } finally {
+      await db.update(tables.users)
+        .set({ permissions: sql`${tables.users.permissions} - 'assets.files'` })
+        .where(inArray(tables.users.id, [west, east]));
+    }
+  });
+
+  it('commits file deletions before storage cleanup and retries without blocking other inventory writes', async () => {
+    const asset = await create('file-cleanup');
+    const path = `/hardware/${asset.id}/files`;
+    const document = await multipart(path, 'root', 'manual.txt', Buffer.from('Manual'), 'text/plain');
+    const csv = await multipart('/imports', 'root', 'cleanup.csv', Buffer.from('Name\nWidget'), 'text/csv');
+    expect(document.statusCode, document.body).toBe(201);
+    expect(csv.statusCode, csv.body).toBe(201);
+    const [{ id: attachment }] = document.json().payload;
+    const [{ id: imported }] = csv.json().payload;
+    const store = app.get<StorageProvider>(STORAGE_PROVIDER);
+    await db.execute(sql`alter table storage_deletion_queue
+      add constraint test_reject_deletion_queue check (false) not valid`);
+    try {
+      expect((await http('DELETE', `${path}/${attachment}`, 'root')).statusCode).toBe(500);
+      expect((await http('DELETE', `/imports/${imported}`, 'root')).statusCode).toBe(500);
+      expect((await http('GET', `${path}/${attachment}`, 'root')).body).toBe('Manual');
+      expect((await http('GET', `/imports/${imported}/download`, 'root')).body).toBe('Name\nWidget');
+    } finally {
+      await db.execute(sql`alter table storage_deletion_queue drop constraint test_reject_deletion_queue`);
+    }
+    const failure = vi.spyOn(store, 'deleteObject').mockRejectedValueOnce(new Error('Storage unavailable'));
+    const cleanup = app.get(StorageDeletionService);
+    try {
+      await ok('DELETE', `${path}/${attachment}`, 'root');
+      await ok('DELETE', `/imports/${imported}`, 'root');
+      expect(failure).not.toHaveBeenCalled();
+      expect((await http('GET', `${path}/${attachment}`, 'root')).statusCode).toBe(404);
+      expect((await http('GET', `/imports/${imported}/download`, 'root')).statusCode).toBe(404);
+      expect(await cleanup.deleteOne()).toBe(true);
+      const [retry] = await db.select().from(tables.storageDeletionQueue)
+        .where(eq(tables.storageDeletionQueue.attempts, 1));
+      expect(retry).toBeDefined();
+      expect(await store.exists(retry!.category, retry!.objectKey)).toBe(true);
+      expect(await cleanup.deleteOne()).toBe(true);
+    } finally {
+      failure.mockRestore();
+    }
+
+    const deleteObject = store.deleteObject.bind(store);
+    let enterDelete!: () => void;
+    let releaseDelete!: () => void;
+    const entered = new Promise<void>((resolve) => { enterDelete = resolve; });
+    const released = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const slow = vi.spyOn(store, 'deleteObject').mockImplementation(async (...args) => {
+      enterDelete();
+      await released;
+      await deleteObject(...args);
+    });
+    const pending = cleanup.deleteOne(new Date(Date.now() + 120_000));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Inventory write waited for storage cleanup')), 2_000);
+    });
+    try {
+      await Promise.race([entered, timeout]);
+      await Promise.race([create('unrelated-while-cleaning'), timeout]);
+      expect(await cleanup.deleteOne(new Date(Date.now() + 120_000))).toBe(false);
+    } finally {
+      clearTimeout(timer);
+      releaseDelete();
+      await pending;
+      slow.mockRestore();
+    }
+    expect(await db.select().from(tables.storageDeletionQueue)).toEqual([]);
   });
 
   it('prints asset labels as valid PDF and rejects an out-of-scope tag', async () => {
@@ -1463,6 +1601,87 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     });
     expect(binary.headers['content-type']).toContain('application/pdf');
     expect(binary.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('renders the purchase date as text on a printed label', async () => {
+    const asset = (await ok('POST', '/hardware', 'root', {
+      ...body('label-purchase-date'),
+      purchase_date: '2024-09-25',
+    })).payload;
+    const name = 'Purchase date test';
+    await ok('POST', '/labels', 'root', {
+      name,
+      layout: { width: 2, height: 1, page_width: 2, page_height: 1, fields: ['purchase_date'], barcode: 'none', code2d: 'none' },
+    });
+    const response = await http('POST', '/hardware/labels', 'root', {
+      asset_tags: [asset.asset_tag],
+      template: name,
+      format: 'pdf',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const streams = response.rawPayload.toString('latin1').matchAll(/stream\n([\s\S]+?)\nendstream/g);
+    const printed = [...streams].map(([, stream]) => {
+      const content = inflateSync(Buffer.from(stream!, 'latin1')).toString();
+      return [...content.matchAll(/<([\da-f]+)>/g)]
+        .map(([, hex]) => Buffer.from(hex!, 'hex').toString())
+        .join('');
+    }).join('');
+    expect(printed).toContain('2024-09-25');
+    expect(printed).not.toContain('[object Object]');
+  });
+
+  it('configures depreciation for superusers and ranks scoped book values before pagination and export', async () => {
+    const settings = '/depreciations/settings';
+    expect((await http('GET', settings, 'west')).statusCode).toBe(403);
+    expect((await http('PATCH', settings, 'admin', { depreciation_method: 'half_2' })).statusCode).toBe(403);
+    expect((await http('PATCH', settings, 'root', { depreciation_method: 'invalid' })).statusCode).toBe(422);
+    for (const method of ['half_1', 'half_2', 'diminish', 'default']) {
+      await ok('PATCH', settings, 'root', { depreciation_method: method });
+      expect((await ok('GET', settings, 'root')).payload.depreciation_method).toBe(method);
+    }
+    const { payload: schedule } = await ok('POST', '/depreciations', 'root', { name: 'Sorting schedule', months: 60 });
+    const base = await ok('GET', `/models/${model}`, 'root');
+    const { payload: depreciating } = await ok('POST', '/models', 'root', {
+      name: 'Depreciation sorting model',
+      category_id: base.category_id,
+      depreciation_id: schedule.id,
+    });
+    for (const [date, cost, company] of [
+      ['2020-01-01', '800', westCompany],
+      ['2023-07-01', '800', westCompany],
+      ['2020-01-01', '1', eastCompany],
+    ] as const) {
+      await ok('POST', '/hardware', 'root', {
+        ...body('book-' + date + company, company),
+        model_id: depreciating.id,
+        custom_fields: {},
+        purchase_date: date,
+        purchase_cost: cost,
+      });
+    }
+    await db.update(tables.users)
+      .set({ permissions: sql`${tables.users.permissions} || '{"reports.view":1}'::jsonb` })
+      .where(eq(tables.users.id, west));
+    try {
+      const selection = `/reports/depreciation?model_id=${depreciating.id}&as_of=2024-07-01&sort=book_value&columns=book_value`;
+      expect(await ok('GET', selection + '&limit=1&order=asc', 'west')).toMatchObject({
+        total: 2, rows: [{ book_value: '80.00' }],
+      });
+      expect((await ok('GET', selection + '&limit=1&page=2&order=asc', 'west')).rows)
+        .toEqual([{ book_value: '640.00' }]);
+      expect((await ok('GET', selection + '&limit=1&order=desc', 'west')).rows)
+        .toEqual([{ book_value: '640.00' }]);
+      const csv = await http('GET', selection + '&format=csv&order=asc', 'west');
+      expect(parseCsv(csv.body, { columns: true })).toEqual([{ book_value: '80.00' }, { book_value: '640.00' }]);
+      const xlsx = await http('GET', selection + '&format=xlsx&order=desc', 'west');
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(Buffer.from(xlsx.rawPayload));
+      expect(workbook.getWorksheet(1)?.getColumn(1).values).toEqual([, 'book_value', '640.00', '80.00']);
+    } finally {
+      await db.update(tables.users)
+        .set({ permissions: sql`${tables.users.permissions} - 'reports.view'` })
+        .where(eq(tables.users.id, west));
+    }
   });
 
   it('offers all ten reports in both formats and protects masked data and scoped activity', async () => {
@@ -1537,6 +1756,30 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       .set({ permissions: sql`${tables.users.permissions} - 'reports.view'` })
       .where(eq(tables.users.id, west));
   }, 30_000);
+
+  it('uses the CSV company to resolve same-name locations without creating duplicates', async () => {
+    const [westSite] = await db.insert(tables.locations).values([
+      { name: 'Shared import location', companyId: westCompany },
+      { name: 'Shared import location', companyId: eastCompany },
+    ]).returning({ id: tables.locations.id });
+    const tag = 'IMPORT-COMPANY-LOCATION';
+    const csv = 'Asset Tag,Model,Company,Location\n' +
+      `${tag},Imported company location model,West division,Shared import location`;
+    const upload = await multipart('/imports', 'root', 'company-location.csv', Buffer.from(csv), 'text/csv');
+    expect(upload.statusCode, upload.body).toBe(201);
+    const [{ id }] = upload.json().payload;
+    await ok('POST', `/imports/process/${id}`, 'root', {
+      import_type: 'asset',
+      field_map: { 0: 'asset_tag', 1: 'model', 2: 'company', 3: 'location' },
+    });
+    await app.get(ImportsController).processOne();
+    const result = await ok('GET', `/imports/${id}/progress`, 'root');
+    expect(result.run).toMatchObject({ created: 1, errored: 0 });
+    const [imported] = await db.select().from(tables.assets).where(eq(tables.assets.assetTag, tag));
+    expect(imported).toMatchObject({ companyId: westCompany, locationId: westSite!.id });
+    expect(await db.select().from(tables.locations).where(eq(tables.locations.name, 'Shared import location')))
+      .toHaveLength(2);
+  });
 
   it('runs all twelve upstream import types and keeps historical checkouts out of live state', async () => {
     const csvs: Record<(typeof IMPORT_TYPES)[number], string> = {
@@ -1703,6 +1946,31 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       );
     expect(expected).toHaveLength(1);
   }, 20_000);
+
+  it('includes the full audit count and a queue link when a reminder lists only the oldest audits', async () => {
+    const now = new Date();
+    await db.insert(tables.assets).values(
+      Array.from({ length: 32 }, (_, index) => ({
+        assetTag: `audit-overflow-${index}`,
+        modelId: model,
+        statusId: status,
+        nextAuditDate: '2020-01-01',
+      })),
+    );
+    const queue = '/hardware/audit/due-or-overdue';
+    const due = await ok('GET', queue + '?search=audit-overflow', 'root');
+    expect(due.total).toBe(32);
+    await app.get(NotificationsController).runDue(now);
+    const [reminder] = await db.select().from(tables.inventoryMailOutbox)
+      .where(eq(tables.inventoryMailOutbox.event, 'audit.upcoming'))
+      .orderBy(sql`${tables.inventoryMailOutbox.id} desc`)
+      .limit(1);
+    const allDue = await ok('GET', queue, 'root');
+    expect(reminder?.message).toContain(`${allDue.total} asset(s) need an audit. Showing 30.`);
+    expect(reminder?.message).toContain(queue);
+    expect(reminder?.message).not.toContain('audit-overflow-31');
+    expect((await ok('GET', queue + '?search=audit-overflow-31', 'root')).total).toBe(1);
+  });
 
   it('preserves assignment IDs, return permissions, and scoped acquisition counts', async () => {
     const { payload: recipient } = await ok('POST', '/users', 'root', {
@@ -2000,6 +2268,34 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
           `inventory-${job!.id}`,
         );
       }
+      const companyPath = `/companies/${eastCompany}`;
+      expect((await http('PATCH', companyPath, 'root', {
+        webhook_endpoint: 'https://company.example.test/missing-provider',
+      })).statusCode).toBe(422);
+      expect((await http('PATCH', `/companies/${westCompany}`, 'root', {
+        webhook_selected: null,
+      })).statusCode).toBe(422);
+      await db.update(tables.companies)
+        .set({ webhookEndpoint: 'https://company.example.test/legacy', webhookSelected: null })
+        .where(eq(tables.companies.id, eastCompany));
+      const enqueueWebhook = async (attempts = 0) => (await db.insert(tables.inventoryMailOutbox).values({
+        recipient: '', channel: 'webhook', companyId: eastCompany, attempts,
+        subject: 'Incomplete webhook fixture', message: 'Delivery test', availableAt: new Date('2010-01-01'),
+      }).returning())[0]!;
+      const fallback = await enqueueWebhook();
+      await outbound.deliverOne();
+      expect(webhookSend).toHaveBeenLastCalledWith(
+        'https://global.example.test/alerts', expect.any(Object), `inventory-${fallback.id}`,
+      );
+      await ok('PATCH', '/settings/notifications', 'root', { webhook_endpoint: null, webhook_selected: null });
+      const missing = await enqueueWebhook(7);
+      const calls = webhookSend.mock.calls.length;
+      await outbound.deliverOne();
+      const [failed] = await db.select().from(tables.inventoryMailOutbox)
+        .where(eq(tables.inventoryMailOutbox.id, missing.id));
+      expect(failed).toMatchObject({ sentAt: null, failedAt: expect.any(Date), attempts: 8 });
+      expect(webhookSend).toHaveBeenCalledTimes(calls);
+      await ok('PATCH', companyPath, 'root', { webhook_endpoint: null });
     } finally {
       smtpSend.mockRestore();
       webhookSend.mockRestore();

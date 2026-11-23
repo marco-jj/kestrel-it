@@ -438,7 +438,7 @@ export class LabelsController {
           asset_tag: tag,
           name: asset.name,
           serial: asset.serial,
-          purchase_date: asset.purchase_date,
+          purchase_date: asset.purchase_date?.formatted,
           model: row.model,
           model_number: row.model_number,
           company: row.company,

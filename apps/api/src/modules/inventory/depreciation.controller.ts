@@ -3,6 +3,7 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Inject,
   NotFoundException,
@@ -15,6 +16,7 @@ import {
 } from '@nestjs/common';
 import {
   DatatableQuerySchema,
+  DEPRECIATION_METHODS,
   InventoryIdSchema,
   inventoryMoney,
   inventoryName,
@@ -24,10 +26,10 @@ import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
-import { depreciations, licenses, models } from '../../db/schema/index.js';
+import { depreciations, licenses, models, settings } from '../../db/schema/index.js';
 import { fieldIssue } from './custom-fields-validation.service.js';
 import { contains, inventoryWrite, parse, success } from './inventory-queries.js';
-import { inventoryPage } from './phase-three-queries.js';
+import { currentSettings, inventoryPage } from './phase-three-queries.js';
 
 const schema = z.object({
   name: inventoryName,
@@ -41,6 +43,7 @@ const schema = z.object({
     .optional(),
 });
 const id = (value: string) => parse(InventoryIdSchema, value);
+const settingsInput = z.object({ depreciation_method: z.enum(DEPRECIATION_METHODS) }).strict();
 const fields = {
   id: depreciations.id,
   name: depreciations.name,
@@ -54,6 +57,34 @@ const fields = {
 @Controller('depreciations')
 export class DepreciationController {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb) {}
+
+  @Get('settings')
+  async getSettings(@CurrentUser() user: AuthenticatedUserContext) {
+    this.requireSuperuser(user);
+    const config = await currentSettings(this.db);
+    if (!config) throw new NotFoundException('Settings not found');
+    return success({ depreciation_method: config.depreciationMethod ?? 'default' });
+  }
+
+  @Patch('settings')
+  updateSettings(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
+    this.requireSuperuser(user);
+    const { depreciation_method } = parse(settingsInput, raw);
+    return inventoryWrite(this.db, async (tx) => {
+      const config = await currentSettings(tx);
+      if (!config) throw new NotFoundException('Settings not found');
+      await tx
+        .update(settings)
+        .set({ depreciationMethod: depreciation_method, updatedAt: new Date() })
+        .where(eq(settings.id, config.id));
+      return success({ depreciation_method });
+    });
+  }
+
+  private requireSuperuser(user: AuthenticatedUserContext) {
+    if (!user.isSuperUser)
+      throw new ForbiddenException('Only superusers can configure the global depreciation method');
+  }
 
   @Get()
   @RequirePermission('depreciations.view')

@@ -39,7 +39,7 @@ export const appRoutes: Routes = [
           ),
       })),
       { path: 'account/requestable-assets', pathMatch: 'full', redirectTo: 'account/requestable' },
-      ...['due', 'overdue'].map((status) => ({
+      ...['due', 'overdue', 'due-or-overdue'].map((status) => ({
         path: `hardware/audit/${status}`,
         data: { status },
         loadComponent: () => import('./features/inventory/audit-list.component.js').then((module) => module.AuditListComponent),

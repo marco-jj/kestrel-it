@@ -415,10 +415,16 @@ export class DirectoryService {
     const columns = columnsOf(definition.table);
     if (
       resource === 'companies' &&
-      !user.isSuperUser &&
       Object.keys(companyWebhookFields).some((key) => Object.hasOwn(input, key))
     ) {
-      throw new ForbiddenException('Company webhook changes require a superuser');
+      if (!user.isSuperUser)
+        throw new ForbiddenException('Company webhook changes require a superuser');
+      const endpoint =
+        'webhook_endpoint' in input ? input.webhook_endpoint : existing?.webhookEndpoint;
+      const provider =
+        'webhook_selected' in input ? input.webhook_selected : existing?.webhookSelected;
+      if (endpoint && !provider)
+        throw new UnprocessableEntityException('Select a webhook provider');
     }
     if (resource === 'companies' && scope.enabled && (id === undefined || 'parent_id' in input)) {
       throw new ForbiddenException('Company hierarchy changes require a superuser under FMCS');

@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -38,10 +39,11 @@ import {
   licenses,
   locations,
   models,
+  storageDeletionQueue,
   suppliers,
   users,
 } from '../../db/schema/index.js';
-import { FmcsScopeService } from './fmcs-scope.service.js';
+import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
 import {
   contains,
   inventoryWrite,
@@ -183,11 +185,20 @@ export class OperationalFilesController {
       id,
       type,
       bucket,
+      scope,
+      companyScoped:
+        Boolean(columns.companyId) || resource === 'companies' || resource === 'maintenances',
       companyId: resource === 'companies' ? id : (parent.company as number | null),
     };
   }
 
-  private filter(parent: { id: number; type: string; bucket: StorageBucketCategory }) {
+  private filter(parent: {
+    id: number;
+    type: string;
+    bucket: StorageBucketCategory;
+    scope: FmcsScope;
+    companyScoped: boolean;
+  }) {
     const upload = and(
       eq(actionLogs.actionType, 'uploaded'),
       sql`${actionLogs.logMeta}->>'bucket' = ${parent.bucket}`,
@@ -200,6 +211,9 @@ export class OperationalFilesController {
       isNull(actionLogs.deletedAt),
       isNotNull(actionLogs.filename),
       audit,
+      parent.companyScoped
+        ? this.fmcs.predicate(parent.scope, 'history', actionLogs.id, actionLogs.companyId)
+        : undefined,
     );
   }
 
@@ -228,14 +242,6 @@ export class OperationalFilesController {
       },
       and(
         this.filter(parent),
-        parent.bucket === 'audits'
-          ? this.fmcs.predicate(
-              await this.fmcs.resolve(user),
-              'history',
-              actionLogs.id,
-              actionLogs.companyId,
-            )
-          : undefined,
         query.search
           ? sql`(${filename} ilike ${'%' + query.search + '%'} or ${contains(actionLogs.note, query.search)})`
           : undefined,
@@ -276,6 +282,8 @@ export class OperationalFilesController {
       if (!staged.length) throw new UnprocessableEntityException('Choose at least one file');
       return await inventoryWrite(this.db, async (tx) => {
         const current = await this.parent(req, id, user, true, tx);
+        if (current.companyId !== parent.companyId)
+          throw new ConflictException('The attachment parent changed companies during upload');
         const results = [];
         for (const file of staged) {
           const [record] = await writeInventoryLog(tx, {
@@ -316,14 +324,6 @@ export class OperationalFilesController {
         and(
           this.filter(parent),
           eq(actionLogs.id, parse(InventoryIdSchema, file)),
-          parent.bucket === 'audits'
-            ? this.fmcs.predicate(
-                await this.fmcs.resolve(user),
-                'history',
-                actionLogs.id,
-                actionLogs.companyId,
-              )
-            : undefined,
         ),
       );
     if (!entry?.filename) throw new NotFoundException('Attachment not found');
@@ -350,8 +350,10 @@ export class OperationalFilesController {
         .where(and(this.filter(parent), eq(actionLogs.id, parse(InventoryIdSchema, file))))
         .for('update');
       if (!entry?.filename) throw new NotFoundException('Attachment not found');
-      if (await this.store.exists(parent.bucket, entry.filename))
-        await this.store.deleteObject(parent.bucket, entry.filename);
+      await tx
+        .insert(storageDeletionQueue)
+        .values({ category: parent.bucket, objectKey: entry.filename })
+        .onConflictDoNothing();
       await tx.update(actionLogs).set({ deletedAt: new Date() }).where(eq(actionLogs.id, entry.id));
       await writeInventoryLog(tx, {
         createdBy: user.id,

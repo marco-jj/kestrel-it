@@ -462,24 +462,38 @@ export class NotificationsController {
     if (job === 'upcoming-audits') {
       if (!alertEmails) return;
       const audited = await tx
-        .select({ tag: assets.assetTag, date: assets.nextAuditDate })
+        .select({
+          tag: assets.assetTag,
+          date: assets.nextAuditDate,
+          total: sql<number>`count(*) over ()::int`,
+        })
         .from(assets)
         .where(
           and(
             isNull(assets.deletedAt),
-            sql`${assets.nextAuditDate} <= ${date}::date + ${config.auditWarningDays ?? 0}::int`,
+            sql`${assets.nextAuditDate} <= ${date}::date + ${config.auditWarningDays ?? 14}::int`,
           ),
         )
-        .orderBy(assets.nextAuditDate)
+        .orderBy(assets.nextAuditDate, assets.id)
         .limit(30);
-      if (audited.length)
+      if (audited[0]) {
+        const total = audited[0].total;
+        const queue = new URL(
+          '/hardware/audit/due-or-overdue',
+          this.env.get('APP_URL', { infer: true }),
+        ).href;
         await this.mail.enqueue(
           tx,
           alertEmails,
           'Upcoming and overdue audits',
-          audited.map((row) => `${row.tag} — ${row.date}`).join('\n'),
+          [
+            `${total} asset(s) need an audit. Showing ${audited.length}.`,
+            ...audited.map((row) => `${row.tag} — ${row.date}`),
+            `View all due and overdue audits: ${queue}`,
+          ].join('\n'),
           'audit.upcoming',
         );
+      }
       return;
     }
     const due = await tx

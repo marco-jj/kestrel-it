@@ -3,6 +3,7 @@ import type {
   CheckoutRequestState,
   DepreciationMethod,
   PolymorphicItemType,
+  StorageBucketCategory,
   TwoFactorPolicy,
   WebhookProvider,
 } from '@kestrel-it/shared';
@@ -271,6 +272,16 @@ export const scheduledJobRuns = pgTable('scheduled_job_runs', {
   period: varchar('period', { length: 32 }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [primaryKey({ columns: [table.job, table.period] })]);
+
+export const storageDeletionQueue = pgTable('storage_deletion_queue', {
+  category: varchar('category', { length: 32 }).$type<StorageBucketCategory>().notNull(),
+  objectKey: text('object_key').notNull(),
+  attempts: integer('attempts').default(0).notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.category, table.objectKey] }),
+  index('idx_storage_deletion_queue_available').on(table.availableAt),
+]);
 
 export const reportTemplates = pgTable('report_templates', {
   id: identityId(),

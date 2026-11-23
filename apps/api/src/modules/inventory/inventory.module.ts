@@ -42,6 +42,7 @@ import { CustomFieldsValidationService } from './custom-fields-validation.servic
 import { DirectoryController } from './directory.controller.js';
 import { DirectoryService } from './directory.service.js';
 import { FmcsScopeService } from './fmcs-scope.service.js';
+import { StorageDeletionService } from './storage-deletion.service.js';
 
 @Module({
   imports: [StorageModule, AuthModule, InventoryMailModule],
@@ -68,6 +69,7 @@ import { FmcsScopeService } from './fmcs-scope.service.js';
     InventoryRequestsController,
   ],
   providers: [
+    StorageDeletionService,
     ImportRecordsService,
     SecondaryCatalogService,
     SecondaryAssignmentsService,
