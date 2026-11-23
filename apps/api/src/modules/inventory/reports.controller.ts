@@ -551,16 +551,19 @@ export class ReportsController {
     const config = type === 'depreciation' ? await currentSettings(this.db) : undefined;
     const method = config?.depreciationMethod ?? 'default';
     const asOf = query.as_of ?? new Date().toISOString().slice(0, 10);
+    const bookSearch =
+      type === 'depreciation' &&
+      Boolean(query.search && /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(query.search));
     const ranked =
-      type === 'depreciation' && (query.sort === 'book_value' || Boolean(query.search))
+      type === 'depreciation' && (query.sort === 'book_value' || bookSearch)
         ? await this.rankBookValues(
-            baseFrom,
+            bookSearch ? baseFrom : from,
             order,
-            searchCondition,
+            bookSearch ? searchCondition : undefined,
             method,
             asOf,
             query.sort === 'book_value' ? query.order : undefined,
-            query.search,
+            bookSearch ? query.search : undefined,
           )
         : undefined;
     const pages = async (offset: number, limit: number) => {

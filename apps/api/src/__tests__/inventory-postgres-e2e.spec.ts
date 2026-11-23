@@ -1714,7 +1714,14 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
         total: 1,
         rows: [expect.objectContaining({ book_value: '80.00' })],
       });
-      expect((await ok('GET', bookSearch + '&search=book-2023-07-01', 'west')).total).toBe(1);
+      const executeSpy = vi.spyOn(db, 'execute');
+      try {
+        expect((await ok('GET', bookSearch + '&search=book-2023-07-01', 'west')).total).toBe(1);
+        const tagQueries = executeSpy.mock.calls.map(([query]) => JSON.stringify(query));
+        expect(tagQueries.some((query) => query.includes('_sql_match'))).toBe(false);
+      } finally {
+        executeSpy.mockRestore();
+      }
       expect((await ok('GET', bookSearch + '&search=999.99', 'west')).total).toBe(0);
       const searchedCsv = await http('GET', bookSearch + '&search=640.00&format=csv', 'west');
       expect(parseCsv(searchedCsv.body, { columns: true })).toEqual([
@@ -1858,6 +1865,62 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     expect(
       await db.select().from(tables.locations).where(eq(tables.locations.name, 'Updated import location')),
     ).toHaveLength(2);
+
+    const [, eastDefaultSite] = await db.insert(tables.locations).values([
+      { name: 'Default company import location', companyId: westCompany },
+      { name: 'Default company import location', companyId: eastCompany },
+    ]).returning({ id: tables.locations.id });
+    await db.update(tables.settings).set({ scopeLocationsFmcs: false });
+    await db
+      .update(tables.users)
+      .set({
+        permissions: sql`${tables.users.permissions} || '{"import":1,"assets.create":1}'::jsonb`,
+      })
+      .where(eq(tables.users.id, east));
+    try {
+      const defaultTag = 'IMPORT-DEFAULT-COMPANY-LOCATION';
+      const defaultCsv =
+        'Asset Tag,Model,Location\n' +
+        `${defaultTag},Imported company location model,Default company import location`;
+      const defaultUpload = await multipart(
+        '/imports',
+        'east',
+        'default-company-location.csv',
+        Buffer.from(defaultCsv),
+        'text/csv',
+      );
+      expect(defaultUpload.statusCode, defaultUpload.body).toBe(201);
+      const [{ id: defaultId }] = defaultUpload.json().payload;
+      await ok('POST', `/imports/process/${defaultId}`, 'east', {
+        import_type: 'asset',
+        field_map: { 0: 'asset_tag', 1: 'model', 2: 'location' },
+      });
+      await app.get(ImportsController).processOne();
+      expect((await ok('GET', `/imports/${defaultId}/progress`, 'east')).run).toMatchObject({
+        created: 1,
+        errored: 0,
+      });
+      const [createdDefault] = await db
+        .select()
+        .from(tables.assets)
+        .where(eq(tables.assets.assetTag, defaultTag));
+      expect(createdDefault).toMatchObject({
+        companyId: eastCompany,
+        locationId: eastDefaultSite!.id,
+      });
+      expect(
+        await db
+          .select()
+          .from(tables.locations)
+          .where(eq(tables.locations.name, 'Default company import location')),
+      ).toHaveLength(2);
+    } finally {
+      await db.update(tables.settings).set({ scopeLocationsFmcs: true });
+      await db
+        .update(tables.users)
+        .set({ permissions: sql`${tables.users.permissions} - 'import' - 'assets.create'` })
+        .where(eq(tables.users.id, east));
+    }
   });
 
   it('runs all twelve upstream import types and keeps historical checkouts out of live state', async () => {

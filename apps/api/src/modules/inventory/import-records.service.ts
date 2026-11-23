@@ -462,10 +462,14 @@ export class ImportRecordsService {
       company !== undefined
         ? company
         : 'company' in cells
-          ? null
+          ? scope.enabled && !scope.floater && scope.companyIds.length === 1
+            ? scope.companyIds[0]!
+            : null
           : current !== undefined
             ? await this.existingCompany(ctx, type, current)
-            : undefined;
+            : scope.enabled && scope.companyIds.length === 1
+              ? scope.companyIds[0]!
+              : undefined;
     const companyAttrs = typeof recordCompany === 'number' ? { company_id: recordCompany } : {};
     await setRelation('location', 'location_id', 'locations', companyAttrs);
     await setRelation('rtd_location', 'rtd_location_id', 'locations', companyAttrs);
