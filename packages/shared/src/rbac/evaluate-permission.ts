@@ -85,7 +85,7 @@ export interface FmcsAccessCheckInput {
   /** Current actor's company IDs (already expanded with 1-level child companies). */
   userCompanyIds: number[];
   /** Target table name to handle special scoping rules (companies, locations, users). */
-  targetTable?: 'companies' | 'locations' | 'users' | string;
+  targetTable?: string;
   /** Whether the target table has a company_id column (defaults to true). */
   targetHasCompanyColumn?: boolean;
   /** Target record's company_id (or company.id when targetTable === 'companies'). */
@@ -115,32 +115,20 @@ export function canAccessCompanyRecord(input: FmcsAccessCheckInput): boolean {
   }
 
   if (input.targetTable === 'companies') {
-    if (input.userCompanyIds.length === 0) {
-      return false;
-    }
     return input.targetCompanyId != null && input.userCompanyIds.includes(input.targetCompanyId);
   }
 
   if (input.targetTable === 'users') {
-    const targetIds = input.targetUserCompanyIds ?? [];
-    if (input.userCompanyIds.length === 0) {
-      if (input.nullCompanyIsFloater) {
-        return true;
-      }
-      return targetIds.length === 0;
-    }
-    if (targetIds.length === 0) {
-      return input.nullCompanyIsFloater;
-    }
-    return targetIds.some((id) => input.userCompanyIds.includes(id));
+    return canAccessUserCompanies(
+      input.userCompanyIds,
+      input.targetUserCompanyIds ?? [],
+      input.nullCompanyIsFloater,
+    );
   }
 
   // Standard companyable record (assets, licenses, accessories, consumables, components, etc.)
   if (input.userCompanyIds.length === 0) {
-    if (input.nullCompanyIsFloater) {
-      return true;
-    }
-    return input.targetCompanyId == null;
+    return input.nullCompanyIsFloater || input.targetCompanyId == null;
   }
 
   if (input.targetCompanyId == null) {
@@ -148,6 +136,20 @@ export function canAccessCompanyRecord(input: FmcsAccessCheckInput): boolean {
   }
 
   return input.userCompanyIds.includes(input.targetCompanyId);
+}
+
+function canAccessUserCompanies(
+  actorCompanyIds: number[],
+  targetCompanyIds: number[],
+  nullCompanyIsFloater: boolean,
+): boolean {
+  if (actorCompanyIds.length === 0) {
+    return nullCompanyIsFloater || targetCompanyIds.length === 0;
+  }
+  if (targetCompanyIds.length === 0) {
+    return nullCompanyIsFloater;
+  }
+  return targetCompanyIds.some((id) => actorCompanyIds.includes(id));
 }
 
 export class FmcsCompanyAssignmentError extends Error {

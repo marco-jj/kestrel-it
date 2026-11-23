@@ -290,9 +290,12 @@ export class DashboardComponent {
   }
 
   onPreviewRowAction(event: { action: string; row: DataGridRow }): void {
-    this.quickCreateMessage.set(
-      `Triggered "${event.action}" for ${String(event.row['asset_tag'] ?? event.row.id)}`,
-    );
+    const assetTag = event.row['asset_tag'];
+    const record =
+      typeof assetTag === 'string' || typeof assetTag === 'number'
+        ? assetTag
+        : (event.row.id ?? 'this record');
+    this.quickCreateMessage.set(`Triggered "${event.action}" for ${record}`);
     this.drawerOpen.set(true);
   }
 }

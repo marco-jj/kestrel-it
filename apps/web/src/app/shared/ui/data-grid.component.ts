@@ -46,6 +46,14 @@ export function resolveAvailableRowActions(
   return ORDERED_ROW_ACTIONS.filter((action) => actions[action] === true);
 }
 
+function cellText(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return value instanceof Date ? value.toString() : null;
+}
+
 export function sortDataGridRows<T extends Record<string, unknown>>(
   rows: readonly T[],
   sortKey: string | null,
@@ -60,14 +68,17 @@ export function sortDataGridRows<T extends Record<string, unknown>>(
     const bVal = b[sortKey];
 
     if (aVal === bVal) return 0;
-    if (aVal === null || aVal === undefined) return 1;
-    if (bVal === null || bVal === undefined) return -1;
-
     if (typeof aVal === 'number' && typeof bVal === 'number') {
       return (aVal - bVal) * factor;
     }
 
-    return String(aVal).localeCompare(String(bVal), undefined, { numeric: true }) * factor;
+    const aText = cellText(aVal);
+    const bText = cellText(bVal);
+    if (aText === bText) return 0;
+    if (aText === null) return 1;
+    if (bText === null) return -1;
+
+    return aText.localeCompare(bText, undefined, { numeric: true }) * factor;
   });
 }
 
@@ -458,9 +469,7 @@ export class KestrelDataGridComponent {
     const filtered = query
       ? base.filter((row) =>
           this.columnsSignal().some((col) =>
-            String(row[col.key] ?? '')
-              .toLowerCase()
-              .includes(query),
+            cellText(row[col.key])?.toLowerCase().includes(query),
           ),
         )
       : base;
@@ -598,10 +607,6 @@ export class KestrelDataGridComponent {
   }
 
   formatCell(row: DataGridRow, col: DataGridColumn): string {
-    const raw = row[col.key];
-    if (raw === null || raw === undefined || raw === '') {
-      return '—';
-    }
-    return String(raw);
+    return cellText(row[col.key]) || '—';
   }
 }

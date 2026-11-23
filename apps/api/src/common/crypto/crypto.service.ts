@@ -88,7 +88,7 @@ export class CryptoService {
     }
 
     if (/^\$2[aby]\$/.test(storedHash)) {
-      const normalized = storedHash.replace(/^\$2y\$/, '$2a$');
+      const normalized = storedHash.replace(/^\$2y\$/, () => '$2a$');
       return bcrypt.compare(password, normalized);
     }
 

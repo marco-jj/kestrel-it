@@ -46,7 +46,9 @@ async function bootstrap() {
   logger.log(`Kestrel-IT API listening on http://0.0.0.0:${port}/${apiPrefix}`);
 }
 
-void bootstrap().catch((error: unknown) => {
+try {
+  await bootstrap();
+} catch (error) {
   new Logger('Bootstrap').error(error);
   process.exit(1);
-});
+}

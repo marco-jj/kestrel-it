@@ -76,7 +76,7 @@ describe('CryptoService & TOTP RFC 6238', () => {
 
     // Simulate legacy Laravel/Snipe-IT $2y$ bcrypt password hash
     const bcrypt2a = bcrypt.hashSync('LegacySnipePass!', 4);
-    const legacy2y = bcrypt2a.replace(/^\$2a\$/, '$2y$');
+    const legacy2y = bcrypt2a.replace(/^\$2a\$/, () => '$2y$');
     expect(await crypto.verifyPassword('LegacySnipePass!', legacy2y)).toBe(true);
     expect(await crypto.verifyPassword('WrongLegacyPass', legacy2y)).toBe(false);
 

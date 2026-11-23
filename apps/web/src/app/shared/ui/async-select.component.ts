@@ -10,6 +10,8 @@ import {
 } from '@angular/core';
 import { NG_VALUE_ACCESSOR, type ControlValueAccessor } from '@angular/forms';
 
+type AsyncSelectValue = number | string | null;
+
 export interface AsyncSelectOption {
   id: number | string;
   text: string;
@@ -206,7 +208,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   readonly companyIdSignal = signal<number | null>(null);
   readonly includeNullCompanySignal = signal<boolean>(true);
   readonly searchQuery = signal<string>('');
-  readonly selectedId = signal<number | string | null>(null);
+  readonly selectedId = signal<AsyncSelectValue>(null);
   readonly isOpen = signal<boolean>(false);
   readonly disabledSignal = signal<boolean>(false);
   private readonly rememberedSelection = signal<AsyncSelectOption | null>(null);
@@ -257,7 +259,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   @Output() quickCreate = new EventEmitter<{ query: string; companyId: number | null }>();
   @Output() searchChanged = new EventEmitter<string>();
 
-  private onChangeCallback: (value: number | string | null) => void = () => undefined;
+  private onChangeCallback: (value: AsyncSelectValue) => void = () => undefined;
   private onTouchedCallback: () => void = () => undefined;
 
   private reconciliationScheduled = false;
@@ -285,7 +287,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
     }
   }
 
-  writeValue(value: number | string | null): void {
+  writeValue(value: AsyncSelectValue): void {
     if (this.rememberedSelection()?.id !== value) {
       this.rememberedSelection.set(null);
     }
@@ -293,7 +295,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
     this.rememberedSelection.set(this.selectedOption());
   }
 
-  registerOnChange(fn: (value: number | string | null) => void): void {
+  registerOnChange(fn: (value: AsyncSelectValue) => void): void {
     this.onChangeCallback = fn;
   }
 

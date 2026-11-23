@@ -5,6 +5,7 @@ import { constants, createReadStream } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
+import { trimSlashes, trimTrailingCharacter } from '../string-utils.js';
 import type { EnvConfig } from '../../config/env.schema.js';
 import {
   assertValidStorageCategory,
@@ -119,8 +120,8 @@ export class LocalStorageAdapter implements StorageProvider {
   ): Promise<string> {
     assertValidStorageCategory(category);
     const cleanKey = sanitizeStorageKey(key);
-    const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/+$/, '');
-    const apiPrefix = this.config.get('API_PREFIX', { infer: true }).replace(/^\/+|\/+$/g, '');
+    const appUrl = trimTrailingCharacter(this.config.get('APP_URL', { infer: true }), '/');
+    const apiPrefix = trimSlashes(this.config.get('API_PREFIX', { infer: true }));
     const encodedKey = cleanKey.split('/').map(encodeURIComponent).join('/');
     return `${appUrl}/${apiPrefix}/storage/${category}/${encodedKey}`;
   }

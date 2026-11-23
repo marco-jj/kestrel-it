@@ -15,6 +15,7 @@ import {
 } from '@kestrel-it/shared';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { trimSlashes, trimTrailingCharacter } from '../../common/string-utils.js';
 import type { EnvConfig } from '../../config/env.schema.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import { authConsumedTokens, loginAttempts, personalAccessTokens, users } from '../../db/schema/index.js';
@@ -61,11 +62,8 @@ export class BetterAuthService {
   getStatus(): BetterAuthStatus {
     const enabled = this.config.get('BETTER_AUTH_ENABLED', { infer: true });
     const configuredMode = this.config.get('BETTER_AUTH_MODE', { infer: true });
-    const mode: BetterAuthMode = enabled
-      ? configuredMode === 'disabled'
-        ? 'embedded'
-        : configuredMode
-      : 'disabled';
+    const enabledMode = configuredMode === 'disabled' ? 'embedded' : configuredMode;
+    const mode: BetterAuthMode = enabled ? enabledMode : 'disabled';
     const passkeyEnabled =
       enabled && this.config.get('BETTER_AUTH_PASSKEY_ENABLED', { infer: true });
     const providers = enabled
@@ -91,8 +89,8 @@ export class BetterAuthService {
    */
   buildBetterAuthDrizzleConfig() {
     const status = this.getStatus();
-    const apiPrefix = this.config.get('API_PREFIX', { infer: true }).replace(/^\/+|\/+$/g, '');
-    const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/+$/, '');
+    const apiPrefix = trimSlashes(this.config.get('API_PREFIX', { infer: true }));
+    const appUrl = trimTrailingCharacter(this.config.get('APP_URL', { infer: true }), '/');
     const configuredUrl = this.config.get('BETTER_AUTH_URL', { infer: true });
 
     return {
@@ -258,7 +256,7 @@ export class BetterAuthService {
   }
 
   private async fetchFederatedSessionClaims(sessionToken: string): Promise<Record<string, unknown>> {
-    const baseUrl = this.config.get('BETTER_AUTH_URL', { infer: true }).replace(/\/+$/, '');
+    const baseUrl = trimTrailingCharacter(this.config.get('BETTER_AUTH_URL', { infer: true }), '/');
     if (!baseUrl) {
       throw new BadRequestException(
         'BETTER_AUTH_URL must be configured for federated session verification',

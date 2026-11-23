@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { trimTrailingCharacter } from '../string-utils.js';
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -24,7 +25,7 @@ export function base32Encode(buffer: Buffer): string {
 }
 
 export function base32Decode(input: string): Buffer {
-  const cleaned = input.toUpperCase().replace(/=+$/g, '').replace(/\s+/g, '');
+  const cleaned = trimTrailingCharacter(input.toUpperCase(), '=').replace(/\s+/g, '');
   let bits = 0;
   let value = 0;
   const bytes: number[] = [];
@@ -76,7 +77,7 @@ export function generateTotpCode(
   counterBuffer.writeBigUInt64BE(BigInt(counter));
 
   const digest = createHmac('sha1', secret).update(counterBuffer).digest();
-  const offset = digest[digest.length - 1]! & 0x0f;
+  const offset = digest.at(-1)! & 0x0f;
   const binary =
     ((digest[offset]! & 0x7f) << 24) |
     ((digest[offset + 1]! & 0xff) << 16) |

@@ -48,25 +48,29 @@ export function validateOAuth21AuthorizationRequest(
   }
 
   if (params.redirectUri !== undefined) {
-    if (params.expectedRedirectUri && params.redirectUri !== params.expectedRedirectUri) {
-      throw new BadRequestException('OAuth 2.1 redirect_uri must match the registered URI exactly');
-    }
+    validateRedirectUri(params.redirectUri, params.expectedRedirectUri);
+  }
+}
 
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(params.redirectUri);
-    } catch {
-      throw new BadRequestException('Invalid OAuth redirect_uri URL');
-    }
+function validateRedirectUri(redirectUri: string, expectedRedirectUri?: string): void {
+  if (expectedRedirectUri && redirectUri !== expectedRedirectUri) {
+    throw new BadRequestException('OAuth 2.1 redirect_uri must match the registered URI exactly');
+  }
 
-    const isLocalhost =
-      parsedUrl.hostname === 'localhost' ||
-      parsedUrl.hostname === '127.0.0.1' ||
-      parsedUrl.hostname === '[::1]';
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(redirectUri);
+  } catch {
+    throw new BadRequestException('Invalid OAuth redirect_uri URL');
+  }
 
-    if (parsedUrl.protocol !== 'https:' && !isLocalhost) {
-      throw new BadRequestException('OAuth 2.1 redirect_uri must use HTTPS outside localhost');
-    }
+  const isLocalhost =
+    parsedUrl.hostname === 'localhost' ||
+    parsedUrl.hostname === '127.0.0.1' ||
+    parsedUrl.hostname === '[::1]';
+
+  if (parsedUrl.protocol !== 'https:' && !isLocalhost) {
+    throw new BadRequestException('OAuth 2.1 redirect_uri must use HTTPS outside localhost');
   }
 }
 

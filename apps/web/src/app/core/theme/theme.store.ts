@@ -40,7 +40,7 @@ export class ThemeStore {
       return;
     }
     const resolved = this.resolvedTheme();
-    document.documentElement.setAttribute('data-theme', resolved);
+    document.documentElement.dataset['theme'] = resolved;
     document.documentElement.classList.toggle('dark', resolved === 'dark');
   }
 

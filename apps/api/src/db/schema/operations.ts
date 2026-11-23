@@ -1,6 +1,5 @@
 import type {
   ActionSource,
-  ActionType,
   CheckoutRequestState,
   DepreciationMethod,
   PolymorphicItemType,
@@ -31,10 +30,10 @@ export const actionLogs = pgTable(
   {
     id: identityId(),
     createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
-    actionType: varchar('action_type', { length: 100 }).$type<ActionType | string>().notNull(),
-    itemType: varchar('item_type', { length: 64 }).$type<PolymorphicItemType | string>().notNull(),
+    actionType: varchar('action_type', { length: 100 }).notNull(),
+    itemType: varchar('item_type', { length: 64 }).notNull(),
     itemId: integer('item_id').notNull(),
-    targetType: varchar('target_type', { length: 64 }).$type<PolymorphicItemType | string>(),
+    targetType: varchar('target_type', { length: 64 }),
     targetId: integer('target_id'),
     locationId: integer('location_id').references(() => locations.id, { onDelete: 'set null' }),
     companyId: integer('company_id').references(() => companies.id, { onDelete: 'set null' }),

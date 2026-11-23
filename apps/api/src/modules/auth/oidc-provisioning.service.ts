@@ -16,7 +16,7 @@ function extractClaimValue(claims: Record<string, unknown>, path: string): unkno
   if (!path) {
     return undefined;
   }
-  if (Object.prototype.hasOwnProperty.call(claims, path)) {
+  if (Object.hasOwn(claims, path)) {
     return claims[path];
   }
   const parts = path.split('.');

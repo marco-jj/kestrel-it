@@ -132,13 +132,12 @@ export function iconForFormat(
  * used as the key inside PostgreSQL assets.custom_fields JSONB.
  */
 export function generateCustomFieldDbColumn(name: string, id: number | string = 'xx'): string {
-  const asciiSlug = name
+  const normalizedName = name
     .trim()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .toLowerCase();
+  const asciiSlug = normalizedName.match(/[a-z0-9]+/g)?.join('_') ?? '';
 
   const prefixed = `_snipeit_${asciiSlug}`;
   return `${prefixed.slice(0, 50)}_${id}`;

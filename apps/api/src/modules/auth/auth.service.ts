@@ -23,6 +23,7 @@ import {
 } from '@kestrel-it/shared';
 import { and, eq, inArray, isNull, lte } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
+import { trimSlashes, trimTrailingCharacter } from '../../common/string-utils.js';
 import type { EnvConfig } from '../../config/env.schema.js';
 import { CryptoService } from '../../common/crypto/crypto.service.js';
 import {
@@ -79,14 +80,11 @@ export class AuthService {
     }
 
     const amr = claims['amr'];
-    const amrValues = Array.isArray(amr)
-      ? amr.filter((item): item is string => typeof item === 'string')
-      : typeof amr === 'string'
-        ? [amr]
-        : [];
-
-    return amrValues.some((val) =>
-      AuthService.FEDERATED_MFA_AMR_VALUES.has(val.trim().toLowerCase()),
+    const amrValues = Array.isArray(amr) ? amr : [amr];
+    return amrValues.some(
+      (value) =>
+        typeof value === 'string' &&
+        AuthService.FEDERATED_MFA_AMR_VALUES.has(value.trim().toLowerCase()),
     );
   }
 
@@ -169,7 +167,7 @@ export class AuthService {
       .where(and(eq(users.id, userId), isNull(users.deletedAt)))
       .limit(1);
 
-    if (!user || !user.activated) {
+    if (!user?.activated) {
       throw new UnauthorizedException('User account is inactive');
     }
 
@@ -288,7 +286,7 @@ export class AuthService {
       .limit(1);
 
     const protocol: OAuthProtocol = this.config.get('OAUTH_PROTOCOL', { infer: true });
-    const apiPrefix = this.config.get('API_PREFIX', { infer: true }).replace(/^\/+|\/+$/g, '');
+    const apiPrefix = trimSlashes(this.config.get('API_PREFIX', { infer: true }));
     const explicitEndpoints = Boolean(
       this.config.get('OAUTH_AUTHORIZATION_URL', { infer: true }) &&
         this.config.get('OAUTH_TOKEN_URL', { infer: true }),
@@ -309,11 +307,8 @@ export class AuthService {
 
     const baEnabled = this.config.get('BETTER_AUTH_ENABLED', { infer: true });
     const baConfiguredMode = this.config.get('BETTER_AUTH_MODE', { infer: true });
-    const baMode: BetterAuthMode = baEnabled
-      ? baConfiguredMode === 'disabled'
-        ? 'embedded'
-        : baConfiguredMode
-      : 'disabled';
+    const enabledMode = baConfiguredMode === 'disabled' ? 'embedded' : baConfiguredMode;
+    const baMode: BetterAuthMode = baEnabled ? enabledMode : 'disabled';
     const baPasskey =
       baEnabled && this.config.get('BETTER_AUTH_PASSKEY_ENABLED', { infer: true });
     const baProviders = baEnabled
@@ -550,7 +545,7 @@ export class AuthService {
       .where(and(eq(users.id, userId), isNull(users.deletedAt)))
       .limit(1);
 
-    if (!user || !user.activated) {
+    if (!user?.activated) {
       throw new UnauthorizedException('User account not found or inactive');
     }
 
@@ -659,11 +654,10 @@ export class AuthService {
     const authUrlOverride = this.config.get('OAUTH_AUTHORIZATION_URL', { infer: true });
     const tokenUrlOverride = this.config.get('OAUTH_TOKEN_URL', { infer: true });
 
-    let issuerUrl = (
-      settingsRow?.oidcIssuerUrl ||
-      this.config.get('OIDC_ISSUER_URL', { infer: true }) ||
-      ''
-    ).replace(/\/+$/, '');
+    let issuerUrl = trimTrailingCharacter(
+      settingsRow?.oidcIssuerUrl || this.config.get('OIDC_ISSUER_URL', { infer: true }) || '',
+      '/',
+    );
 
     if (!issuerUrl && authUrlOverride) {
       try {
@@ -683,8 +677,8 @@ export class AuthService {
         : settingsRow.oidcClientSecretEncrypted;
     }
 
-    const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/+$/, '');
-    const apiPrefix = this.config.get('API_PREFIX', { infer: true }).replace(/^\/+|\/+$/g, '');
+    const appUrl = trimTrailingCharacter(this.config.get('APP_URL', { infer: true }), '/');
+    const apiPrefix = trimSlashes(this.config.get('API_PREFIX', { infer: true }));
     const callbackSegment = protocol === 'oidc' ? 'oidc' : 'oauth';
     const redirectUri =
       this.config.get('OIDC_REDIRECT_URI', { infer: true }) ||
@@ -745,7 +739,7 @@ export class AuthService {
     }
 
     this.oidcDiscoveryCache.set(cacheKey, {
-      expiresAt: Date.now() + 3600_000,
+      expiresAt: Date.now() + 3_600_000,
       doc,
     });
     return doc;

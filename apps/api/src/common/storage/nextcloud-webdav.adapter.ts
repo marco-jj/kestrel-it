@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { StorageBucketCategory } from '@kestrel-it/shared';
 import { Readable } from 'node:stream';
+import { trimSlashes, trimTrailingCharacter } from '../string-utils.js';
 import type { EnvConfig } from '../../config/env.schema.js';
 import {
   assertValidStorageCategory,
@@ -133,8 +134,8 @@ export class NextcloudWebDavAdapter implements StorageProvider {
   ): Promise<string> {
     assertValidStorageCategory(category);
     const cleanKey = sanitizeStorageKey(key);
-    const appUrl = this.config.get('APP_URL', { infer: true }).replace(/\/+$/, '');
-    const apiPrefix = this.config.get('API_PREFIX', { infer: true }).replace(/^\/+|\/+$/g, '');
+    const appUrl = trimTrailingCharacter(this.config.get('APP_URL', { infer: true }), '/');
+    const apiPrefix = trimSlashes(this.config.get('API_PREFIX', { infer: true }));
     const encodedKey = cleanKey.split('/').map(encodeURIComponent).join('/');
     return `${appUrl}/${apiPrefix}/storage/${category}/${encodedKey}`;
   }
@@ -199,12 +200,10 @@ export class NextcloudWebDavAdapter implements StorageProvider {
   }
 
   private resolveNextcloudConfig() {
-    const baseUrl = this.config.get('NEXTCLOUD_URL', { infer: true }).replace(/\/+$/, '');
+    const baseUrl = trimTrailingCharacter(this.config.get('NEXTCLOUD_URL', { infer: true }), '/');
     const username = this.config.get('NEXTCLOUD_USERNAME', { infer: true });
     const appPassword = this.config.get('NEXTCLOUD_APP_PASSWORD', { infer: true });
-    const basePath = this.config
-      .get('NEXTCLOUD_BASE_PATH', { infer: true })
-      .replace(/^\/+|\/+$/g, '');
+    const basePath = trimSlashes(this.config.get('NEXTCLOUD_BASE_PATH', { infer: true }));
 
     if (!baseUrl || !username || !appPassword) {
       throw new BadRequestException(
@@ -212,7 +211,8 @@ export class NextcloudWebDavAdapter implements StorageProvider {
       );
     }
 
-    const authHeader = `Basic ${Buffer.from(`${username}:${appPassword}`, 'utf8').toString('base64')}`;
+    const credentials = Buffer.from(`${username}:${appPassword}`, 'utf8').toString('base64');
+    const authHeader = `Basic ${credentials}`;
     const davRoot = `${baseUrl}/remote.php/dav/files/${encodeURIComponent(username)}`;
 
     return { davRoot, basePath, authHeader };

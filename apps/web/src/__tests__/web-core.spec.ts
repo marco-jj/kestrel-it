@@ -430,6 +430,26 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
     expect(grid.displayedRows().map((r) => r['id'])).toEqual([10, 20]);
   });
 
+  it('treats structured data grid cell values as unavailable', () => {
+    const grid = new KestrelDataGridComponent();
+    const column = { key: 'value', label: 'Value' };
+    const structured = { id: 1, value: { name: 'Laptop' } };
+    const scalar = { id: 2, value: 42 };
+    grid.serverSide = false;
+    grid.columns = [column];
+    grid.rows = [structured, scalar];
+
+    expect(grid.formatCell(structured, column)).toBe('—');
+    expect(grid.formatCell(scalar, column)).toBe('42');
+    expect(sortDataGridRows(grid.rowsSignal(), column.key, 'asc')).toEqual([scalar, structured]);
+    expect(sortDataGridRows(grid.rowsSignal(), column.key, 'desc')).toEqual([scalar, structured]);
+
+    grid.onSearchInput('[object Object]');
+    expect(grid.displayedRows()).toEqual([]);
+    grid.onSearchInput('42');
+    expect(grid.displayedRows()).toEqual([scalar]);
+  });
+
   it('reconciles AsyncSelect values after direct scope and options assignments', async () => {
     const options: AsyncSelectOption[] = [
       { id: 1, text: 'Milan HQ', companyId: 10 },

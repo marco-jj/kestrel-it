@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { StorageBucketCategory } from '@kestrel-it/shared';
 import { createHash, createHmac } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { trimTrailingCharacter } from '../string-utils.js';
 import type { EnvConfig } from '../../config/env.schema.js';
 import {
   assertValidStorageCategory,
@@ -32,7 +33,7 @@ function hmacSha256(key: Buffer | string, data: string): Buffer {
 function encodeRfc3986(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
-    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+    (ch) => `%${ch.codePointAt(0)!.toString(16).toUpperCase()}`,
   );
 }
 
@@ -293,7 +294,7 @@ export class S3StorageAdapter implements StorageProvider {
     }
 
     return {
-      endpoint: endpoint.replace(/\/+$/, ''),
+      endpoint: trimTrailingCharacter(endpoint, '/'),
       region,
       bucket,
       accessKeyId,
@@ -311,7 +312,7 @@ export class S3StorageAdapter implements StorageProvider {
     const cleanKey = sanitizeStorageKey(key);
     const encodedKey = cleanKey.split('/').map(encodeRfc3986).join('/');
     const base = new URL(settings.endpoint);
-    const basePath = base.pathname.replace(/\/+$/, '');
+    const basePath = trimTrailingCharacter(base.pathname, '/');
 
     if (settings.forcePathStyle) {
       return new URL(`${base.origin}${basePath}/${encodeRfc3986(settings.bucket)}/${category}/${encodedKey}`);

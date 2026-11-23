@@ -17,7 +17,7 @@ export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   APP_NAME: z.string().min(1).default('Kestrel-IT'),
   APP_URL: z.string().url().default('http://localhost:4200'),
-  API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  API_PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   API_PREFIX: z.string().min(1).default('api/v1'),
 
   DATABASE_URL: z
@@ -76,7 +76,7 @@ export const EnvSchema = z.object({
 
   // SMTP
   SMTP_HOST: z.string().default('localhost'),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(1025),
   SMTP_SECURE: booleanFromEnv(false),
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASSWORD: z.string().optional().default(''),
