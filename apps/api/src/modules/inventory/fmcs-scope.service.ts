@@ -1,9 +1,9 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { resolveAssignedCompanyId, type AuthenticatedUserContext } from '@kestrel-it/shared';
-import { eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
-import { companyUser, settings } from '../../db/schema/index.js';
+import { companyUser, settings, users } from '../../db/schema/index.js';
 import type { InventoryDatabase } from './inventory-queries.js';
 
 export interface FmcsScope {
@@ -60,6 +60,37 @@ export class FmcsScopeService {
     if (!scope.companyIds.length) return scope.floater ? undefined : isNull(companyId);
     const allowed = inArray(companyId, scope.companyIds);
     return scope.floater ? or(allowed, isNull(companyId)) : allowed;
+  }
+
+  selectionPredicate(
+    scope: FmcsScope,
+    resource: string,
+    column: AnyPgColumn | undefined,
+    companyId: number | undefined,
+  ): SQL | undefined {
+    if (
+      companyId === undefined ||
+      !scope.enabled ||
+      (resource === 'locations' && !scope.scopeLocations)
+    )
+      return undefined;
+    if (companyId === 0 && scope.floater) return undefined;
+
+    if (resource === 'users') {
+      const membership = and(
+        eq(companyUser.userId, users.id),
+        companyId === 0 ? undefined : eq(companyUser.companyId, companyId),
+      );
+      const unassigned = sql`not exists (select 1 from ${companyUser} where ${eq(companyUser.userId, users.id)})`;
+      if (companyId === 0) return unassigned;
+      const assigned = sql`exists (select 1 from ${companyUser} where ${membership})`;
+      return scope.floater ? or(assigned, unassigned) : assigned;
+    }
+
+    if (!column) return undefined;
+    if (companyId === 0) return isNull(column);
+    const assigned = eq(column, companyId);
+    return scope.floater ? or(assigned, isNull(column)) : assigned;
   }
 
   assign(scope: FmcsScope, value: number | null | undefined): number | null {

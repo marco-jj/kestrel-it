@@ -29,6 +29,13 @@
       "when": 1795434475041,
       "tag": "0003_low_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795438611510,
+      "tag": "0004_inventory_only_users",
+      "breakpoints": true
     }
   ]
 }

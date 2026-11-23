@@ -45,7 +45,14 @@ export const SelectlistQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().optional(),
-  companyId: z.coerce.number().int().positive().optional(),
+  // Zero selects compatible unassigned records. Omission leaves the actor's scope unchanged.
+  companyId: z
+    .union([
+      z.literal(0),
+      z.literal('0').transform(() => 0),
+      z.coerce.number().int().positive().max(2_147_483_647),
+    ])
+    .optional(),
   statusType: z.string().trim().optional(),
   includeNull: z
     .union([z.boolean(), z.enum(['0', '1', 'true', 'false'])])

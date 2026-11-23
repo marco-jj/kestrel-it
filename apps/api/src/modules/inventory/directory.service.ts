@@ -36,7 +36,7 @@ import { CryptoService } from '../../common/crypto/crypto.service.js';
 import { permitsEntity } from '../../common/guards/permissions.guard.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import * as schema from '../../db/schema/index.js';
-import { directoryDefinitions } from './directory-definitions.js';
+import { companyWebhookFields, directoryDefinitions } from './directory-definitions.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
 import {
   contains,
@@ -53,6 +53,10 @@ import {
 type Action = 'view' | 'create' | 'edit' | 'delete';
 type Row = Record<string, unknown>;
 const permissionKeys = new Set<string>(ALL_PERMISSIONS);
+
+function superuserField(column: string) {
+  return column === 'permissions' || Object.hasOwn(companyWebhookFields, column);
+}
 
 function columnsOf(table: PgTable): Record<string, AnyPgColumn> {
   return getTableColumns(table);
@@ -191,7 +195,9 @@ export class DirectoryService {
       query.search ? this.search(resource, columns[definition.nameKey]!, query.search) : undefined,
     );
     const sort =
-      query.sort && Object.hasOwn(definition.shape, query.sort)
+      query.sort &&
+      Object.hasOwn(definition.shape, query.sort) &&
+      (user.isSuperUser || !superuserField(query.sort))
         ? Object.values(columns).find((column) => column.name === query.sort)
         : undefined;
     const order = query.order === 'desc' ? desc : asc;
@@ -205,7 +211,7 @@ export class DirectoryService {
         .limit(query.limit)
         .offset(pageOffset(query)),
     ]);
-    const labels = await this.labels(resource, scope, rows);
+    const labels = await this.labels(this.db, resource, scope, rows);
     return datatable(
       total!.value,
       rows.map((row) => this.serialize(resource, row, user, labels)),
@@ -233,7 +239,7 @@ export class DirectoryService {
       this.visible(resource, scope),
       status,
       query.search ? this.search(resource, columns[definition.nameKey]!, query.search) : undefined,
-      this.companyFilter(resource, columns, query.companyId),
+      this.fmcs.selectionPredicate(scope, resource, columns.companyId, query.companyId),
     );
     const [[total], rows] = await Promise.all([
       this.db.select({ value: count() }).from(definition.table).where(filters),
@@ -245,7 +251,7 @@ export class DirectoryService {
         .limit(query.limit)
         .offset((query.page - 1) * query.limit),
     ]);
-    const labels = await this.labels(resource, scope, rows);
+    const labels = await this.labels(this.db, resource, scope, rows);
     return selectlist(
       total!.value,
       rows.map((row) => ({
@@ -256,7 +262,10 @@ export class DirectoryService {
           typeof (row.tagColor ?? row.color) === 'string'
             ? String(row.tagColor ?? row.color)
             : null,
-        disabled: resource === 'users' && row.activated !== true,
+        disabled:
+          resource === 'users' &&
+          row.activated !== true &&
+          (!targetPicker || row.inventoryOnly !== true),
       })),
       query,
     );
@@ -269,21 +278,6 @@ export class DirectoryService {
       contains(schema.users.displayName, value),
       contains(sql`concat_ws(' ', ${schema.users.firstName}, ${schema.users.lastName})`, value),
     );
-  }
-
-  private companyFilter(
-    resource: CoreInventoryResource,
-    columns: Record<string, AnyPgColumn>,
-    companyId?: number,
-  ) {
-    if (companyId === undefined) return undefined;
-    if (resource === 'users') {
-      return sql`exists (select 1 from ${schema.companyUser} where ${and(
-        eq(schema.companyUser.userId, schema.users.id),
-        eq(schema.companyUser.companyId, companyId),
-      )})`;
-    }
-    return columns.companyId ? eq(columns.companyId, companyId) : undefined;
   }
 
   private statusMatch(status: string): SQL {
@@ -310,7 +304,12 @@ export class DirectoryService {
     requireAction(user, resource, 'view');
     const scope = await this.fmcs.resolve(user);
     const row = await this.find(this.db, resource, scope, id);
-    const result = this.serialize(resource, row, user, await this.labels(resource, scope, [row]));
+    const result = this.serialize(
+      resource,
+      row,
+      user,
+      await this.labels(this.db, resource, scope, [row]),
+    );
     if (resource === 'users') {
       const memberships = await this.db
         .select({ id: schema.companyUser.companyId })
@@ -336,7 +335,9 @@ export class DirectoryService {
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
       const row = await this.save(tx, resource, scope, user, body);
-      return success(this.serialize(resource, row, user));
+      return success(
+        this.serialize(resource, row, user, await this.labels(tx, resource, scope, [row])),
+      );
     });
   }
 
@@ -346,7 +347,9 @@ export class DirectoryService {
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
       const row = await this.save(tx, resource, scope, user, body, id);
-      return success(this.serialize(resource, row, user));
+      return success(
+        this.serialize(resource, row, user, await this.labels(tx, resource, scope, [row])),
+      );
     });
   }
 
@@ -402,6 +405,13 @@ export class DirectoryService {
     const input: Row = parse(id === undefined ? validator : validator.partial(), body);
     const existing = id === undefined ? undefined : await this.find(tx, resource, scope, id);
     const columns = columnsOf(definition.table);
+    if (
+      resource === 'companies' &&
+      !user.isSuperUser &&
+      Object.keys(companyWebhookFields).some((key) => Object.hasOwn(input, key))
+    ) {
+      throw new ForbiddenException('Company webhook changes require a superuser');
+    }
     if (resource === 'companies' && scope.enabled && (id === undefined || 'parent_id' in input)) {
       throw new ForbiddenException('Company hierarchy changes require a superuser under FMCS');
     }
@@ -453,7 +463,9 @@ export class DirectoryService {
     }
     if (typeof input.password === 'string')
       values.password = this.crypto.hashPassword(input.password);
+    if (resource === 'users' && !existing && !user.isSuperUser) values.inventoryOnly = true;
     if (resource === 'users' && input.activated !== undefined) {
+      values.inventoryOnly = false;
       values.activatedAt = input.activated === true ? (existing?.activatedAt ?? new Date()) : null;
     }
     const [saved] =
@@ -593,7 +605,11 @@ export class DirectoryService {
       const parent: unknown = row?.[key];
       currentId = typeof parent === 'number' ? parent : null;
       if (currentId !== null)
-        [row] = await tx.select().from(table).where(eq(columns.id!, currentId)).limit(1);
+        [row] = await tx
+          .select()
+          .from(table)
+          .where(and(eq(columns.id!, currentId), isNull(columns.deletedAt!)))
+          .limit(1);
     }
   }
 
@@ -620,6 +636,18 @@ export class DirectoryService {
         scope,
         id,
       );
+    if (action === 'restore') {
+      const key = resource === 'users' ? 'managerId' : 'parentId';
+      const parentId = row[key];
+      if (typeof parentId === 'number') {
+        const [parent] = await tx
+          .select()
+          .from(definition.table)
+          .where(and(eq(columns.id!, parentId), isNull(columns.deletedAt!)))
+          .limit(1);
+        if (parent) await this.validateHierarchy(tx, resource, id, parentId, parent, key);
+      }
+    }
     if (action === 'delete') {
       for (const [table, key] of deletionReferences[resource] ?? []) {
         const columns = columnsOf(table);
@@ -658,13 +686,22 @@ export class DirectoryService {
     }
   }
 
-  private async labels(resource: CoreInventoryResource, scope: FmcsScope, rows: Row[]) {
-    const result = new Map<number, Row>(rows.map((row) => [Number(row.id), row]));
+  private async labels(
+    db: InventoryDatabase,
+    resource: CoreInventoryResource,
+    scope: FmcsScope,
+    rows: Row[],
+  ) {
+    const result = new Map<number, Row>();
     if (resource !== 'locations' && resource !== 'companies') return result;
     const definition = directoryDefinitions[resource];
     const columns = columnsOf(definition.table);
     let pending = rows;
-    const seen = new Set(result.keys());
+    const seen = new Set<number>();
+    const visible = this.fmcs.predicate(scope, resource, columns.id!, columns.companyId);
+    // Shared location names provide breadcrumb context without exposing other companies' locations.
+    const visibleAncestor =
+      resource === 'locations' && visible ? or(visible, isNull(columns.companyId!)) : visible;
     while (pending.length) {
       const ids: number[] = [];
       for (const row of pending) {
@@ -673,10 +710,10 @@ export class DirectoryService {
         ids.push(row.parentId);
       }
       if (ids.length === 0) break;
-      pending = await this.db
+      pending = await db
         .select({ id: columns.id!, name: columns.name!, parentId: columns.parentId! })
         .from(definition.table)
-        .where(and(inArray(columns.id!, ids), this.visible(resource, scope)));
+        .where(and(inArray(columns.id!, ids), isNull(columns.deletedAt!), visibleAncestor));
       for (const row of pending) result.set(Number(row.id), row);
     }
     return result;
@@ -708,9 +745,10 @@ export class DirectoryService {
   ) {
     const definition = directoryDefinitions[resource];
     const output: Row = { id: row.id, display_name: this.label(resource, row, labels) };
+    if (resource === 'users') output.inventory_only = row.inventoryOnly;
     for (const [key, column] of Object.entries(columnsOf(definition.table))) {
       if (key === 'password' || !Object.hasOwn(definition.shape, column.name)) continue;
-      if (key === 'permissions' && !user.isSuperUser) continue;
+      if (!user.isSuperUser && superuserField(column.name)) continue;
       output[column.name] = row[key];
     }
     output.available_actions = row.deletedAt

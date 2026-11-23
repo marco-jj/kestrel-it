@@ -136,6 +136,15 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
     category_id: category.id,
     fieldset_id: destination.id,
   });
+  const company = await create('/companies', { name: 'Original company ' + seed });
+  const destinationCompany = await create('/companies', { name: 'Destination company ' + seed });
+  const pickerRequest = (path, companyId) =>
+    page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        url.pathname === '/api/v1' + path && url.searchParams.get('companyId') === String(companyId)
+      );
+    });
   const tags = ['A', 'B'].map((label) => 'BROW-' + seed + '-' + label);
   const assets = [];
   for (const tag of tags) {
@@ -143,6 +152,7 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
       await create('/hardware', {
         asset_tag: tag,
         model_id: from.id,
+        company_id: company.id,
         status_id: status.id,
         custom_fields: {
           [old.db_column]: 'Browser test value',
@@ -157,6 +167,9 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
     await page.goto('/hardware');
     await page.getByLabel('Search table records', { exact: true }).fill('BROW-' + seed);
     await row(tags[0]).getByRole('button', { name: 'update', exact: true }).click();
+    const scopedLocations = pickerRequest('/locations/selectlist', destinationCompany.id);
+    await pick(page, 'Company', destinationCompany.name);
+    await scopedLocations;
     await pick(page, 'Model', to.name);
     await page.getByLabel(/Remove saved values/).waitFor();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -166,6 +179,7 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
     await page.getByText('Changes saved.', { exact: true }).waitFor();
     const moved = await read(`/hardware/${assets[0].id}`);
     assert.equal(moved.model_id, to.id);
+    assert.equal(moved.company_id, destinationCompany.id);
     assert.equal(moved.custom_fields[shared.name].value, 'Original value');
     assert.equal(moved.custom_fields[old.name], undefined);
 
@@ -189,7 +203,9 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
       last_name: 'Assignee ' + seed,
       activated: true,
     });
+    const scopedUsers = pickerRequest('/hardware/targets/user', destinationCompany.id);
     await row(tags[0]).getByRole('button', { name: 'checkout', exact: true }).click();
+    await scopedUsers;
     await pick(page, 'Checkout target', assignee.first_name + ' ' + assignee.last_name);
     await page.getByLabel('Have the assignee sign here').check();
     await page.getByRole('button', { name: 'Check out', exact: true }).click();
@@ -209,5 +225,26 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
     const signed = await read(new URL(page.url()).pathname);
     assert.equal(signed.state, 'accepted');
     assert.equal(signed.has_signature, true);
+
+    const secondCheckout = await create(`/hardware/${assets[1].id}/checkout`, {
+      target_type: 'user',
+      target_id: assignee.id,
+      sign_in_place: true,
+    });
+    const next = '/account/accept/' + secondCheckout.acceptance_id;
+    // Trigger an in-app history navigation so Angular reuses the acceptance detail component.
+    await page.evaluate((path) => {
+      window.history.pushState({}, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, next);
+    await page.getByRole('heading', { name: tags[1] }).waitFor();
+    await page.getByRole('button', { name: 'Accept', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Sign the form before accepting.' }).waitFor();
+
+    await page.goto('/hardware');
+    await page.getByLabel('Search table records', { exact: true }).fill(tags[1]);
+    const returnLocations = pickerRequest('/hardware/targets/location', company.id);
+    await row(tags[1]).getByRole('button', { name: 'checkin', exact: true }).click();
+    await returnLocations;
   });
 });

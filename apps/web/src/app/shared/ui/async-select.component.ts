@@ -16,6 +16,7 @@ export interface AsyncSelectOption {
   id: number | string;
   text: string;
   image?: string | null;
+  disabled?: boolean;
   companyId?: number | null;
   statusMeta?: string;
 }
@@ -112,6 +113,7 @@ function isVisibleInCompany(
               [class.selected]="opt.id === selectedId()"
               role="option"
               [attr.aria-selected]="opt.id === selectedId()"
+              [disabled]="opt.disabled ?? false"
               (click)="selectOption(opt)"
             >
               <span>{{ opt.text }}</span>
@@ -320,6 +322,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   }
 
   selectOption(option: AsyncSelectOption): void {
+    if (option.disabled) return;
     this.selectedId.set(option.id);
     this.rememberedSelection.set(option);
     this.searchQuery.set('');

@@ -1,6 +1,16 @@
-import { Component, ElementRef, OnInit, ViewChild, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  OnInit,
+  ViewChild,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { distinctUntilChanged, map } from 'rxjs';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 
 interface Acceptance {
@@ -23,7 +33,9 @@ interface Acceptance {
     <article>
       <header>
         <h1>
-          {{ detailId ? 'Checkout acceptance' : history ? 'EULA history' : 'Checkout acceptances' }}
+          {{
+            detailId() ? 'Checkout acceptance' : history ? 'EULA history' : 'Checkout acceptances'
+          }}
         </h1>
         <nav>
           <a routerLink="/account/accept">Pending acceptance</a>
@@ -102,7 +114,7 @@ interface Acceptance {
             }
           </div>
         </section>
-      } @else if (!detailId && !loading()) {
+      } @else if (!detailId() && !loading()) {
         <ul>
           @for (item of rows(); track item.id) {
             <li>
@@ -215,7 +227,8 @@ export class AcceptancePageComponent implements OnInit {
   @ViewChild('signature') private canvas?: ElementRef<HTMLCanvasElement>;
   private readonly api = inject(InventoryApi);
   private readonly route = inject(ActivatedRoute);
-  readonly detailId = Number(this.route.snapshot.paramMap.get('id')) || null;
+  private readonly destroyRef = inject(DestroyRef);
+  readonly detailId = signal<number | null>(null);
   readonly history = this.route.snapshot.routeConfig?.path === 'account/eulas';
   readonly record = signal<Acceptance | null>(null);
   readonly rows = signal<Acceptance[]>([]);
@@ -227,28 +240,49 @@ export class AcceptancePageComponent implements OnInit {
   note = '';
   private drawing = false;
   private signed = false;
+  private loadSequence = 0;
+  private routeSequence = 0;
 
   ngOnInit(): void {
-    void this.load();
+    this.route.paramMap
+      .pipe(
+        map((params) => Number(params.get('id')) || null),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((id) => {
+        this.routeSequence++;
+        this.detailId.set(id);
+        this.record.set(null);
+        this.saving.set(false);
+        this.note = '';
+        this.clear();
+        void this.load();
+      });
   }
 
   async load(): Promise<void> {
+    const request = ++this.loadSequence;
+    const id = this.detailId();
     this.loading.set(true);
+    this.error.set('');
     try {
-      if (this.detailId)
-        this.record.set(await this.api.read<Acceptance>(`/account/accept/${this.detailId}`));
-      else {
+      if (id !== null) {
+        const item = await this.api.read<Acceptance>(`/account/accept/${id}`);
+        if (request === this.loadSequence) this.record.set(item);
+      } else {
         const data = await this.api.read<{ rows: Acceptance[]; total_pages: number }>(
           this.history ? '/account/eulas' : '/account/accept',
           { limit: 20, page: this.page() },
         );
+        if (request !== this.loadSequence) return;
         this.rows.set(data.rows);
         this.totalPages.set(data.total_pages);
       }
     } catch (error) {
-      this.error.set(inventoryError(error));
+      if (request === this.loadSequence) this.error.set(inventoryError(error));
     } finally {
-      this.loading.set(false);
+      if (request === this.loadSequence) this.loading.set(false);
     }
   }
 
@@ -307,6 +341,7 @@ export class AcceptancePageComponent implements OnInit {
       this.error.set('Sign the form before accepting.');
       return;
     }
+    const route = this.routeSequence;
     this.saving.set(true);
     try {
       await this.api.write('POST', `/account/accept/${item.id}`, {
@@ -316,11 +351,11 @@ export class AcceptancePageComponent implements OnInit {
           ? { signature: this.canvas.nativeElement.toDataURL('image/png') }
           : {}),
       });
-      await this.load();
+      if (route === this.routeSequence) await this.load();
     } catch (error) {
-      this.error.set(inventoryError(error));
+      if (route === this.routeSequence) this.error.set(inventoryError(error));
     } finally {
-      this.saving.set(false);
+      if (route === this.routeSequence) this.saving.set(false);
     }
   }
 

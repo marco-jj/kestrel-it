@@ -270,6 +270,12 @@ export class CustomFieldsService {
     return inventoryWrite(this.db, async (tx) => {
       if (kind === 'fields') {
         const field = await this.getField(tx, id);
+        const [association] = await tx
+          .select({ fieldsetId: pivot.customFieldsetId })
+          .from(pivot)
+          .where(eq(pivot.customFieldId, id))
+          .limit(1);
+        if (association) throw new ConflictException('This field is used by a fieldset');
         await this.assertFieldHasNoValues(tx, field);
         await tx.delete(customFields).where(eq(customFields.id, id));
       } else {

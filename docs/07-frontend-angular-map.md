@@ -141,5 +141,5 @@ L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-i
    - Mantiene `currentUser = signal<UserProfile | null>(null)`, `permissions = computed(...)`, `settings = signal<PublicSettings>(...)`.
    - Espone il metodo `can(permission: PermissionKey): boolean` che usa la stessa funzione pura `@kestrel-it/shared` del backend, più una direttiva strutturale `*kestrelCan="'assets.checkout'"`.
 2. **Reattività Company-Scoped (FMCS nei Form)**:
-   - Nei form di creazione/modifica o checkout, il campo `companyId` è esposto come `Signal<number | null>` (tramite `toSignal(form.controls.companyId.valueChanges)`).
-   - Tutti i `<kestrel-async-select>` figli nella stessa schermata (es. Location, Department, User target, Asset target) ricevono `[companyId]="selectedCompanyId()"` e ricaricano automaticamente i risultati filtrati per quell'azienda quando l'operatore cambia azienda.
+   - I selettori di sedi, dipartimenti e utenti ricaricano le opzioni quando cambia l'azienda del form. Per i form utente, un'appartenenza aziendale singola fornisce il filtro.
+   - I drawer di checkout e check-in usano l'azienda dell'asset per caricare destinatari e sedi di rientro. I filtri delle selectlist seguono le regole FMCS del server, inclusi i record floater e le sedi condivise.

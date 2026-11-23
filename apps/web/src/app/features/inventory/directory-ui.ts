@@ -1,4 +1,9 @@
-import { CATEGORY_TYPES, type CoreInventoryResource, type PermissionKey } from '@kestrel-it/shared';
+import {
+  CATEGORY_TYPES,
+  WEBHOOK_PROVIDERS,
+  type CoreInventoryResource,
+  type PermissionKey,
+} from '@kestrel-it/shared';
 
 export interface InventoryField {
   key: string;
@@ -16,6 +21,7 @@ export interface InventoryField {
     | 'date';
   options?: readonly string[];
   resource?: string;
+  optionsPath?: string;
   required?: boolean;
   superuserOnly?: boolean;
 }
@@ -62,6 +68,14 @@ export const DIRECTORY_UI: Record<CoreInventoryResource, InventoryPageDefinition
     fields: [
       name,
       reference('parent_id', 'Parent company', 'companies'),
+      {
+        ...field('webhook_selected', 'Webhook provider', 'enum'),
+        options: WEBHOOK_PROVIDERS,
+        superuserOnly: true,
+      },
+      { ...field('webhook_endpoint', 'Webhook endpoint'), superuserOnly: true },
+      { ...field('webhook_channel', 'Webhook channel'), superuserOnly: true },
+      { ...field('webhook_botname', 'Webhook bot name'), superuserOnly: true },
       field('email', 'Email'),
       phone,
       fax,

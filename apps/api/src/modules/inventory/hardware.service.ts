@@ -185,7 +185,7 @@ export class HardwareService {
     const filters = and(
       this.visible(scope),
       modelId === undefined ? undefined : eq(assets.modelId, modelId),
-      query.companyId === undefined ? undefined : eq(assets.companyId, query.companyId),
+      this.fmcs.selectionPredicate(scope, 'hardware', assets.companyId, query.companyId),
       query.search
         ? or(
             contains(assets.name, query.search),
@@ -334,7 +334,19 @@ export class HardwareService {
     if (query.status !== undefined) filters.push(this.statusFilter(query.status));
     if (query.custom_field !== undefined || query.custom_value !== undefined) {
       await this.validateCustomFilter(query.custom_field, query.custom_value);
-      filters.push(sql`${assets.customFields} ->> ${query.custom_field!} = ${query.custom_value!}`);
+      const key = query.custom_field!;
+      const value = query.custom_value!;
+      const matches = (operand: string | string[] | boolean | number) =>
+        sql`${assets.customFields} @> ${JSON.stringify({ [key]: operand })}::jsonb`;
+      const candidates = [matches(value), matches([value])];
+      // Retain scalar matching for imported JSON booleans and numbers.
+      if (value === 'true' || value === 'false') candidates.push(matches(value === 'true'));
+      if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
+        candidates.push(
+          sql`${assets.customFields} @> jsonb_build_object(${key}::text, ${value}::numeric)`,
+        );
+      }
+      filters.push(or(...candidates));
     }
     return and(...filters);
   }

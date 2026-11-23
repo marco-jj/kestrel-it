@@ -156,6 +156,8 @@ export function buildCustomFieldZodSchema(field: CustomFieldDefinition, isRequir
 
 Al cambio del modello, il servizio conserva i valori dei campi comuni e applica i default del nuovo modello ai campi senza valore, salvo un valore inviato dal client. L'API richiede `confirm_custom_field_removal: true` per rimuovere valori salvati che il nuovo fieldset non supporta. Il client Angular mostra i nomi dei campi interessati e chiede conferma. I nuovi requisiti, la rimozione dei valori e il cambio del modello sono gestiti nella stessa transazione, anche in bulk. I valori rimossi, inclusi quelli cifrati, non vengono copiati nei log.
 
+Il filtro hardware usa il containment JSONB (`@>`) per cercare un valore scalare oppure una singola opzione in un campo checkbox. L'operatore è supportato dall'indice GIN su `assets.custom_fields`. I campi cifrati sono esclusi dai filtri.
+
 ### 2.4 Formato di Serializzazione API (`custom_fields` in `AssetsTransformer`)
 La risposta Kestrel prevista per `GET /api/v1/hardware` riprende la struttura di `CustomFieldValuesTransformer`:
 

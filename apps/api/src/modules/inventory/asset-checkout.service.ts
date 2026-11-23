@@ -12,7 +12,7 @@ import {
   type AuthenticatedUserContext,
   type CheckoutTargetType,
 } from '@kestrel-it/shared';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { z } from 'zod';
 import { permitsKey } from '../../common/guards/permissions.guard.js';
 import type { EnvConfig } from '../../config/env.schema.js';
@@ -89,7 +89,10 @@ export class AssetCheckoutService {
       fieldIssue('expected_checkin', 'The expected check-in precedes checkout');
     }
     const target = await this.target(tx, asset, scope, dto.target_type, dto.target_id);
-    if (!this.fmcs.compatible(scope, asset.companyId, target.companyIds)) {
+    if (
+      dto.target_type !== 'location' &&
+      !this.fmcs.compatible(scope, asset.companyId, target.companyIds)
+    ) {
       fieldIssue('target_id', 'This target is outside the asset company scope');
     }
     if (dto.sign_in_place && (dto.target_type !== 'user' || !category?.requireAcceptance)) {
@@ -349,7 +352,7 @@ export class AssetCheckoutService {
         .where(
           and(
             eq(users.id, id),
-            eq(users.activated, true),
+            or(eq(users.activated, true), eq(users.inventoryOnly, true)),
             isNull(users.deletedAt),
             this.fmcs.predicate(scope, 'users', users.id),
           ),

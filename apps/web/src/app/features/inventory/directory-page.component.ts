@@ -64,6 +64,9 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
             {{ selectedIds().length === 1 ? 'record' : 'records' }}?
           </p>
         } @else {
+          @if (isDelegatedUserCreation()) {
+            <p>This user can receive equipment. A superuser can enable sign-in separately.</p>
+          }
           <form [formGroup]="form()" (ngSubmit)="save()">
             <kestrel-inventory-form-fields [form]="form()" [fields]="fields()" />
           </form>
@@ -175,6 +178,15 @@ export class DirectoryPageComponent implements OnInit {
     this.search = search;
     this.page.set(1);
     void this.reload();
+  }
+
+  isDelegatedUserCreation(): boolean {
+    return (
+      this.resource === 'users' &&
+      this.recordId === undefined &&
+      this.selectedIds().length === 0 &&
+      this.auth.currentUser()?.isSuperUser !== true
+    );
   }
 
   toggleDeleted(): void {

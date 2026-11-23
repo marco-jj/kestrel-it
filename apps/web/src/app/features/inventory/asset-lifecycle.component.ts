@@ -22,7 +22,7 @@ import {
   customFieldChanges,
 } from './custom-field-form-section.component.js';
 import { field, reference } from './directory-ui.js';
-import { InventoryApi, inventoryError } from './inventory-api.js';
+import { InventoryApi, companyQuery, inventoryError } from './inventory-api.js';
 import { InventoryFormFieldsComponent } from './inventory-form-fields.component.js';
 
 @Component({
@@ -50,12 +50,14 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
           label="Checkout target"
           formControlName="target_id"
           [options]="targets()"
+          [companyId]="assetCompanyId"
           [allowQuickCreate]="false"
           (searchChanged)="searchTargets($event)"
         />
       }
       <kestrel-inventory-form-fields
         [form]="form"
+        [companyId]="assetCompanyId"
         [fields]="action === 'checkout' ? checkoutFields : checkinFields"
       />
       @if (fields().length) {
@@ -114,7 +116,10 @@ export class AssetLifecycleComponent implements OnInit {
     field('sign_in_place', 'Have the assignee sign here', 'boolean'),
   ];
   readonly checkinFields = [
-    reference('location_id', 'Return location', 'locations'),
+    {
+      ...reference('location_id', 'Return location', 'locations'),
+      optionsPath: '/hardware/targets/location',
+    },
     reference('status_id', 'New status', 'statuslabels'),
     field('name', 'Asset name'),
     field('clear_name', 'Clear asset name', 'boolean'),
@@ -131,6 +136,11 @@ export class AssetLifecycleComponent implements OnInit {
   readonly loading = signal(false);
   private targetRequest = 0;
 
+  get assetCompanyId(): number | null | undefined {
+    const company = this.asset['company_id'];
+    return company === null || typeof company === 'number' ? company : undefined;
+  }
+
   ngOnInit(): void {
     if (this.action === 'checkout') {
       this.form.addControl('target_type', new FormControl('user', Validators.required));
@@ -145,6 +155,7 @@ export class AssetLifecycleComponent implements OnInit {
 
   targetChanged(): void {
     this.form.controls['target_id']?.reset();
+    this.targets.set([]);
     void this.searchTargets('');
   }
 
@@ -152,7 +163,10 @@ export class AssetLifecycleComponent implements OnInit {
     const request = ++this.targetRequest;
     const type = this.form.controls['target_type']?.value as CheckoutTargetType;
     try {
-      const data = await this.api.read<SelectlistResponse>(`/hardware/targets/${type}`, { search });
+      const data = await this.api.read<SelectlistResponse>(`/hardware/targets/${type}`, {
+        search,
+        ...companyQuery(this.assetCompanyId),
+      });
       if (request !== this.targetRequest) return;
       const candidates = data.results.filter(({ id }) => type !== 'asset' || id !== this.asset.id);
       this.targets.set(candidates.map(({ id, text, disabled }) => ({ id, text, disabled })));

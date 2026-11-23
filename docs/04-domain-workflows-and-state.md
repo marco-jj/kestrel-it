@@ -66,7 +66,7 @@ Quando viene invocato `POST /api/v1/hardware/{id}/checkout` (o `/bytag/{tag}/che
    - Scrive una riga in `action_logs` con `action_type = 'checkout'`, `item_type = 'asset'`, `item_id = asset.id`, `target_type = targetType`, `target_id = target.id`, `location_id = asset.locationId`, `note`, `expected_checkin`.
    - Se `target` è `User` e `asset.model.category.requireAcceptance === true`:
      - Crea un record in `checkout_acceptances` (`pending`), salvando uno snapshot del testo EULA attivo (`stored_eula`).
-     - In Kestrel-IT, `sign_in_place` mantiene l'accettazione in stato pendente alla fine del checkout. Angular apre `/account/accept/:id` per raccogliere la risposta dell'assegnatario in presenza. Un secondo invio registra la decisione e, in caso di accettazione, salva il PDF dell'EULA e l'eventuale firma PNG.
+     - In Kestrel-IT, `sign_in_place` mantiene l'accettazione in stato pendente alla fine del checkout. Angular apre `/account/accept/:id` per raccogliere la risposta dell'assegnatario in presenza. Un secondo invio prepara il PDF dell'EULA e l'eventuale firma PNG fuori dal lock globale dell'inventario. La transazione ricontrolla assegnazione, stato e obbligo di firma prima di registrare la decisione. Se il checkout si chiude nel frattempo, rimuove gli artefatti senza riferimenti.
    - In Kestrel-IT, le notifiche SMTP dei flussi implementati vengono accodate nella transazione.
 
 ---

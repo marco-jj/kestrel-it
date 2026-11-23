@@ -20,4 +20,4 @@ export KESTREL_E2E_USERNAME=browseradmin
 pnpm --filter @kestrel-it/web test:e2e
 ```
 
-Per usare Chromium già installato, impostare `KESTREL_E2E_CHROMIUM` sul percorso dell'eseguibile. Lo scenario verifica i permessi separati per le azioni bulk della directory, il ripristino, il cambio di modello con conferma, i custom field comuni in bulk e il checkout con firma in presenza e download del PDF.
+Per usare Chromium già installato, impostare `KESTREL_E2E_CHROMIUM` sul percorso dell'eseguibile. Lo scenario verifica i permessi separati per le azioni bulk della directory, il ripristino, il cambio di modello con conferma, i custom field comuni in bulk le richieste delle selectlist con azienda, il checkout con firma in presenza e download del PDF, e la navigazione tra due dettagli di accettazione.

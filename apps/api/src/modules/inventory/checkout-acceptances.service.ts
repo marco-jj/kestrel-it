@@ -103,90 +103,69 @@ export class CheckoutAcceptancesService {
   async get(id: number, user: AuthenticatedUserContext) {
     const scope = await this.fmcs.resolve(user);
     const { asset, row } = await this.access(this.db, scope, id, user);
-    const [config] = await this.db
-      .select({ signature: settings.requireAcceptSignature })
-      .from(settings)
-      .orderBy(settings.id)
-      .limit(1);
     return {
       ...this.present(row),
       asset_tag: asset.assetTag,
       asset_name: asset.name,
       eula: row.storedEula,
-      requires_signature: config?.signature ?? false,
+      requires_signature: await this.signatureRequired(this.db),
     };
   }
 
   async respond(id: number, input: unknown, user: AuthenticatedUserContext) {
     const dto = parse(AcceptanceResponseSchema, input);
     const signature = dto.signature ? signaturePng(dto.signature) : null;
+    const isAccepting = dto.decision === 'accept';
+    const today = new Date();
+    const note = dto.note ?? null;
     const written: StoredArtifact[] = [];
+    let signatureFilename: string | null = null;
+    let storedEulaFile: string | null = null;
+    let finalizing = false;
     try {
-      return await inventoryWrite(this.db, async (tx) => {
-        const scope = await this.fmcs.resolve(user, tx);
-        const { asset, row } = await this.access(tx, scope, id, user, true);
-        if (
-          row.acceptedAt ||
-          row.declinedAt ||
-          asset.assignedType !== 'user' ||
-          asset.assignedTo !== row.assignedToId
-        ) {
-          throw new ConflictException('This checkout acceptance is no longer pending');
-        }
-        const [config] = await tx
-          .select({ signature: settings.requireAcceptSignature })
-          .from(settings)
-          .orderBy(settings.id)
-          .limit(1);
-        const isAccepting = dto.decision === 'accept';
-        if (isAccepting && config?.signature && !signature)
+      if (isAccepting) {
+        const { asset, row, assignee } = await this.pendingResponse(this.db, id, user);
+        if (!signature && (await this.signatureRequired(this.db)))
           fieldIssue('signature', 'A signature is required');
-        const [assignee] = await tx
-          .select()
-          .from(users)
-          .where(and(eq(users.id, row.assignedToId!), isNull(users.deletedAt)))
-          .limit(1);
-        if (!assignee) throw new ConflictException('The assignee is no longer available');
-        const today = new Date();
-        const label = asset.assetTag ?? `#${asset.id}`;
-        const note = dto.note ?? null;
-        let signatureFilename: string | null = null;
-        let storedEulaFile: string | null = null;
-
-        if (isAccepting) {
-          const [model] =
-            asset.modelId === null
-              ? []
-              : await tx
-                  .select({ name: models.name })
-                  .from(models)
-                  .where(eq(models.id, asset.modelId))
-                  .limit(1);
-          const pdf = await acceptancePdf({
-            tag: label,
-            name: asset.name ?? '',
-            model: model?.name ?? '',
-            serial: asset.serial ?? '',
-            assignee:
-              assignee.displayName ??
-              ([assignee.firstName, assignee.lastName].filter(Boolean).join(' ') ||
-                assignee.username),
-            eula: row.storedEula,
-            acceptedAt: today,
-            signature,
-            note,
-          });
-          const key = `${row.id}/${randomUUID()}`;
-          if (signature) {
-            signatureFilename = key + '.png';
-            written.push({ category: 'signatures', key: signatureFilename });
-            await this.storage.putObject('signatures', signatureFilename, signature, 'image/png');
-          }
-          storedEulaFile = key + '.pdf';
-          written.push({ category: 'eulas', key: storedEulaFile });
-          await this.storage.putObject('eulas', storedEulaFile, pdf, 'application/pdf');
+        const [model] =
+          asset.modelId === null
+            ? []
+            : await this.db
+                .select({ name: models.name })
+                .from(models)
+                .where(eq(models.id, asset.modelId))
+                .limit(1);
+        const pdf = await acceptancePdf({
+          tag: asset.assetTag ?? `#${asset.id}`,
+          name: asset.name ?? '',
+          model: model?.name ?? '',
+          serial: asset.serial ?? '',
+          assignee:
+            assignee.displayName ??
+            ([assignee.firstName, assignee.lastName].filter(Boolean).join(' ') ||
+              assignee.username),
+          eula: row.storedEula,
+          acceptedAt: today,
+          signature,
+          note,
+        });
+        const key = `${row.id}/${randomUUID()}`;
+        if (signature) {
+          signatureFilename = key + '.png';
+          written.push({ category: 'signatures', key: signatureFilename });
+          await this.storage.putObject('signatures', signatureFilename, signature, 'image/png');
         }
+        storedEulaFile = key + '.pdf';
+        written.push({ category: 'eulas', key: storedEulaFile });
+        await this.storage.putObject('eulas', storedEulaFile, pdf, 'application/pdf');
+      }
 
+      finalizing = true;
+      return await inventoryWrite(this.db, async (tx) => {
+        const { asset, row, assignee } = await this.pendingResponse(tx, id, user, true);
+        if (isAccepting && !signature && (await this.signatureRequired(tx)))
+          fieldIssue('signature', 'A signature is required');
+        const label = asset.assetTag ?? `#${asset.id}`;
         await tx
           .update(checkoutAcceptances)
           .set({
@@ -243,9 +222,54 @@ export class CheckoutAcceptancesService {
         return success({ id, state: action, has_eula: storedEulaFile !== null });
       });
     } catch (error) {
-      if (written.length) {
-        // A dropped database connection can leave the client unsure whether COMMIT succeeded.
-        // Confirm references before deleting objects written by this attempt.
+      if (written.length) await this.removeUnreferencedArtifacts(id, written, finalizing);
+      throw error;
+    }
+  }
+
+  private async pendingResponse(
+    db: InventoryDatabase,
+    id: number,
+    user: AuthenticatedUserContext,
+    lock = false,
+  ) {
+    const scope = await this.fmcs.resolve(user, db);
+    const { asset, row } = await this.access(db, scope, id, user, lock);
+    if (
+      row.acceptedAt ||
+      row.declinedAt ||
+      asset.assignedType !== 'user' ||
+      asset.assignedTo !== row.assignedToId
+    ) {
+      throw new ConflictException('This checkout acceptance is no longer pending');
+    }
+    const [assignee] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, row.assignedToId!), isNull(users.deletedAt)))
+      .limit(1);
+    if (!assignee) throw new ConflictException('The assignee is no longer available');
+    return { asset, row, assignee };
+  }
+
+  private async signatureRequired(db: InventoryDatabase) {
+    const [config] = await db
+      .select({ signature: settings.requireAcceptSignature })
+      .from(settings)
+      .orderBy(settings.id)
+      .limit(1);
+    return config?.signature ?? false;
+  }
+
+  private async removeUnreferencedArtifacts(
+    id: number,
+    written: StoredArtifact[],
+    finalizing: boolean,
+  ) {
+    let unreferenced = written;
+    if (finalizing) {
+      // Verify references before cleanup when the database may have committed the response.
+      try {
         const [row] = await this.db
           .select({
             pdf: checkoutAcceptances.storedEulaFile,
@@ -253,17 +277,15 @@ export class CheckoutAcceptancesService {
           })
           .from(checkoutAcceptances)
           .where(eq(checkoutAcceptances.id, id))
-          .limit(1)
-          .catch(() => [undefined]);
-        if (row)
-          await Promise.allSettled(
-            written
-              .filter(({ key }) => key !== row.pdf && key !== row.signature)
-              .map(({ category, key }) => this.storage.deleteObject(category, key)),
-          );
+          .limit(1);
+        unreferenced = written.filter(({ key }) => key !== row?.pdf && key !== row?.signature);
+      } catch {
+        return;
       }
-      throw error;
     }
+    await Promise.allSettled(
+      unreferenced.map(({ category, key }) => this.storage.deleteObject(category, key)),
+    );
   }
 
   async download(id: number, kind: 'eula' | 'signature', user: AuthenticatedUserContext) {

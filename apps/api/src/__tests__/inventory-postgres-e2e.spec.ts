@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import fastifyCookie from '@fastify/cookie';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { randomBytes } from 'node:crypto';
@@ -107,6 +107,8 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
             'assets.view.requestable': 1,
             'users.view': 1,
             'users.edit': 1,
+            'users.create': 1,
+            'assets.checkout': 1,
             'locations.view': 1,
             'self.api': 1,
           },
@@ -118,6 +120,7 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
           permissions: {
             'assets.view': 1,
             'assets.view.requestable': 1,
+            'assets.checkin': 1,
           },
         },
         { username: 'admin', activated: true, permissions: { admin: 1, 'assets.checkout': -1 } },
@@ -364,6 +367,176 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
     expect(await ok('GET', path, 'west')).toMatchObject(changes[0]!);
   });
 
+  it('allows delegated creation of checkout recipients while keeping sign-in reserved', async () => {
+    const payload = { username: 'equipment-recipient', company_ids: [westCompany] };
+    expect((await http('POST', '/users', 'west', { ...payload, activated: true })).statusCode).toBe(
+      403,
+    );
+    expect(
+      (await http('POST', '/users', 'west', { ...payload, password: 'test-password-only' }))
+        .statusCode,
+    ).toBe(403);
+    const { payload: recipient } = await ok('POST', '/users', 'west', payload);
+    expect(recipient).toMatchObject({ activated: false, inventory_only: true });
+    const { payload: disabled } = await ok('POST', '/users', 'root', {
+      username: 'equipment-disabled',
+      activated: false,
+      company_ids: [westCompany],
+    });
+    const { results } = await ok(
+      'GET',
+      `/hardware/targets/user?companyId=${westCompany}&search=equipment`,
+      'west',
+    );
+    expect(results).toContainEqual(expect.objectContaining({ id: recipient.id, disabled: false }));
+    expect(results).toContainEqual(expect.objectContaining({ id: disabled.id, disabled: true }));
+
+    const asset = await create('InventoryRecipient');
+    const checkout = await ok('POST', `/hardware/${asset.id}/checkout`, 'west', {
+      target_type: 'user',
+      target_id: recipient.id,
+      sign_in_place: true,
+    });
+    expect(checkout.payload.acceptance_id).toEqual(expect.any(Number));
+    await ok('PATCH', `/users/${recipient.id}`, 'root', { activated: false });
+    expect(await ok('GET', `/users/${recipient.id}`, 'west')).toMatchObject({
+      activated: false,
+      inventory_only: false,
+    });
+  });
+
+  it('restricts company webhook settings on create, update, bulk edit, and reads', async () => {
+    const webhook = {
+      webhook_selected: 'slack',
+      webhook_endpoint: 'https://hooks.example.test/company',
+      webhook_channel: 'inventory',
+      webhook_botname: 'Kestrel',
+    };
+    expect(
+      (await http('POST', '/companies', 'admin', { name: 'Webhook company', ...webhook }))
+        .statusCode,
+    ).toBe(403);
+    const companyPath = `/companies/${westCompany}`;
+    expect((await http('PATCH', companyPath, 'admin', webhook)).statusCode).toBe(403);
+    expect(
+      (
+        await http('PATCH', '/companies/bulk', 'admin', {
+          action: 'edit',
+          ids: [westCompany],
+          changes: webhook,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect((await ok('PATCH', companyPath, 'root', webhook)).payload).toMatchObject(webhook);
+    expect(await ok('GET', companyPath, 'root')).toMatchObject(webhook);
+    expect(await ok('GET', companyPath, 'admin')).not.toHaveProperty('webhook_endpoint');
+    const { payload: company } = await ok('POST', '/companies', 'root', {
+      name: 'Webhook company',
+      ...webhook,
+    });
+    expect(company).toMatchObject(webhook);
+  });
+
+  it('shows shared location breadcrumbs without exposing other companies or deleted ancestors', async () => {
+    const [shared] = await db
+      .insert(tables.locations)
+      .values({ name: 'Shared building' })
+      .returning();
+    const child = await ok('POST', '/locations', 'root', {
+      name: 'Visible room',
+      company_id: westCompany,
+      parent_id: shared!.id,
+    });
+    const path = `/locations/${child.payload.id}`;
+    expect(child.payload.display_name).toBe('Shared building › Visible room');
+    expect(await ok('GET', path, 'west')).toMatchObject({
+      display_name: 'Shared building › Visible room',
+    });
+    expect((await http('GET', `/locations/${shared!.id}`, 'west')).statusCode).toBe(404);
+    await db
+      .update(tables.locations)
+      .set({ companyId: eastCompany })
+      .where(eq(tables.locations.id, shared!.id));
+    expect(await ok('GET', path, 'west')).toMatchObject({ display_name: 'Visible room' });
+    await db
+      .update(tables.locations)
+      .set({ companyId: null, deletedAt: new Date() })
+      .where(eq(tables.locations.id, shared!.id));
+    expect(await ok('GET', path, 'west')).toMatchObject({ display_name: 'Visible room' });
+
+    const [room] = await db
+      .insert(tables.locations)
+      .values({ name: 'Room below', parentId: shared!.id })
+      .returning();
+    await db
+      .update(tables.locations)
+      .set({ parentId: child.payload.id })
+      .where(eq(tables.locations.id, shared!.id));
+    const changed = await ok('PATCH', path, 'root', { parent_id: room!.id });
+    expect(changed.payload.display_name).toBe('Room below › Visible room');
+    const restore = await http('POST', `/locations/${shared!.id}/restore`, 'root');
+    expect(restore.statusCode).toBe(422);
+  });
+
+  it('filters selectlists by assignment company, including floater and shared locations', async () => {
+    const [floater] = await db
+      .insert(tables.locations)
+      .values({ name: 'Floater office' })
+      .returning();
+    const westAsset = await create('PickerWest');
+    const eastAsset = await create('PickerEast', eastCompany);
+    await db.insert(tables.companyUser).values({ userId: west, companyId: eastCompany });
+    await db.insert(tables.companyUser).values({ userId: west, companyId: westCompany });
+    const company = '?companyId=' + westCompany;
+    const ids = async (path: string, actor: Token = 'west') => {
+      const { results } = await ok('GET', path, actor);
+      return results.map(({ id }: { id: number }) => id);
+    };
+    try {
+      expect(await ids('/hardware/targets/user' + company)).toContain(west);
+      expect(await ids('/hardware/targets/user' + company)).not.toContain(east);
+      expect(await ids('/hardware/targets/asset' + company)).toContain(westAsset.id);
+      expect(await ids('/hardware/targets/asset' + company)).not.toContain(eastAsset.id);
+      for (const path of ['/hardware/targets/location', '/locations/selectlist']) {
+        const locations = await ids(path + company);
+        expect(locations).toContain(westLocation);
+        expect(locations).not.toContain(eastLocation);
+        expect(locations).not.toContain(floater!.id);
+      }
+      expect(await ids('/hardware/targets/location?companyId=' + eastCompany, 'east')).toContain(
+        eastLocation,
+      );
+      expect((await http('GET', '/hardware/targets/user' + company, 'east')).statusCode).toBe(403);
+
+      await db.update(tables.settings).set({ nullCompanyIsFloater: true });
+      expect(await ids('/hardware/targets/location' + company)).toContain(floater!.id);
+      expect(await ids('/hardware/targets/location?companyId=0')).toEqual(
+        expect.arrayContaining([westLocation, eastLocation, floater!.id]),
+      );
+
+      await db
+        .update(tables.settings)
+        .set({ scopeLocationsFmcs: false, nullCompanyIsFloater: false });
+      expect(await ids('/hardware/targets/location' + company)).toContain(eastLocation);
+      await ok('POST', `/hardware/${westAsset.id}/checkout`, 'west', {
+        target_type: 'location',
+        target_id: eastLocation,
+      });
+    } finally {
+      await db
+        .update(tables.settings)
+        .set({ scopeLocationsFmcs: true, nullCompanyIsFloater: false });
+      await db
+        .delete(tables.companyUser)
+        .where(
+          and(
+            eq(tables.companyUser.userId, west),
+            inArray(tables.companyUser.companyId, [westCompany, eastCompany]),
+          ),
+        );
+    }
+  });
+
   it('validates the effective current and home locations when a scoped editor moves an asset', async () => {
     await db.insert(tables.companyUser).values({ userId: west, companyId: eastCompany });
     try {
@@ -510,6 +683,54 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
       },
     });
     expect((await http('GET', `/saved-searches/${saved.payload.id}`, 'east')).statusCode).toBe(404);
+  });
+
+  it('protects fieldset associations and matches individual checkbox options alongside scalars', async () => {
+    const { payload: options } = await ok('POST', '/fields', 'root', {
+      name: 'Inventory options',
+      element: 'checkbox',
+      field_values: 'Laptop\nDock\nLaptop case',
+    });
+    const path = `/fields/${options.id}`;
+    await ok('POST', `/fieldsets/${fieldset}/fields`, 'root', { field_id: options.id });
+    expect((await http('DELETE', path, 'root')).statusCode).toBe(409);
+    const first = await ok(
+      'POST',
+      '/hardware',
+      'root',
+      body('CheckboxFirst', westCompany, {
+        [options.db_column]: ['Laptop', 'Dock'],
+      }),
+    );
+    const second = await ok(
+      'POST',
+      '/hardware',
+      'root',
+      body('CheckboxSecond', westCompany, {
+        [options.db_column]: ['Laptop case'],
+      }),
+    );
+    const search = (key: string, value: string) =>
+      ok(
+        'GET',
+        '/hardware?' +
+          new URLSearchParams({ custom_field: key, custom_value: value, limit: '100' }),
+        'root',
+      );
+    const { rows } = await search(options.db_column, 'Laptop');
+    expect(rows.map(({ id }: { id: number }) => id)).toEqual([first.payload.id]);
+    expect((await search(visibleKey, 'Blue')).rows).toContainEqual(
+      expect.objectContaining({ id: second.payload.id }),
+    );
+
+    const { payload: temporary } = await ok('POST', '/fields', 'root', {
+      name: 'Unused field',
+      element: 'text',
+    });
+    await ok('POST', `/fieldsets/${fieldset}/fields`, 'root', { field_id: temporary.id });
+    expect((await http('DELETE', `/fields/${temporary.id}`, 'root')).statusCode).toBe(409);
+    await ok('POST', `/fields/${temporary.id}/disassociate`, 'root', { fieldset_id: fieldset });
+    await ok('DELETE', `/fields/${temporary.id}`, 'root');
   });
 
   it('rejects restore conflicts and applies typed model defaults on creation', async () => {
@@ -667,6 +888,63 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
     expect(notices.some((row) => row.subject.includes('acceptance confirmed'))).toBe(true);
   });
 
+  it('allows check-in during a slow acceptance upload and cleans up the stale response', async () => {
+    const asset = await create('UploadRace');
+    const checked = await ok('POST', `/hardware/${asset.id}/checkout`, 'root', {
+      target_type: 'user',
+      target_id: west,
+    });
+    const id = checked.payload.acceptance_id;
+    const storage = app.get<StorageProvider>(STORAGE_PROVIDER);
+    const put = storage.putObject.bind(storage);
+    let enterUpload!: () => void;
+    let releaseUpload!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enterUpload = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseUpload = resolve;
+    });
+    const remove = vi.spyOn(storage, 'deleteObject');
+    const upload = vi.spyOn(storage, 'putObject').mockImplementation(async (category, ...args) => {
+      if (category === 'eulas') {
+        enterUpload();
+        await released;
+      }
+      return put(category, ...args);
+    });
+    const response = http('POST', `/account/accept/${id}`, 'west', {
+      decision: 'accept',
+      signature: signature(),
+    });
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      deadline = setTimeout(
+        () => reject(new Error('Inventory operation waited for storage')),
+        2000,
+      );
+    });
+    try {
+      try {
+        await Promise.race([entered, timeout]);
+        await Promise.race([ok('POST', `/hardware/${asset.id}/checkin`, 'root'), timeout]);
+      } finally {
+        clearTimeout(deadline);
+        releaseUpload();
+      }
+      expect((await response).statusCode).toBe(404);
+      expect(remove.mock.calls.map(([category]) => category).sort()).toEqual([
+        'eulas',
+        'signatures',
+      ]);
+      expect(await ok('GET', `/hardware/${asset.id}`, 'west')).toMatchObject({ accepted: null });
+    } finally {
+      await response.catch(() => undefined);
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it('deduplicates requests and fulfills hardware and model requests atomically', async () => {
     const asset = await create('Request');
     const path = `/account/request/${asset.id}`;
@@ -781,6 +1059,9 @@ describe.skipIf(!clusterUrl)('Phase 2 through Fastify and PostgreSQL 16', () => 
       `;
       await migrate(drizzle(upgraded), { migrationsFolder: migrations });
       const [row] = await upgraded`select asset_tag, accepted from assets`;
+      const [legacy] =
+        await upgraded`select activated, inventory_only from users where id = ${requester!.id}`;
+      expect(legacy).toEqual({ activated: false, inventory_only: false });
       expect(row).toMatchObject({ asset_tag: 'OLD-001', accepted: null });
       expect(await upgraded`select state from checkout_requests order by id`).toEqual([
         { state: 'pending' },

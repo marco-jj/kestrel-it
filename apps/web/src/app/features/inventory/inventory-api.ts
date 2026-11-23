@@ -8,6 +8,10 @@ import type {
 import { firstValueFrom } from 'rxjs';
 import type { DataGridRow } from '../../shared/ui/data-grid.component.js';
 
+export function companyQuery(companyId: number | null | undefined): Record<string, number> {
+  return companyId === undefined ? {} : { companyId: companyId ?? 0 };
+}
+
 export function inventoryError(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
     const message: unknown = error.error?.messages ?? error.error?.message;
@@ -39,8 +43,20 @@ export class InventoryApi {
     return this.read<DatatableResponse<DataGridRow>>(path, query);
   }
 
-  options(resource: string, search: string, page = 1) {
-    return this.read<SelectlistResponse>(`/${resource}/selectlist`, { search, page });
+  options(
+    resource: string,
+    search: string,
+    options: {
+      page?: number;
+      companyId?: number | null;
+      path?: string;
+    } = {},
+  ) {
+    return this.read<SelectlistResponse>(options.path ?? `/${resource}/selectlist`, {
+      search,
+      page: options.page ?? 1,
+      ...companyQuery(options.companyId),
+    });
   }
 
   write<T>(method: 'POST' | 'PATCH' | 'DELETE' | 'PUT', path: string, body?: unknown) {

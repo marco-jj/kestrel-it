@@ -1,12 +1,15 @@
-import { Component, Input, inject, signal } from '@angular/core';
+import { Component, Input, type OnChanges, type OnDestroy, inject, signal } from '@angular/core';
 import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { ALL_PERMISSIONS } from '@kestrel-it/shared';
+import type { Subscription } from 'rxjs';
 import {
   KestrelAsyncSelectComponent,
   type AsyncSelectOption,
 } from '../../shared/ui/async-select.component.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import type { InventoryField } from './directory-ui.js';
+
+const companyScopedResources = new Set(['locations', 'departments', 'users']);
 
 @Component({
   selector: 'kestrel-inventory-form-fields',
@@ -21,6 +24,7 @@ import type { InventoryField } from './directory-ui.js';
               [label]="field.label"
               [options]="options()[field.key] ?? []"
               [formControlName]="field.key"
+              [companyId]="companyFor(field)"
               [allowQuickCreate]="false"
               (searchChanged)="loadOptions(field, $event)"
             />
@@ -30,6 +34,7 @@ import type { InventoryField } from './directory-ui.js';
               <kestrel-async-select
                 [label]="field.label"
                 [options]="options()[field.key] ?? []"
+                [companyId]="companyFor(field)"
                 [allowQuickCreate]="false"
                 (searchChanged)="loadOptions(field, $event)"
                 (selectionChanged)="addId(field, $event)"
@@ -137,31 +142,78 @@ import type { InventoryField } from './directory-ui.js';
     `,
   ],
 })
-export class InventoryFormFieldsComponent {
+export class InventoryFormFieldsComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) form!: FormGroup;
-  @Input({ required: true }) set fields(value: InventoryField[]) {
-    this.fieldList = value;
-    for (const field of value) {
-      if (field.resource) void this.loadOptions(field, '');
-    }
-  }
-  get fields(): InventoryField[] {
-    return this.fieldList;
-  }
+  @Input({ required: true }) fields: InventoryField[] = [];
+  @Input() companyId?: number | null;
 
   private readonly api = inject(InventoryApi);
   private readonly requests = new Map<string, number>();
-  private fieldList: InventoryField[] = [];
+  private readonly searches = new Map<string, string>();
+  private readonly activeCompany = signal<number | null | undefined>(undefined);
+  private companyChanges?: Subscription;
   readonly options = signal<Record<string, AsyncSelectOption[]>>({});
   readonly optionsError = signal('');
   readonly permissions = ALL_PERMISSIONS;
 
+  ngOnChanges(): void {
+    this.companyChanges?.unsubscribe();
+    this.invalidateOptions();
+    this.searches.clear();
+    const company = this.form.get('company_id') ?? this.form.get('company_ids');
+    this.setActiveCompany(company?.value);
+    this.companyChanges = company?.valueChanges.subscribe((value: unknown) => {
+      const previous = this.activeCompany();
+      this.setActiveCompany(value);
+      if (previous === this.activeCompany()) return;
+      for (const field of this.fields.filter((item) => this.isCompanyScoped(item))) {
+        this.options.update((options) => ({ ...options, [field.key]: [] }));
+        void this.loadOptions(field, this.searches.get(field.key) ?? '');
+      }
+    });
+    for (const field of this.fields) {
+      if (field.resource) void this.loadOptions(field, '');
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.companyChanges?.unsubscribe();
+    this.invalidateOptions();
+  }
+
+  private invalidateOptions(): void {
+    for (const [key, request] of this.requests) this.requests.set(key, request + 1);
+    this.options.set({});
+    this.optionsError.set('');
+  }
+
+  private setActiveCompany(value: unknown): void {
+    if (this.companyId !== undefined) {
+      this.activeCompany.set(this.companyId);
+      return;
+    }
+    const selected = Array.isArray(value) && value.length === 1 ? value[0] : value;
+    this.activeCompany.set(typeof selected === 'number' ? selected : undefined);
+  }
+
+  private isCompanyScoped(field: InventoryField): boolean {
+    return !!field.resource && companyScopedResources.has(field.resource);
+  }
+
+  companyFor(field: InventoryField): number | null | undefined {
+    return this.isCompanyScoped(field) ? this.activeCompany() : undefined;
+  }
+
   async loadOptions(field: InventoryField, search: string) {
     if (!field.resource) return;
+    this.searches.set(field.key, search);
     const request = (this.requests.get(field.key) ?? 0) + 1;
     this.requests.set(field.key, request);
     try {
-      const response = await this.api.options(field.resource, search);
+      const response = await this.api.options(field.resource, search, {
+        companyId: this.companyFor(field),
+        path: field.optionsPath,
+      });
       if (this.requests.get(field.key) !== request) return;
       this.options.update((current) => ({
         ...current,

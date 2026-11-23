@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import {
   DatatableQuerySchema,
   InventoryIdSchema,
@@ -8,6 +18,7 @@ import {
 } from '@kestrel-it/shared';
 import { z } from 'zod';
 import { CurrentUser, RequireKeyPermission } from '../../common/decorators/auth.decorators.js';
+import { permitsKey } from '../../common/guards/permissions.guard.js';
 import { AssetCheckoutService } from './asset-checkout.service.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
 import { CheckoutRequestsService } from './checkout-requests.service.js';
@@ -28,13 +39,18 @@ export class AssetWorkflowsController {
   ) {}
 
   @Get('targets/:type')
-  @RequireKeyPermission('assets.checkout')
   options(
     @Param('type') type: string,
     @Query() raw: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
     const target = parse(z.enum(['user', 'location', 'asset']), type);
+    if (
+      !permitsKey(user, 'assets.checkout') &&
+      !(target === 'location' && permitsKey(user, 'assets.checkin'))
+    ) {
+      throw new ForbiddenException('Checkout or check-in permission required');
+    }
     const query = parse(
       SelectlistQuerySchema.extend({ model_id: InventoryIdSchema.optional() }),
       raw,

@@ -1,4 +1,9 @@
-import { CATEGORY_TYPES, InventoryIdSchema, type CoreInventoryResource } from '@kestrel-it/shared';
+import {
+  CATEGORY_TYPES,
+  InventoryIdSchema,
+  WEBHOOK_PROVIDERS,
+  type CoreInventoryResource,
+} from '@kestrel-it/shared';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { z, type ZodRawShape } from 'zod';
 import {
@@ -42,11 +47,33 @@ interface DirectoryDefinition {
   references?: Record<string, CoreInventoryResource>;
 }
 
+export const companyWebhookFields = {
+  webhook_selected: z.enum(WEBHOOK_PROVIDERS).nullable().optional(),
+  webhook_endpoint: z
+    .string()
+    .trim()
+    .url()
+    .max(500)
+    .refine((value) => /^https?:\/\//i.test(value), 'Enter an HTTP or HTTPS URL')
+    .nullable()
+    .optional(),
+  webhook_channel: text(),
+  webhook_botname: text(),
+};
+
 export const directoryDefinitions: Record<CoreInventoryResource, DirectoryDefinition> = {
   companies: {
     table: companies,
     nameKey: 'name',
-    shape: { ...common, ...tags, parent_id: ref, fax: text(50), phone: text(50), email: text(150) },
+    shape: {
+      ...common,
+      ...tags,
+      ...companyWebhookFields,
+      parent_id: ref,
+      fax: text(50),
+      phone: text(50),
+      email: text(150),
+    },
     references: { parent_id: 'companies' },
   },
   groups: {
