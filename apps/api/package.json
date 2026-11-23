@@ -26,6 +26,9 @@
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.40.0",
     "jose": "^6.0.8",
+    "nodemailer": "^7.0.13",
+    "pdfkit": "^0.17.2",
+    "pngjs": "^7.0.0",
     "postgres": "^3.4.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
@@ -34,6 +37,9 @@
   "devDependencies": {
     "@nestjs/testing": "^11.0.11",
     "@types/bcryptjs": "^2.4.6",
+    "@types/nodemailer": "^7.0.12",
+    "@types/pdfkit": "^0.17.7",
+    "@types/pngjs": "^6.0.5",
     "drizzle-kit": "^0.30.5"
   }
 }

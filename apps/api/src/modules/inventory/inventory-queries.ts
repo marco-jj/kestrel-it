@@ -38,9 +38,10 @@ export async function inventoryWrite<T>(
 export function parse<T>(schema: ZodType<T, any, any>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) {
+    const { fieldErrors, formErrors } = result.error.flatten();
     throw new UnprocessableEntityException({
       status: 'error',
-      messages: result.error.flatten().fieldErrors,
+      messages: formErrors.length ? { ...fieldErrors, form: formErrors } : fieldErrors,
       payload: null,
     });
   }

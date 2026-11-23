@@ -25,6 +25,8 @@ import { field, permissionFor, reference, type InventoryField } from './director
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import { InventoryFormFieldsComponent } from './inventory-form-fields.component.js';
 
+import { AssetLifecycleComponent } from './asset-lifecycle.component.js';
+
 const modelFields: InventoryField[] = [
   { key: 'name', label: 'Model name', required: true },
   field('model_number', 'Model number'),
@@ -83,10 +85,24 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
     KestrelSlideDrawerComponent,
     InventoryFormFieldsComponent,
     CustomFieldFormSectionComponent,
+    AssetLifecycleComponent,
   ],
   template: `
     <header class="inventory-header">
       <h1>{{ isHardware ? 'Hardware' : 'Asset Models' }}</h1>
+      @if (isHardware && canCheckin()) {
+        <form class="toolbar" (ngSubmit)="scan()">
+          <input
+            aria-label="Asset tag for Quickscan"
+            name="scanTag"
+            placeholder="Asset tag"
+            [(ngModel)]="scanTag"
+          />
+          <button type="submit" class="k-btn k-btn-secondary" [disabled]="!scanTag.trim()">
+            Quickscan check-in
+          </button>
+        </form>
+      }
       @if (can('delete')) {
         <button type="button" class="k-btn k-btn-secondary" (click)="toggleDeleted()">
           {{ deleted() ? 'Show active records' : 'Show deleted records' }}
@@ -241,6 +257,20 @@ type DrawerMode = 'view' | 'edit' | 'clone' | 'delete' | 'restore' | 'bulk_edit'
         </div>
       }
     </kestrel-slide-drawer>
+    <kestrel-slide-drawer
+      [open]="lifecycle() !== null"
+      [title]="lifecycle()?.action === 'checkout' ? 'Check out asset' : 'Check in asset'"
+      (closed)="lifecycle.set(null)"
+    >
+      @if (lifecycle(); as work) {
+        <kestrel-asset-lifecycle
+          [asset]="work.row"
+          [action]="work.action"
+          (closed)="lifecycle.set(null)"
+          (saved)="lifecycleSaved($event)"
+        />
+      }
+    </kestrel-slide-drawer>
   `,
   styles: [
     `
@@ -357,6 +387,8 @@ export class HardwarePageComponent implements OnInit {
   sort = '';
   order: 'asc' | 'desc' = 'asc';
   searchName = '';
+  scanTag = '';
+  readonly lifecycle = signal<{ action: 'checkout' | 'checkin'; row: DataGridRow } | null>(null);
   selectedSearch: number | null = null;
   private applied: Record<string, string | number | boolean> = {};
   private loadSequence = 0;
@@ -615,10 +647,38 @@ export class HardwarePageComponent implements OnInit {
 
   act(event: { action: DataGridActionType; row: DataGridRow }): void {
     if (typeof event.row.id !== 'number') return;
+    if (event.action === 'request' || event.action === 'cancel') return;
     const mode = event.action === 'update' ? 'edit' : event.action;
-    if (mode === 'checkout' || mode === 'checkin') return;
+    if (mode === 'checkout' || mode === 'checkin') {
+      this.lifecycle.set({ action: mode, row: event.row });
+      return;
+    }
     this.ids.set([event.row.id]);
     void this.open(mode, event.row.id, event.row);
+  }
+
+  canCheckin(): boolean {
+    const user = this.auth.currentUser();
+    return !!user && (user.isSuperUser || user.keyPermissions?.['assets.checkin'] === true);
+  }
+
+  async scan(): Promise<void> {
+    this.error.set('');
+    try {
+      const row = await this.api.read<DataGridRow>(
+        `/hardware/bytag/${encodeURIComponent(this.scanTag.trim())}`,
+      );
+      this.lifecycle.set({ action: 'checkin', row });
+      this.scanTag = '';
+    } catch (error) {
+      this.error.set(inventoryError(error));
+    }
+  }
+
+  lifecycleSaved(message: string): void {
+    this.lifecycle.set(null);
+    this.message.set(message);
+    void this.load();
   }
 
   bulk(event: { action: string; selectedIds: Array<number | string> }) {

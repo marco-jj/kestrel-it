@@ -1,10 +1,12 @@
-import { Component, Input, OnChanges } from '@angular/core';
+import { Component, Input, OnChanges, inject } from '@angular/core';
 import { FormControl, FormRecord, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   normalizeFormatLabel,
   parseFieldValuesOptions,
   type InventoryCustomField,
 } from '@kestrel-it/shared';
+
+import { AuthStore } from '../../core/auth/auth.store.js';
 
 @Component({
   selector: 'kestrel-custom-field-form-section',
@@ -86,7 +88,7 @@ import {
   styles: [
     `
       fieldset {
-        border: 1px solid var(--k-border);
+        border: 1px solid var(--kestrel-border);
         border-radius: 0.5rem;
         padding: 0.85rem;
         display: grid;
@@ -109,9 +111,9 @@ import {
       input:not([type='checkbox']):not([type='radio']),
       textarea,
       select {
-        color: var(--k-text);
-        background: var(--k-surface);
-        border: 1px solid var(--k-border);
+        color: var(--kestrel-ink);
+        background: var(--kestrel-surface);
+        border: 1px solid var(--kestrel-border);
         border-radius: 0.4rem;
         padding: 0.45rem 0.65rem;
         width: 100%;
@@ -124,6 +126,7 @@ export class CustomFieldFormSectionComponent implements OnChanges {
   @Input({ required: true }) fields: InventoryCustomField[] = [];
   @Input() values: Record<string, unknown> = {};
   @Input() defaultsOnly = false;
+  private readonly auth = inject(AuthStore);
   readonly options = parseFieldValuesOptions;
 
   ngOnChanges(): void {
@@ -146,7 +149,10 @@ export class CustomFieldFormSectionComponent implements OnChanges {
   }
 
   isMasked(field: InventoryCustomField): boolean {
-    return field.field_encrypted && this.values[field.db_column] === 'ENCRYPTED';
+    const user = this.auth.currentUser();
+    const allowed =
+      user?.isSuperUser || user?.keyPermissions?.['assets.view.encrypted_custom_fields'];
+    return !allowed && field.field_encrypted && this.values[field.db_column] === 'ENCRYPTED';
   }
 
   inputType(field: InventoryCustomField) {
@@ -172,10 +178,7 @@ export class CustomFieldFormSectionComponent implements OnChanges {
   }
 }
 
-export function customFieldChanges(
-  form: FormRecord<FormControl>,
-  fields: InventoryCustomField[],
-) {
+export function customFieldChanges(form: FormRecord<FormControl>, fields: InventoryCustomField[]) {
   const values: Record<string, unknown> = {};
   for (const field of fields) {
     const control = form.controls[field.db_column];

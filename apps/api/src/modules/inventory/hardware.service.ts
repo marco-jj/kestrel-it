@@ -180,10 +180,11 @@ export class HardwareService {
     };
   }
 
-  async options(query: SelectlistQuery, user: AuthenticatedUserContext) {
+  async options(query: SelectlistQuery, user: AuthenticatedUserContext, modelId?: number) {
     const scope = await this.fmcs.resolve(user);
     const filters = and(
       this.visible(scope),
+      modelId === undefined ? undefined : eq(assets.modelId, modelId),
       query.companyId === undefined ? undefined : eq(assets.companyId, query.companyId),
       query.search
         ? or(
@@ -710,6 +711,7 @@ export class HardwareService {
       status_meta: currentStatus,
       status_meta_label: status?.name ?? null,
       assigned_type: row.assignedType,
+      accepted: row.accepted,
       assigned_to:
         row.assignedType !== 'user' || permitsEntity(user, 'users.view') ? row.assignedTo : null,
       location_id: row.locationId,

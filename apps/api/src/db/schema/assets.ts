@@ -163,6 +163,7 @@ export const assets = pgTable(
       onDelete: 'set null',
     }),
     assignedTo: integer('assigned_to'),
+    accepted: boolean('accepted'),
     assignedType: varchar('assigned_type', { length: 32 }).$type<CheckoutTargetType>(),
     warrantyMonths: integer('warranty_months'),
     assetEolDate: date('asset_eol_date'),

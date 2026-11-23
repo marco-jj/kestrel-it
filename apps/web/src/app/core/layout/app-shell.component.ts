@@ -13,6 +13,7 @@ export interface NavItem {
   route: string;
   section: 'overview' | 'inventory' | 'people' | 'operations' | 'admin';
   requiredPermission?: PermissionKey;
+  directPermission?: boolean;
 }
 
 export const NAVIGATION_ITEMS: readonly NavItem[] = [
@@ -69,6 +70,12 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
   { label: 'Manufacturers', route: '/manufacturers', section: 'inventory', requiredPermission: 'manufacturers.view' },
   { label: 'Suppliers', route: '/suppliers', section: 'inventory', requiredPermission: 'suppliers.view' },
   { label: 'Status Labels', route: '/statuslabels', section: 'inventory', requiredPermission: 'statuslabels.view' },
+  { label: 'Checkout Acceptances', route: '/account/accept', section: 'operations' },
+  { label: 'Requestable Inventory', route: '/account/requestable', section: 'operations',
+    requiredPermission: 'assets.view.requestable', directPermission: true },
+  { label: 'My Requests', route: '/account/requests', section: 'operations' },
+  { label: 'Checkout Requests', route: '/requests', section: 'operations',
+    requiredPermission: 'assets.checkout', directPermission: true },
   { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import' },
   {
     label: 'Reports',
@@ -86,7 +93,9 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
 
 export function filterNavigationItems(store: AuthStore): NavItem[] {
   return NAVIGATION_ITEMS.filter(
-    (item) => !item.requiredPermission || store.can(item.requiredPermission),
+    (item) => !item.requiredPermission || (item.directPermission
+      ? store.currentUser()?.isSuperUser === true || store.currentUser()?.keyPermissions?.[item.requiredPermission] === true
+      : store.can(item.requiredPermission)),
   );
 }
 

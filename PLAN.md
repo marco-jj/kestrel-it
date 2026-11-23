@@ -78,28 +78,30 @@ Prima di implementare qualsiasi modulo, consultare il documento corrispondente:
 ### 📦 FASE 2 — Core Inventory, Custom Fields JSONB & Lifecycle Workflows
 > **Riferimenti:** [`docs/02`](docs/02-custom-fields-jsonb-engine.md), [`docs/03`](docs/03-rbac-policies-and-fmcs.md), [`docs/04`](docs/04-domain-workflows-and-state.md), [`docs/05`](docs/05-api-contracts-and-modules.md), [`docs/07`](docs/07-frontend-angular-map.md)
 
-- [ ] **Piano 2.1 — Guards RBAC, FMCS Multi-Company Scoping & Core Entities**
+- [x] **Piano 2.1 — Guards RBAC, FMCS Multi-Company Scoping & Core Entities**
   - Implementare `PermissionsGuard`, `@RequirePermission()`, e `FmcsScopeService` (supporto `full_multiple_companies_support`, gerarchia `parent_id` a 1 livello, `null_company_is_floater`, `scope_locations_fmcs`).
   - Moduli CRUD + `selectlist` + `bulk` (API + UI Angular):
     - `Companies`, `Groups`, `Users`
     - `Locations` (gerarchiche con breadcrumb `Parent › Child`), `Departments`
     - `Categories` (con EULA, `require_acceptance`, `checkin_email`), `Manufacturers`, `Suppliers`, `Statuslabels`
-- [ ] **Piano 2.2 — Motore Custom Fields & Fieldsets (`JSONB`)**
+- [x] **Piano 2.2 — Motore Custom Fields & Fieldsets (`JSONB`)**
   - CRUD `CustomFields` e `CustomFieldsets` + riordino + valori di default per `AssetModel` (`custom_field_defaults`).
   - Compilatore dinamico Zod in `CustomFieldsValidationService` (formati `ANY`, `ALPHA`, `NUMERIC`, `EMAIL`, `DATE`, `DATETIME`, `URL`, `IP`, `IPV4`, `IPV6`, `MAC`, `BOOLEAN`, `CUSTOM REGEX`).
   - Crittografia AES-256-GCM trasparente per i campi `field_encrypted = true` e mascheramento condizionato dal permesso `assets.view.encrypted_custom_fields`.
-  - Componente Angular `CustomFieldFormSectionComponent` per rendering dinamico nei form Asset, Checkout, Checkin e Audit.
-- [ ] **Piano 2.3 — Asset Models & Hardware Assets**
+  - Componente Angular `CustomFieldFormSectionComponent` nei form di Asset, Checkout e Checkin, con modalità Audit disponibile per il Piano 3.2.
+- [x] **Piano 2.3 — Asset Models & Hardware Assets**
   - Modulo `AssetModels` (`/api/v1/models`): CRUD, clone, restore, associazione `fieldset_id`, `depreciation_id`, `eol`, `require_serial`, `requestable`.
   - Modulo `Assets` (`/api/v1/hardware`): CRUD, ricerca per tag (`bytag`), ricerca per seriale (`byserial`), auto-increment `asset_tag`, contatori, bulk edit/delete/restore, filtro avanzato su colonne standard e chiavi `custom_fields JSONB`, `SavedSearches`.
-- [ ] **Piano 2.4 — Checkout / Checkin Polimorfico, EULA & Acceptance**
+- [x] **Piano 2.4 — Checkout / Checkin Polimorfico, EULA & Acceptance**
   - Implementare `AssetCheckoutService` in transazione Drizzle (`FOR UPDATE`):
     - Checkout a `User`, `Location` o altro `Asset`.
     - Aggiornamento `location_id` vs `rtd_location_id`.
     - Propagazione sicura dei `LicenseSeat` collegati all'asset (`propagateLicenseSeats`).
     - Incremento `checkout_counter` / `checkin_counter` e scrittura immutabile in `action_logs`.
   - Implementare `CheckoutAcceptances` & EULA: creazione richiesta accettazione, pagina utente `/account/accept`, firma su canvas HTML5, salvataggio PNG + generazione PDF EULA storicizzato (`stored_eula_file`), notifiche di accettazione/rifiuto.
-  - Implementare `CheckoutRequests` (self-service `/account/requestable`).
+  - Completato `CheckoutRequests` per hardware e modelli, con catalogo `/account/requestable` e coda operatore `/requests`.
+
+Verifica della Fase 2 con `pnpm build`, `pnpm typecheck` e `pnpm test`. Per i test HTTP con PostgreSQL 16, impostare `INVENTORY_TEST_DATABASE_URL` su un cluster di test con un utente abilitato a creare database temporanei. La suite verifica schema iniziale, upgrade dalla Fase 1, scoping JWT/PAT e transazioni di inventario.
 
 ---
 

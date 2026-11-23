@@ -175,7 +175,7 @@ const fieldProperties: InventoryField[] = [
         margin-top: 1rem;
       }
       [role='alert'] {
-        color: var(--k-danger);
+        color: var(--kestrel-danger);
       }
     `,
   ],

@@ -14,6 +14,8 @@ export interface DataGridColumn<T = Record<string, unknown>> {
 
 export interface DataGridRowActions {
   view?: boolean;
+  request?: boolean;
+  cancel?: boolean;
   checkout?: boolean;
   checkin?: boolean;
   update?: boolean;
@@ -31,6 +33,8 @@ export type DataGridRow = Record<string, unknown> & {
 
 const ORDERED_ROW_ACTIONS: readonly DataGridActionType[] = [
   'view',
+  'request',
+  'cancel',
   'checkout',
   'checkin',
   'update',

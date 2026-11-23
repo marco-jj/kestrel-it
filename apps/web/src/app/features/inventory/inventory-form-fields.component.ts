@@ -123,9 +123,9 @@ import type { InventoryField } from './directory-ui.js';
       input:not([type='checkbox']),
       textarea,
       select {
-        color: var(--k-text);
-        background: var(--k-surface);
-        border: 1px solid var(--k-border);
+        color: var(--kestrel-ink);
+        background: var(--kestrel-surface);
+        border: 1px solid var(--kestrel-border);
         border-radius: 0.5rem;
         padding: 0.5rem 0.65rem;
         min-height: 2.25rem;

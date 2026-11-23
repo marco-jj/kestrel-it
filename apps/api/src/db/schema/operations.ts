@@ -6,6 +6,7 @@ import type {
   TwoFactorPolicy,
   WebhookProvider,
 } from '@kestrel-it/shared';
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   date,
@@ -79,6 +80,8 @@ export const checkoutAcceptances = pgTable(
     signatureFilename: varchar('signature_filename', { length: 255 }),
     storedEula: text('stored_eula'),
     storedEulaFile: varchar('stored_eula_file', { length: 255 }),
+    signInPlace: boolean('sign_in_place').notNull().default(false),
+    alertOnResponse: boolean('alert_on_response').notNull().default(false),
     note: text('note'),
     alertOnResponseId: integer('alert_on_response_id').references(() => users.id, {
       onDelete: 'set null',
@@ -125,7 +128,26 @@ export const checkoutRequests = pgTable(
     index('idx_checkout_requests_user_id').on(table.userId),
     index('idx_checkout_requests_item').on(table.requestableType, table.requestableId),
     index('idx_checkout_requests_state').on(table.state),
+    uniqueIndex('uq_checkout_requests_pending_item')
+      .on(table.userId, table.requestableType, table.requestableId)
+      .where(sql`${table.state} = 'pending' AND ${table.deletedAt} IS NULL`),
   ],
+);
+
+export const inventoryMailOutbox = pgTable(
+  'inventory_mail_outbox',
+  {
+    id: identityId(),
+    recipient: varchar('recipient', { length: 255 }).notNull(),
+    subject: varchar('subject', { length: 255 }).notNull(),
+    message: text('message').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
+  },
+  (table) => [index('idx_inventory_mail_outbox_available')
+    .on(table.availableAt, table.id).where(sql`${table.sentAt} IS NULL AND ${table.failedAt} IS NULL`)],
 );
 
 export const maintenanceTypes = pgTable('maintenance_types', {

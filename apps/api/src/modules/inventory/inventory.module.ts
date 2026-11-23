@@ -1,3 +1,13 @@
+import { AssetCheckoutService } from './asset-checkout.service.js';
+import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
+import { CheckoutRequestsService } from './checkout-requests.service.js';
+import { InventoryMailService } from './inventory-mail.service.js';
+import {
+  AssetWorkflowsController,
+  InventoryAccountController,
+  InventoryRequestsController,
+} from './inventory-workflows.controller.js';
+import { StorageModule } from '../../common/storage/storage.module.js';
 import {
   AssetModelsController,
   DepreciationSelectorController,
@@ -15,6 +25,7 @@ import { DirectoryService } from './directory.service.js';
 import { FmcsScopeService } from './fmcs-scope.service.js';
 
 @Module({
+  imports: [StorageModule],
   controllers: [
     DirectoryController,
     CustomFieldsController,
@@ -23,6 +34,9 @@ import { FmcsScopeService } from './fmcs-scope.service.js';
     HardwareController,
     DepreciationSelectorController,
     SavedSearchesController,
+    AssetWorkflowsController,
+    InventoryAccountController,
+    InventoryRequestsController,
   ],
   providers: [
     DirectoryService,
@@ -31,6 +45,10 @@ import { FmcsScopeService } from './fmcs-scope.service.js';
     CustomFieldsValidationService,
     AssetModelsService,
     HardwareService,
+    AssetCheckoutService,
+    CheckoutAcceptancesService,
+    CheckoutRequestsService,
+    InventoryMailService,
   ],
 })
 export class InventoryModule {}

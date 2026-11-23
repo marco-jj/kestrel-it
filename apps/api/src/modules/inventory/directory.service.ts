@@ -18,6 +18,8 @@ import {
 } from '@kestrel-it/shared';
 import {
   and,
+  or,
+  sql,
   asc,
   count,
   desc,
@@ -186,7 +188,7 @@ export class DirectoryService {
     const scope = await this.fmcs.resolve(user);
     const filters = and(
       this.visible(resource, scope, query.deleted),
-      query.search ? contains(columns[definition.nameKey]!, query.search) : undefined,
+      query.search ? this.search(resource, columns[definition.nameKey]!, query.search) : undefined,
     );
     const sort =
       query.sort && Object.hasOwn(definition.shape, query.sort)
@@ -212,9 +214,14 @@ export class DirectoryService {
     );
   }
 
-  async options(resourceValue: string, query: SelectlistQuery, user: AuthenticatedUserContext) {
+  async options(
+    resourceValue: string,
+    query: SelectlistQuery,
+    user: AuthenticatedUserContext,
+    targetPicker = false,
+  ) {
     const resource = resourceName(resourceValue);
-    requireAction(user, resource, 'view');
+    if (!targetPicker) requireAction(user, resource, 'view');
     const definition = directoryDefinitions[resource];
     const columns = columnsOf(definition.table);
     const scope = await this.fmcs.resolve(user);
@@ -225,10 +232,8 @@ export class DirectoryService {
     const filters = and(
       this.visible(resource, scope),
       status,
-      query.search ? contains(columns[definition.nameKey]!, query.search) : undefined,
-      query.companyId !== undefined && columns.companyId
-        ? eq(columns.companyId, query.companyId)
-        : undefined,
+      query.search ? this.search(resource, columns[definition.nameKey]!, query.search) : undefined,
+      this.companyFilter(resource, columns, query.companyId),
     );
     const [[total], rows] = await Promise.all([
       this.db.select({ value: count() }).from(definition.table).where(filters),
@@ -255,6 +260,30 @@ export class DirectoryService {
       })),
       query,
     );
+  }
+
+  private search(resource: CoreInventoryResource, name: AnyPgColumn, value: string) {
+    if (resource !== 'users') return contains(name, value);
+    return or(
+      contains(name, value),
+      contains(schema.users.displayName, value),
+      contains(sql`concat_ws(' ', ${schema.users.firstName}, ${schema.users.lastName})`, value),
+    );
+  }
+
+  private companyFilter(
+    resource: CoreInventoryResource,
+    columns: Record<string, AnyPgColumn>,
+    companyId?: number,
+  ) {
+    if (companyId === undefined) return undefined;
+    if (resource === 'users') {
+      return sql`exists (select 1 from ${schema.companyUser} where ${and(
+        eq(schema.companyUser.userId, schema.users.id),
+        eq(schema.companyUser.companyId, companyId),
+      )})`;
+    }
+    return columns.companyId ? eq(columns.companyId, companyId) : undefined;
   }
 
   private statusMatch(status: string): SQL {

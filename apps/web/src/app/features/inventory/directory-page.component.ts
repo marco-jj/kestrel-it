@@ -107,7 +107,7 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
         margin-top: 1.25rem;
       }
       [role='alert'] {
-        color: var(--k-danger);
+        color: var(--kestrel-danger);
         margin-block: 0.75rem;
       }
       [role='status'] {

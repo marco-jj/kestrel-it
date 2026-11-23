@@ -16,7 +16,11 @@ export function permitsKey(user: AuthenticatedUserContext, permission: Permissio
 }
 
 export function permitsEntity(user: AuthenticatedUserContext, permission: PermissionKey): boolean {
-  return user.isSuperUser || user.isAdmin || permitsKey(user, permission);
+  return (
+    user.isSuperUser ||
+    user.isAdmin ||
+    (user.keyPermissions?.[permission] ?? user.effectivePermissions[permission]) === true
+  );
 }
 
 @Injectable()
@@ -40,10 +44,11 @@ export class PermissionsGuard implements CanActivate {
       throw new UnauthorizedException('Authentication required');
     }
 
-    const isKey = this.reflector.getAllAndOverride<string>(PERMISSION_MODE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]) === 'key';
+    const isKey =
+      this.reflector.getAllAndOverride<string>(PERMISSION_MODE_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === 'key';
     const allowed = requiredPermissions.every((permission) =>
       isKey ? permitsKey(user, permission) : permitsEntity(user, permission),
     );

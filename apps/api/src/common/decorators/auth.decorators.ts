@@ -1,4 +1,9 @@
-import { createParamDecorator, SetMetadata, type ExecutionContext } from '@nestjs/common';
+import {
+  applyDecorators,
+  createParamDecorator,
+  SetMetadata,
+  type ExecutionContext,
+} from '@nestjs/common';
 import type { AuthenticatedUserContext, PermissionKey } from '@kestrel-it/shared';
 
 export const IS_PUBLIC_KEY = 'isPublic';
@@ -14,13 +19,16 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
  * Requires the authenticated user to hold all specified RBAC permissions.
  */
 export const RequirePermission = (...permissions: PermissionKey[]) =>
-  SetMetadata(REQUIRED_PERMISSIONS_KEY, permissions);
+  applyDecorators(
+    SetMetadata(REQUIRED_PERMISSIONS_KEY, permissions),
+    SetMetadata(PERMISSION_MODE_KEY, 'entity'),
+  );
 
 export const RequireKeyPermission = (...permissions: PermissionKey[]) =>
-  (target: object, _key?: string | symbol, descriptor?: PropertyDescriptor): void => {
-    Reflect.defineMetadata(REQUIRED_PERMISSIONS_KEY, permissions, descriptor?.value ?? target);
-    Reflect.defineMetadata(PERMISSION_MODE_KEY, 'key', descriptor?.value ?? target);
-  };
+  applyDecorators(
+    SetMetadata(REQUIRED_PERMISSIONS_KEY, permissions),
+    SetMetadata(PERMISSION_MODE_KEY, 'key'),
+  );
 
 /**
  * Extracts the resolved AuthenticatedUserContext attached by JwtOrPatAuthGuard.
