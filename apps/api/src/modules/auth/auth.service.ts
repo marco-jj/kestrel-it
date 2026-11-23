@@ -409,91 +409,21 @@ export class AuthService {
 
     const discovery = await this.discoverOidcEndpoints(oidcConfig.issuerUrl, oidcConfig.protocol);
 
-    const tokenBody = new URLSearchParams({
-      grant_type: 'authorization_code',
+    const tokenPayload = await this.exchangeAuthorizationCode({
+      tokenEndpoint: discovery.token_endpoint,
       code: params.code,
-      redirect_uri: oidcConfig.redirectUri,
-      client_id: oidcConfig.clientId,
-      code_verifier: verifiedState.codeVerifier,
-    });
-    if (oidcConfig.clientSecret) {
-      tokenBody.set('client_secret', oidcConfig.clientSecret);
-    }
-
-    const tokenResponse = await fetch(discovery.token_endpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        accept: 'application/json',
-      },
-      body: tokenBody.toString(),
+      redirectUri: oidcConfig.redirectUri,
+      clientId: oidcConfig.clientId,
+      clientSecret: oidcConfig.clientSecret,
+      codeVerifier: verifiedState.codeVerifier,
     });
 
-    if (!tokenResponse.ok) {
-      throw new UnauthorizedException('Failed to exchange OAuth/OIDC authorization code');
-    }
-
-    const tokenPayload = (await tokenResponse.json()) as {
-      id_token?: string;
-      access_token?: string;
-    };
-
-    let mergedClaims: Record<string, unknown>;
-
-    if (tokenPayload.id_token) {
-      if (!discovery.jwks_uri) {
-        throw new UnauthorizedException('OIDC discovery missing jwks_uri for id_token verification');
-      }
-      const idTokenClaims = await this.jwtService.verifyOidcIdToken(tokenPayload.id_token, {
-        issuerUrl: oidcConfig.issuerUrl,
-        clientId: oidcConfig.clientId,
-        jwksUri: discovery.jwks_uri,
-        expectedNonce: verifiedState.nonce,
-      });
-
-      let userInfoClaims: Record<string, unknown> = {};
-      if (discovery.userinfo_endpoint && tokenPayload.access_token) {
-        try {
-          const uiRes = await fetch(discovery.userinfo_endpoint, {
-            headers: {
-              authorization: `Bearer ${tokenPayload.access_token}`,
-              accept: 'application/json',
-            },
-          });
-          if (uiRes.ok) {
-            userInfoClaims = (await uiRes.json()) as Record<string, unknown>;
-          }
-        } catch {
-          // UserInfo is optional when ID token already carries the required claims.
-        }
-      }
-
-      mergedClaims = {
-        ...userInfoClaims,
-        ...idTokenClaims,
-      };
-    } else if (oidcConfig.protocol !== 'oidc') {
-      if (!tokenPayload.access_token || !discovery.userinfo_endpoint) {
-        throw new UnauthorizedException(
-          'OAuth 2.0/2.1 token response missing access_token or configured userinfo_endpoint',
-        );
-      }
-      const uiRes = await fetch(discovery.userinfo_endpoint, {
-        headers: {
-          authorization: `Bearer ${tokenPayload.access_token}`,
-          accept: 'application/json',
-        },
-      });
-      if (!uiRes.ok) {
-        throw new UnauthorizedException('Failed to fetch OAuth userinfo profile');
-      }
-      const rawUserInfo = (await uiRes.json()) as Record<string, unknown>;
-      mergedClaims = normalizeOAuthUserInfoToClaims(rawUserInfo, {
-        issuerUrl: oidcConfig.issuerUrl,
-      });
-    } else {
-      throw new UnauthorizedException('OIDC token endpoint did not return an id_token');
-    }
+    const mergedClaims = await this.resolveOidcCallbackClaims({
+      tokenPayload,
+      discovery,
+      oidcConfig,
+      expectedNonce: verifiedState.nonce,
+    });
 
     const user = await this.oidcProvisioning.resolveOrProvisionUser(mergedClaims);
 
@@ -508,6 +438,131 @@ export class AuthService {
     return this.completeUserAuthentication(user, {
       federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(mergedClaims),
     });
+  }
+
+  private async exchangeAuthorizationCode(params: {
+    tokenEndpoint: string;
+    code: string;
+    redirectUri: string;
+    clientId: string;
+    clientSecret: string;
+    codeVerifier: string;
+  }): Promise<{ id_token?: string; access_token?: string }> {
+    const tokenBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: params.code,
+      redirect_uri: params.redirectUri,
+      client_id: params.clientId,
+      code_verifier: params.codeVerifier,
+    });
+    if (params.clientSecret) {
+      tokenBody.set('client_secret', params.clientSecret);
+    }
+
+    const tokenResponse = await fetch(params.tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        accept: 'application/json',
+      },
+      body: tokenBody.toString(),
+    });
+
+    if (!tokenResponse.ok) {
+      throw new UnauthorizedException('Failed to exchange OAuth/OIDC authorization code');
+    }
+
+    return (await tokenResponse.json()) as {
+      id_token?: string;
+      access_token?: string;
+    };
+  }
+
+  private async resolveOidcCallbackClaims(params: {
+    tokenPayload: { id_token?: string; access_token?: string };
+    discovery: OidcDiscoveryDoc;
+    oidcConfig: { protocol: OAuthProtocol; issuerUrl: string; clientId: string };
+    expectedNonce: string;
+  }): Promise<Record<string, unknown>> {
+    const { tokenPayload, discovery, oidcConfig, expectedNonce } = params;
+
+    if (tokenPayload.id_token) {
+      if (!discovery.jwks_uri) {
+        throw new UnauthorizedException('OIDC discovery missing jwks_uri for id_token verification');
+      }
+      const idTokenClaims = await this.jwtService.verifyOidcIdToken(tokenPayload.id_token, {
+        issuerUrl: oidcConfig.issuerUrl,
+        clientId: oidcConfig.clientId,
+        jwksUri: discovery.jwks_uri,
+        expectedNonce,
+      });
+
+      const userInfoClaims = await this.fetchOptionalUserInfoClaims(
+        discovery.userinfo_endpoint,
+        tokenPayload.access_token,
+      );
+
+      return {
+        ...userInfoClaims,
+        ...idTokenClaims,
+      };
+    }
+
+    if (oidcConfig.protocol !== 'oidc') {
+      if (!tokenPayload.access_token || !discovery.userinfo_endpoint) {
+        throw new UnauthorizedException(
+          'OAuth 2.0/2.1 token response missing access_token or configured userinfo_endpoint',
+        );
+      }
+      const rawUserInfo = await this.fetchRequiredUserInfoClaims(
+        discovery.userinfo_endpoint,
+        tokenPayload.access_token,
+      );
+      return normalizeOAuthUserInfoToClaims(rawUserInfo, {
+        issuerUrl: oidcConfig.issuerUrl,
+      });
+    }
+
+    throw new UnauthorizedException('OIDC token endpoint did not return an id_token');
+  }
+
+  private async fetchOptionalUserInfoClaims(
+    userinfoEndpoint: string | undefined,
+    accessToken: string | undefined,
+  ): Promise<Record<string, unknown>> {
+    if (!userinfoEndpoint || !accessToken) {
+      return {};
+    }
+    try {
+      const uiRes = await fetch(userinfoEndpoint, {
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          accept: 'application/json',
+        },
+      });
+      if (uiRes.ok) {
+        return (await uiRes.json()) as Record<string, unknown>;
+      }
+    } catch {
+      // UserInfo is optional when ID token already carries the required claims.
+    }
+    return {};
+  }
+
+  private async fetchRequiredUserInfoClaims(
+    userinfoEndpoint: string,
+    accessToken: string,
+  ): Promise<Record<string, unknown>> {
+    const uiRes = await fetch(userinfoEndpoint, {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        accept: 'application/json',
+      },
+    });
+    if (!uiRes.ok) {
+      throw new UnauthorizedException('Failed to fetch OAuth userinfo profile');
+    }
+    return (await uiRes.json()) as Record<string, unknown>;
   }
 
   async issueSessionForUser(

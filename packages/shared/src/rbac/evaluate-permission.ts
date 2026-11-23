@@ -41,26 +41,29 @@ export function isAdmin(
  * Superuser > Explicit User Grant/Deny (1 / -1) > Admin (except 'superuser') > Group Grant (1).
  */
 export function hasAccess(
-  userPermissions: PermissionMap = {},
-  groupPermissionsList: PermissionMap[] = [],
+  userPermissions: PermissionMap | undefined,
+  groupPermissionsList: PermissionMap[] | undefined,
   requiredPermission: PermissionKey,
 ): boolean {
-  if (isSuperUser(userPermissions, groupPermissionsList)) {
+  const userPerms = userPermissions ?? {};
+  const groupPerms = groupPermissionsList ?? [];
+
+  if (isSuperUser(userPerms, groupPerms)) {
     return true;
   }
 
-  if (userPermissions[requiredPermission] === 1) {
+  if (userPerms[requiredPermission] === 1) {
     return true;
   }
-  if (userPermissions[requiredPermission] === -1) {
+  if (userPerms[requiredPermission] === -1) {
     return false;
   }
 
-  if (requiredPermission !== 'superuser' && isAdmin(userPermissions, groupPermissionsList)) {
+  if (requiredPermission !== 'superuser' && isAdmin(userPerms, groupPerms)) {
     return true;
   }
 
-  return groupPermissionsList.some((group) => group[requiredPermission] === 1);
+  return groupPerms.some((group) => group[requiredPermission] === 1);
 }
 
 /**

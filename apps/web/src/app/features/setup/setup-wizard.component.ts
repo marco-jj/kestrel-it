@@ -509,7 +509,7 @@ export class SetupWizardComponent implements OnInit {
 
   canProceedFromStep1(): boolean {
     const status = this.preflight();
-    return Boolean(status && status.checks.database && status.checks.storageWritable);
+    return Boolean(status?.checks.database && status.checks.storageWritable);
   }
 
   canProceedFromStep2(): boolean {
