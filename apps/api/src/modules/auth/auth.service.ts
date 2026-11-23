@@ -63,6 +63,9 @@ interface OidcDiscoveryDoc {
   userinfo_endpoint?: string;
 }
 
+// Leave room in the 4 KiB cookie for JWT encoding, PKCE state, and cookie attributes.
+const MAX_SSO_REDIRECT_BYTES = 2048;
+
 export function sanitizeSsoRedirectPath(target: string | null | undefined): string {
   if (!target) {
     return '/dashboard';
@@ -89,7 +92,10 @@ export function sanitizeSsoRedirectPath(target: string | null | undefined): stri
     ) {
       return '/dashboard';
     }
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    const destination = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return Buffer.byteLength(destination) <= MAX_SSO_REDIRECT_BYTES
+      ? destination
+      : '/dashboard';
   } catch {
     return '/dashboard';
   }

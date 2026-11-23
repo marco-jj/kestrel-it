@@ -948,6 +948,11 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
       expect(loginRes.statusCode).toBe(302);
       const stateCookie = getCookieValue(loginRes.cookies, 'kestrel_oidc_state')!;
       expect(stateCookie).toBeTruthy();
+      const stateCookieHeader = [loginRes.headers['set-cookie']]
+        .flat()
+        .find((header) => header?.startsWith('kestrel_oidc_state='));
+      expect(stateCookieHeader).toBeDefined();
+      expect(Buffer.byteLength(stateCookieHeader!)).toBeLessThan(4096);
 
       const location = new URL(String(loginRes.headers['location']));
       const state = location.searchParams.get('state')!;
@@ -986,6 +991,10 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     expect(redirectedChallenge.headers['location']).toBe(
       '/login?sso=challenge&redirect=%2Fhardware%2Faudit%2Fdue-or-overdue',
     );
+    const longReportPath = '/reports/custom?columns=' + 'inventory_column,'.repeat(180);
+    const oversizedChallenge = await performOidcFlow('text/html', longReportPath, 'oauth');
+    expect(oversizedChallenge.statusCode).toBe(303);
+    expect(oversizedChallenge.headers['location']).toBe('/login?sso=challenge');
     const challengeCookie = browserChallenge.cookies.find((c) => c.name === 'kestrel_sso_challenge');
     expect(challengeCookie).toMatchObject({ httpOnly: true });
     const handoff = await app.inject({
@@ -1016,6 +1025,17 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     const redirectedSuccess = await performOidcFlow('text/html', '/hardware/audit/due-or-overdue');
     expect(redirectedSuccess.statusCode).toBe(303);
     expect(redirectedSuccess.headers['location']).toBe('/hardware/audit/due-or-overdue');
+
+    const longestSupportedPath = '/reports/custom?columns='.padEnd(2048, 'x');
+    const boundedSuccess = await performOidcFlow('text/html', longestSupportedPath);
+    expect(boundedSuccess.statusCode).toBe(303);
+    expect(boundedSuccess.headers['location']).toBe(longestSupportedPath);
+
+    const encodedReportPath = '/reports/custom?columns=' + 'è'.repeat(700);
+    const oversizedSuccess = await performOidcFlow('text/html', encodedReportPath);
+    expect(oversizedSuccess.statusCode).toBe(303);
+    expect(oversizedSuccess.headers['location']).toBe('/dashboard');
+    expect(getCookieValue(oversizedSuccess.cookies, 'kestrel_access_token')).toBeTruthy();
 
     const unsafeSuccess = await performOidcFlow('text/html', '//evil.example/phish', 'oauth');
     expect(unsafeSuccess.statusCode).toBe(303);
