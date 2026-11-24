@@ -51,6 +51,7 @@ jobs:
       VERSION: ${{ needs.validate-tag.outputs.version }}
       RELEASE_COMMIT: ${{ needs.validate-tag.outputs.commit }}
       GH_TOKEN: ${{ github.token }}
+      TRIVY_IMAGE: aquasec/trivy:0.71.0@sha256:016eae51fdcf989332a5404af7e8f625cd5d95d7c0907a221d080a996f556500
       INVENTORY_TEST_DATABASE_URL: postgres://postgres:release_test@127.0.0.1:5432/postgres
     services:
       postgres:
@@ -93,6 +94,21 @@ jobs:
           pnpm typecheck
           pnpm test
           pnpm --filter @kestrel-it/api openapi:check
+      - name: Audit workspace dependencies
+        run: |
+          set -euo pipefail
+          SCAN_REPORTS="$RUNNER_TEMP/kestrel-security"
+          printf 'SCAN_REPORTS=%s\n' "$SCAN_REPORTS" >> "$GITHUB_ENV"
+          mkdir -p "$SCAN_REPORTS"
+          report="$SCAN_REPORTS/dependencies.json"
+          result=0
+          pnpm audit --audit-level high --json > "$report" || result=$?
+          jq -e '.metadata.vulnerabilities | (.high | type == "number") and (.critical | type == "number")' "$report" >/dev/null
+          findings="$(jq '.metadata.vulnerabilities | .high + .critical' "$report")"
+          if (( result > 1 || (result != 0 && findings == 0) )); then
+            echo "::error::The dependency audit did not complete"
+            exit 1
+          fi
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.4
@@ -114,30 +130,84 @@ jobs:
           grep -F "image: \"$IMAGE_PREFIX-web:$VERSION\"" /tmp/kestrel-release.yaml
           (cd release && sha256sum "kestrel-it-$VERSION.tgz" > "kestrel-it-$VERSION.tgz.sha256")
       - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
       - uses: docker/setup-buildx-action@v3
       - name: Build and smoke-test release images
         run: |
           set -euo pipefail
           node_version="$(<.nvmrc)"
-          for component in api web; do
-            docker buildx build --load --target "$component" --file deploy/images/Dockerfile \
-              --build-arg "NODE_VERSION=${node_version#v}" --tag "kestrel-release-$component:$VERSION" .
+          for architecture in amd64 arm64; do
+            for component in api web; do
+              docker buildx build --load --platform "linux/$architecture" \
+                --target "$component" --file deploy/images/Dockerfile \
+                --build-arg "NODE_VERSION=${node_version#v}" \
+                --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+                --label "org.opencontainers.image.revision=$RELEASE_COMMIT" \
+                --label "org.opencontainers.image.version=$VERSION" \
+                --tag "kestrel-release-$component:$architecture" .
+            done
           done
-          bash deploy/images/smoke-test.sh "kestrel-release-api:$VERSION" "kestrel-release-web:$VERSION"
-      - name: Push images and the OCI chart
+          bash deploy/images/smoke-test.sh "kestrel-release-api:amd64" "kestrel-release-web:amd64"
+      - name: Scan runtime images
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          mkdir "$work/cache"
+          for architecture in amd64 arm64; do
+            for component in api web; do
+              docker save --output "$work/image.tar" "kestrel-release-$component:$architecture"
+              docker run --rm \
+                --volume "$work/image.tar:/scan/image.tar:ro" \
+                --volume "$work/cache:/root/.cache/trivy" \
+                "$TRIVY_IMAGE" image --input /scan/image.tar --scanners vuln --format json --no-progress \
+                --db-repository ghcr.io/aquasecurity/trivy-db:2 --db-repository mirror.gcr.io/aquasec/trivy-db:2 \
+                > "$SCAN_REPORTS/$component-$architecture.json"
+              rm "$work/image.tar"
+            done
+          done
+      - name: Enforce CVE release gate
+        run: |
+          set -euo pipefail
+          dependencies="$(jq '.metadata.vulnerabilities | .high + .critical' "$SCAN_REPORTS/dependencies.json")"
+          printf 'Workspace dependencies have %s high or critical advisories.\n' "$dependencies"
+          total="$dependencies"
+          for architecture in amd64 arm64; do
+            for component in api web; do
+              report="$SCAN_REPORTS/$component-$architecture.json"
+              jq -e '.SchemaVersion > 0 and .ArtifactType == "container_image"' "$report" >/dev/null
+              findings="$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length' "$report")"
+              printf '%s (%s) has %s high or critical findings.\n' "$component" "$architecture" "$findings"
+              total=$((total + findings))
+            done
+          done
+          if (( total > 0 )); then
+            echo "::error::Release blocked by high or critical vulnerabilities. See the security scan artifacts."
+            exit 1
+          fi
+      - name: Save security scan reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-security-reports
+          path: ${{ runner.temp }}/kestrel-security
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Push scanned images and the OCI chart
         run: |
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          node_version="$(<.nvmrc)"
           for component in api web; do
-            docker buildx build --push --platform linux/amd64,linux/arm64 \
-              --target "$component" --file deploy/images/Dockerfile \
-              --build-arg "NODE_VERSION=${node_version#v}" \
-              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-              --label "org.opencontainers.image.revision=$RELEASE_COMMIT" \
-              --label "org.opencontainers.image.version=$VERSION" \
-              --tag "$IMAGE_PREFIX-$component:$VERSION" .
+            sources=()
+            for architecture in amd64 arm64; do
+              remote="$IMAGE_PREFIX-$component:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$architecture"
+              docker tag "kestrel-release-$component:$architecture" "$remote"
+              docker push "$remote"
+              sources+=("$remote")
+            done
+            docker buildx imagetools create --tag "$IMAGE_PREFIX-$component:$VERSION" "${sources[@]}"
           done
           helm push "release/kestrel-it-$VERSION.tgz" "$CHART_REGISTRY"
       - name: Verify anonymous access

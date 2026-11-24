@@ -16,7 +16,7 @@ The first release is `v0.0.1-beta`. The workflow starts on a push of a `v*` tag.
 
 4. GHCR packages start private. After the workflow first pushes them, open each package's settings and set its visibility to **Public**. Rerun the failed job for the same tag. If a package already exists, grant this repository Actions write access in the package's settings before rerunning.
 
-The workflow runs the build, typecheck, PostgreSQL tests, and OpenAPI check. It lints and packages the chart, builds both images, and smoke-tests the web and API together with PostgreSQL. It then pushes images for Linux AMD64 and ARM64 and publishes one versioned OCI chart. Anonymous OCI access must pass before GitHub publishes the release with the chart archive and SHA-256 checksum. SemVer prerelease tags produce GitHub prereleases.
+The workflow runs the build, typecheck, PostgreSQL tests, and OpenAPI check. It lints and packages the chart, builds both images, and smoke-tests the web and API together with PostgreSQL. It audits the full pnpm workspace, including development dependencies, and scans the API and web runtime images for Linux AMD64 and ARM64 with Trivy. High or critical findings and scan failures block publication. Download the JSON reports from the run’s `release-security-reports` artifact, which is retained for 30 days. Once the scans pass, the workflow pushes the scanned images and publishes one versioned OCI chart. Anonymous OCI access must pass before GitHub publishes the release with the chart archive and SHA-256 checksum. SemVer prerelease tags produce GitHub prereleases.
 
 After publication, use a new version tag for changes. The chart version, app version, and default image tags come from the release tag with the leading `v` removed.
 
