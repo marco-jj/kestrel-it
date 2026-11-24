@@ -151,6 +151,15 @@ export const ALL_PERMISSIONS = [
 
 export type PermissionKey = (typeof ALL_PERMISSIONS)[number];
 
+export const CHECKOUT_REQUEST_PERMISSIONS = {
+  asset: 'assets.checkout',
+  model: 'assets.checkout',
+  license: 'licenses.checkout',
+  accessory: 'accessories.checkout',
+  consumable: 'consumables.checkout',
+  component: 'components.checkout',
+} as const satisfies Record<string, PermissionKey>;
+
 /**
  * 1 = Grant, 0 = Inherit/Unset, -1 = Explicit Deny (user-level override).
  */

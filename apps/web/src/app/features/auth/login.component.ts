@@ -80,6 +80,9 @@ import { ThemeStore } from '../../core/theme/theme.store.js';
           }
 
           @if (step() === 'credentials') {
+            @if (authStore.providersStatus()?.loginNote; as notice) {
+              <p class="panel-sub" style="white-space: pre-wrap;">{{ notice }}</p>
+            }
             <form class="form-stack" [formGroup]="loginForm" (ngSubmit)="submitCredentials()">
               <label class="k-label">
                 <span>Username</span>

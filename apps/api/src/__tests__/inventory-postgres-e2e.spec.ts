@@ -16,6 +16,7 @@ import { inflateSync } from 'node:zlib';
 import { PNG } from 'pngjs';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { CryptoService } from '../common/crypto/crypto.service.js';
 import { JwtService } from '../common/crypto/jwt.util.js';
 import { STORAGE_PROVIDER, type StorageProvider } from '../common/storage/storage.interface.js';
 import type { DrizzleDb } from '../db/database.tokens.js';
@@ -36,7 +37,7 @@ import { StorageDeletionService } from '../modules/inventory/storage-deletion.se
 const clusterUrl = process.env.INVENTORY_TEST_DATABASE_URL;
 const migrations = fileURLToPath(new URL('../../drizzle/', import.meta.url));
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
-type Token = 'root' | 'west' | 'east' | 'admin' | 'westPat';
+type Token = 'root' | 'west' | 'east' | 'admin' | 'westPat' | 'componentOperator' | 'linkedUser';
 
 describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () => {
   const databaseName = `kestrel_inventory_test_${randomBytes(6).toString('hex')}`;
@@ -2753,6 +2754,142 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     expect(westProfile.phone).toBe('+39 02 123456');
     expect(westProfile.locale).toBe('it-IT');
     expect(eastHost.id).toBeGreaterThan(0);
+  });
+  it('counts only actionable checkout requests for a scoped secondary-inventory operator', async () => {
+    const [operator] = await db.insert(tables.users).values({
+      username: 'component-operator',
+      activated: true,
+      permissions: { 'components.checkout': 1 },
+    }).returning({ id: tables.users.id });
+    await db.insert(tables.companyUser).values([
+      { userId: operator!.id, companyId: westCompany },
+      { userId: west, companyId: westCompany },
+    ]);
+    tokens.set('componentOperator', await app.get(JwtService).signAccessToken({
+      userId: operator!.id,
+      username: 'component-operator',
+      twoFactorVerified: true,
+    }));
+
+    const component = async (name: string, companyId: number) =>
+      (await ok('POST', '/components', 'root', {
+        name, qty: 2, company_id: companyId, requestable: true,
+      })).payload;
+    const inScope = await component('West operator component', westCompany);
+    const outOfScope = await component('East operator component', eastCompany);
+    const inScopeRequest = (await ok('POST', `/account/request/components/${inScope.id}`, 'west', {})).payload;
+    const outOfScopeRequest = (await ok('POST', `/account/request/components/${outOfScope.id}`, 'east', {})).payload;
+    const accessory = (await ok('POST', '/accessories', 'root', {
+      name: 'West operator accessory', qty: 2, company_id: westCompany, requestable: true,
+    })).payload;
+    const otherKind = (await ok('POST', `/account/request/accessories/${accessory.id}`, 'west', {})).payload;
+
+    const queue = await ok('GET', '/requests', 'componentOperator');
+    expect(queue.rows.map(({ id }: { id: number }) => id)).toEqual([inScopeRequest.id]);
+    expect((await ok('GET', '/dashboard/summary', 'componentOperator')).payload.pending_checkout_requests)
+      .toBe(queue.total);
+    expect((await ok('GET', '/dashboard/summary', 'east')).payload.pending_checkout_requests).toBe(0);
+    expect((await http('GET', '/requests', 'east')).statusCode).toBe(403);
+    expect((await ok('GET', '/requests', 'west')).rows.map(({ id }: { id: number }) => id))
+      .toContain(otherKind.id);
+
+    await ok('POST', `/account/requests/${inScopeRequest.id}/cancel`, 'west', {});
+    expect((await ok('GET', '/dashboard/summary', 'componentOperator')).payload.pending_checkout_requests)
+      .toBe(0);
+    await ok('POST', `/account/requests/${outOfScopeRequest.id}/cancel`, 'east', {});
+    await ok('POST', `/account/requests/${otherKind.id}/cancel`, 'west', {});
+    await db.delete(tables.companyUser).where(and(
+      eq(tables.companyUser.userId, west),
+      eq(tables.companyUser.companyId, westCompany),
+    ));
+  });
+
+  it('keeps assigned inventory arrays and reports totals across pages', async () => {
+    const assignments = Array.from({ length: 51 }, (_, index) => ({
+      assetTag: 'SELF-' + String(index).padStart(2, '0'),
+      name: 'Self-service page fixture',
+      companyId: westCompany,
+      assignedType: 'user' as const,
+      assignedTo: west,
+    }));
+    await db.insert(tables.assets).values(assignments);
+    try {
+      const first = (await ok('GET', '/account/assets', 'west')).payload;
+      const second = (await ok('GET', '/account/assets?page=2', 'west')).payload;
+      expect(first.assets).toHaveLength(50);
+      expect(second.assets.length).toBeGreaterThan(0);
+      expect(first.pagination).toMatchObject({
+        current_page: 1,
+        total_pages: 2,
+        totals: { assets: first.assets.length + second.assets.length },
+      });
+      expect(second.pagination).toMatchObject({ current_page: 2, totals: first.pagination.totals });
+      expect(first.assets.some(({ id }: { id: number }) =>
+        second.assets.some((asset: { id: number }) => asset.id === id),
+      )).toBe(false);
+      expect(Array.isArray(second.accessories)).toBe(true);
+      expect(Array.isArray(second.consumables)).toBe(true);
+      expect(Array.isArray(second.licenses)).toBe(true);
+    } finally {
+      await db.delete(tables.assets).where(inArray(tables.assets.assetTag, assignments.map(({ assetTag }) => assetTag)));
+    }
+  });
+
+  it('exposes only the sign-in notice publicly and enforces local password and profile policy', async () => {
+    const [linkedUser] = await db.insert(tables.users).values({
+      username: 'linked-user',
+      activated: true,
+      remote: true,
+      oidcIssuer: 'https://idp.example.test',
+      oidcSubject: 'linked-subject',
+    }).returning({ id: tables.users.id });
+    tokens.set('linkedUser', await app.get(JwtService).signAccessToken({
+      userId: linkedUser!.id,
+      username: 'linked-user',
+      twoFactorVerified: true,
+    }));
+    const initialPassword = 'Existing local password 2026';
+    const changedPassword = 'New local password 2026';
+
+    await ok('PATCH', '/settings', 'root', {
+      dashboard_message: 'Inventory dashboard notice',
+      login_note: 'Sign-in information',
+      oidc_client_secret: 'admin-only-secret',
+    });
+    const providers = await app.inject({ method: 'GET', url: '/api/v1/auth/providers' });
+    expect(providers.statusCode).toBe(200);
+    expect(providers.json()).toMatchObject({ loginNote: 'Sign-in information' });
+    expect(providers.body).not.toContain('Inventory dashboard notice');
+    expect(providers.body).not.toContain('admin-only-secret');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/dashboard/summary' })).statusCode).toBe(401);
+    expect((await ok('GET', '/dashboard/summary', 'linkedUser')).payload.dashboard_message)
+      .toBe('Inventory dashboard notice');
+
+    const change = { current_password: initialPassword, new_password: changedPassword };
+    expect((await http('PATCH', '/account/profile', 'linkedUser', change)).statusCode).toBe(403);
+    expect((await ok('PATCH', '/account/profile', 'linkedUser', { phone: '555-0100' })).payload)
+      .toMatchObject({ has_local_password: false, phone: '555-0100' });
+
+    const crypto = app.get(CryptoService);
+    await db.update(tables.users)
+      .set({ password: crypto.hashPassword(initialPassword) })
+      .where(eq(tables.users.id, linkedUser!.id));
+    try {
+      await ok('PATCH', '/settings', 'root', { profile_edit: false });
+      expect((await http('PATCH', '/account/profile', 'linkedUser', change)).statusCode).toBe(403);
+      await ok('PATCH', '/settings', 'root', { profile_edit: true });
+      expect((await http('PATCH', '/account/profile', 'linkedUser', {
+        ...change, current_password: 'Wrong current password',
+      })).statusCode).toBe(422);
+      await ok('PATCH', '/account/profile', 'linkedUser', change);
+      const [account] = await db.select({ password: tables.users.password })
+        .from(tables.users).where(eq(tables.users.id, linkedUser!.id));
+      expect(await crypto.verifyPassword(changedPassword, account!.password!)).toBe(true);
+    } finally {
+      await ok('PATCH', '/settings', 'root', {
+        profile_edit: true, dashboard_message: null, login_note: null, oidc_client_secret: null,
+      });
+    }
   });
 });
 

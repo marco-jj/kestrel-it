@@ -29,6 +29,13 @@ export interface CommandItem {
 export const DEFAULT_COMMAND_ITEMS: readonly CommandItem[] = [
   { id: 'nav-dashboard', label: 'Go to Dashboard', category: 'navigation', route: '/dashboard', shortcut: 'G D' },
   {
+    id: 'nav-checkout-requests',
+    label: 'Checkout Requests',
+    category: 'navigation',
+    route: '/requests',
+    keywords: ['queue', 'equipment'],
+  },
+  {
     id: 'nav-hardware',
     label: 'Hardware Assets',
     category: 'navigation',
@@ -168,9 +175,10 @@ export function filterCommandItems(
   query: string,
   authStore: AuthStore,
 ): CommandItem[] {
-  const permitted = items.filter(
-    (item) => !item.requiredPermission || authStore.can(item.requiredPermission),
-  );
+  const permitted = items.filter((item) => {
+    if (item.route === '/requests') return authStore.canManageCheckoutRequests();
+    return !item.requiredPermission || authStore.can(item.requiredPermission);
+  });
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
     return permitted;

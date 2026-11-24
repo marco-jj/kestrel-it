@@ -14,6 +14,7 @@ import {
 } from '../../shared/ui/index.js';
 
 interface DashboardSummaryPayload {
+  dashboard_message?: string | null;
   assets_total: number;
   status_breakdown: Record<string, number>;
   licenses_total: number;
@@ -64,6 +65,10 @@ interface DashboardCategoryRow {
         </div>
       </div>
 
+      @if (summary()?.dashboard_message; as notice) {
+        <p class="k-card kpi-card" style="white-space: pre-wrap;">{{ notice }}</p>
+      }
+
       <div class="kpi-grid">
         <article class="k-card kpi-card">
           <span class="kpi-label k-mono">HARDWARE ASSETS</span>
@@ -86,7 +91,9 @@ interface DashboardCategoryRow {
           <span class="kpi-label k-mono">OPERATIONS QUEUE</span>
           <strong class="kpi-value k-mono">{{ operationsAttentionCount() }}</strong>
           <p class="kpi-note">
-            <a routerLink="/requests">{{ summary()?.pending_checkout_requests ?? 0 }} pending requests</a> ·
+            @if (authStore.canManageCheckoutRequests()) {
+              <a routerLink="/requests">{{ summary()?.pending_checkout_requests ?? 0 }} pending requests</a> ·
+            }
             <a routerLink="/hardware/audit/overdue">{{ summary()?.overdue_audits ?? 0 }} overdue audits</a> ·
             <a routerLink="/maintenances">{{ summary()?.active_maintenances ?? 0 }} maintenances</a>
           </p>

@@ -33,6 +33,11 @@ interface AccountAssetsPayload {
   licenses: Array<Record<string, unknown>>;
   accessories: Array<Record<string, unknown>>;
   consumables: Array<Record<string, unknown>>;
+  pagination?: {
+    current_page: number;
+    total_pages: number;
+    totals: Record<'assets' | 'licenses' | 'accessories' | 'consumables', number>;
+  };
 }
 
 const ACCOUNT_SHARED_STYLES = `
@@ -138,10 +143,8 @@ const ACCOUNT_SHARED_STYLES = `
     @if (profile(); as p) {
       <div class="k-card section-card">
         <h2>Identity Details ({{ p.username }})</h2>
-        @if (!p.profile_edit && !auth.isSuperUser()) {
-          <p class="notice-banner">
-            Self-service profile changes are locked by instance policy; you can still update your password below if enabled.
-          </p>
+        @if (!canEditProfile(p)) {
+          <p class="notice-banner">Self-service profile and password changes are disabled.</p>
         }
         <form (ngSubmit)="saveProfile()" class="form-grid">
           <label class="field">
@@ -177,28 +180,28 @@ const ACCOUNT_SHARED_STYLES = `
         </form>
       </div>
 
-      <div class="k-card section-card">
-        <h2>Change Password</h2>
-        <form (ngSubmit)="savePassword()" class="form-grid">
-          @if (p.has_local_password) {
+      @if (p.has_local_password && canEditProfile(p)) {
+        <div class="k-card section-card">
+          <h2>Change Password</h2>
+          <form (ngSubmit)="savePassword()" class="form-grid">
             <label class="field">
               <span class="k-label">Current password</span>
-              <input class="k-input" name="current_password" type="password" [(ngModel)]="currentPassword" />
+              <input class="k-input" name="current_password" type="password" [(ngModel)]="currentPassword" autocomplete="current-password" />
             </label>
-          }
-          <label class="field">
-            <span class="k-label">New password (min {{ p.pwd_secure_min }} chars)</span>
-            <input class="k-input" name="new_password" type="password" [(ngModel)]="newPassword" />
-          </label>
-          <label class="field">
-            <span class="k-label">Confirm new password</span>
-            <input class="k-input" name="confirm_password" type="password" [(ngModel)]="confirmPassword" />
-          </label>
-          <div style="grid-column: 1 / -1;">
-            <button type="submit" class="k-btn k-btn-secondary" [disabled]="busy()">Update Password</button>
-          </div>
-        </form>
-      </div>
+            <label class="field">
+              <span class="k-label">New password (min {{ p.pwd_secure_min }} chars)</span>
+              <input class="k-input" name="new_password" type="password" [(ngModel)]="newPassword" autocomplete="new-password" />
+            </label>
+            <label class="field">
+              <span class="k-label">Confirm new password</span>
+              <input class="k-input" name="confirm_password" type="password" [(ngModel)]="confirmPassword" autocomplete="new-password" />
+            </label>
+            <div style="grid-column: 1 / -1;">
+              <button type="submit" class="k-btn k-btn-secondary" [disabled]="busy()">Update Password</button>
+            </div>
+          </form>
+        </div>
+      }
 
       <div class="k-card section-card">
         <h2>Two-Factor Authentication (TOTP)</h2>
@@ -318,7 +321,7 @@ export class AccountProfileComponent implements OnInit {
 
   async savePassword(): Promise<void> {
     const current = this.profile();
-    if (!current) return;
+    if (!current?.has_local_password || !this.canEditProfile(current) || this.busy()) return;
     if (this.newPassword.length < current.pwd_secure_min) {
       this.error.set(`Password must be at least ${current.pwd_secure_min} characters`);
       return;
@@ -332,7 +335,7 @@ export class AccountProfileComponent implements OnInit {
     this.message.set('');
     try {
       const response = await this.api.write<AccountProfilePayload>('PATCH', '/account/profile', {
-        ...(current.has_local_password ? { current_password: this.currentPassword } : {}),
+        current_password: this.currentPassword,
         new_password: this.newPassword,
       });
       if (response.payload) {
@@ -403,8 +406,21 @@ export class AccountProfileComponent implements OnInit {
     }
 
     @if (summary(); as data) {
+      @if (data.pagination; as pagination) {
+        @if (pagination.total_pages > 1 || pagination.current_page > 1) {
+          <nav aria-label="Assigned inventory pages" class="account-tabs">
+            <button type="button" class="k-btn k-btn-secondary"
+              [disabled]="loading() || pagination.current_page <= 1"
+              (click)="load(pagination.current_page - 1)">Previous</button>
+            <span role="status">Page {{ pagination.current_page }} of {{ pagination.total_pages || 1 }}</span>
+            <button type="button" class="k-btn k-btn-secondary"
+              [disabled]="loading() || pagination.current_page >= pagination.total_pages"
+              (click)="load(pagination.current_page + 1)">Next</button>
+          </nav>
+        }
+      }
       <div class="k-card section-card">
-        <h2>Hardware Assets ({{ data.assets.length }})</h2>
+        <h2>Hardware Assets ({{ data.pagination?.totals?.assets ?? data.assets.length }})</h2>
         @if (data.assets.length) {
           <table class="data-table">
             <thead>
@@ -422,13 +438,15 @@ export class AccountProfileComponent implements OnInit {
               }
             </tbody>
           </table>
+        } @else if (data.pagination?.totals?.assets) {
+          <p class="k-helper">No items in this category on this page.</p>
         } @else {
           <p class="k-helper">No hardware assets currently checked out to you.</p>
         }
       </div>
 
       <div class="k-card section-card">
-        <h2>Software Licenses ({{ data.licenses.length }})</h2>
+        <h2>Software Licenses ({{ data.pagination?.totals?.licenses ?? data.licenses.length }})</h2>
         @if (data.licenses.length) {
           <table class="data-table">
             <thead>
@@ -445,13 +463,15 @@ export class AccountProfileComponent implements OnInit {
               }
             </tbody>
           </table>
+        } @else if (data.pagination?.totals?.licenses) {
+          <p class="k-helper">No items in this category on this page.</p>
         } @else {
           <p class="k-helper">No license seats assigned to your account.</p>
         }
       </div>
 
       <div class="k-card section-card">
-        <h2>Accessories ({{ data.accessories.length }})</h2>
+        <h2>Accessories ({{ data.pagination?.totals?.accessories ?? data.accessories.length }})</h2>
         @if (data.accessories.length) {
           <table class="data-table">
             <thead>
@@ -467,13 +487,15 @@ export class AccountProfileComponent implements OnInit {
               }
             </tbody>
           </table>
+        } @else if (data.pagination?.totals?.accessories) {
+          <p class="k-helper">No items in this category on this page.</p>
         } @else {
           <p class="k-helper">No accessories assigned.</p>
         }
       </div>
 
       <div class="k-card section-card">
-        <h2>Consumables ({{ data.consumables.length }})</h2>
+        <h2>Consumables ({{ data.pagination?.totals?.consumables ?? data.consumables.length }})</h2>
         @if (data.consumables.length) {
           <table class="data-table">
             <thead>
@@ -489,6 +511,8 @@ export class AccountProfileComponent implements OnInit {
               }
             </tbody>
           </table>
+        } @else if (data.pagination?.totals?.consumables) {
+          <p class="k-helper">No items in this category on this page.</p>
         } @else {
           <p class="k-helper">No consumables issued to your account.</p>
         }
@@ -501,18 +525,34 @@ export class AccountAssetsComponent implements OnInit {
   private readonly api = inject(InventoryApi);
   readonly summary = signal<AccountAssetsPayload | null>(null);
   readonly error = signal('');
+  readonly loading = signal(false);
 
   ngOnInit(): void {
     void this.load();
   }
 
-  async load(): Promise<void> {
+  async load(page = 1): Promise<void> {
+    if (this.loading()) return;
+    this.loading.set(true);
     this.error.set('');
     try {
-      const response = await this.api.read<StandardApiResponse<AccountAssetsPayload>>('/account/assets');
-      this.summary.set(response.payload ?? null);
+      let requestedPage = page;
+      while (true) {
+        const { payload } = await this.api.read<StandardApiResponse<AccountAssetsPayload>>(
+          '/account/assets',
+          { page: requestedPage },
+        );
+        const lastPage = Math.max(1, payload?.pagination?.total_pages ?? requestedPage);
+        if (requestedPage <= lastPage) {
+          this.summary.set(payload);
+          break;
+        }
+        requestedPage = lastPage;
+      }
     } catch (error) {
       this.error.set(inventoryError(error));
+    } finally {
+      this.loading.set(false);
     }
   }
 }

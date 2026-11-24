@@ -86,8 +86,7 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
     requiredPermission: 'self.api',
     directPermission: true,
   },
-  { label: 'Checkout Requests', route: '/requests', section: 'operations',
-    requiredPermission: 'assets.checkout', directPermission: true },
+  { label: 'Checkout Requests', route: '/requests', section: 'operations' },
   { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import', directPermission: true },
   {
     label: 'Reports',
@@ -105,14 +104,24 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
 ];
 
 export function filterNavigationItems(store: AuthStore): NavItem[] {
-  return NAVIGATION_ITEMS.filter(
-    (item) => item.route === '/calendar'
-      ? store.isSuperUser() || store.isAdmin() || store.can('assets.view') || store.can('licenses.view') ||
-        store.can('users.view') || store.currentUser()?.keyPermissions?.['assets.checkout'] === true
-      : !item.requiredPermission || (item.directPermission
-      ? store.currentUser()?.isSuperUser === true || store.currentUser()?.keyPermissions?.[item.requiredPermission] === true
-      : store.can(item.requiredPermission)),
-  );
+  return NAVIGATION_ITEMS.filter((item) => {
+    if (item.route === '/requests') return store.canManageCheckoutRequests();
+    if (item.route === '/calendar') {
+      return (
+        store.isSuperUser() ||
+        store.isAdmin() ||
+        store.can('assets.view') ||
+        store.can('licenses.view') ||
+        store.can('users.view') ||
+        store.currentUser()?.keyPermissions?.['assets.checkout'] === true
+      );
+    }
+    if (!item.requiredPermission) return true;
+    return item.directPermission
+      ? store.currentUser()?.isSuperUser === true ||
+          store.currentUser()?.keyPermissions?.[item.requiredPermission] === true
+      : store.can(item.requiredPermission);
+  });
 }
 
 const SECTION_LABELS: Record<NavItem['section'], string> = {

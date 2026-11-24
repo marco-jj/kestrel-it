@@ -321,6 +321,7 @@ export class AuthService {
         oidcEnabled: settings.oidcEnabled,
         oidcIssuerUrl: settings.oidcIssuerUrl,
         oidcClientId: settings.oidcClientId,
+        loginNote: settings.loginNote,
       })
       .from(settings)
       .limit(1);
@@ -361,6 +362,7 @@ export class AuthService {
 
     return {
       local: true,
+      loginNote: settingsRow?.loginNote ?? null,
       twoFactorPolicy: settingsRow?.twoFactorEnabled ?? TWO_FACTOR_POLICY.DISABLED,
       sso: {
         enabled: ssoEnabled,

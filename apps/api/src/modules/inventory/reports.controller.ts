@@ -60,11 +60,13 @@ import {
   locations,
   models,
   reportTemplates,
+  settings,
   statusLabels,
   suppliers,
   users,
 } from '../../db/schema/index.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
+import { CheckoutRequestsService } from './checkout-requests.service.js';
 import { depreciationValue, moneyInCents } from './depreciation.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
 import { HardwareService, assetStatus } from './hardware.service.js';
@@ -149,6 +151,7 @@ export class ReportsController {
     @Inject(FmcsScopeService) private readonly fmcs: FmcsScopeService,
     @Inject(HardwareService) private readonly hardware: HardwareService,
     @Inject(CheckoutAcceptancesService) private readonly acceptances: CheckoutAcceptancesService,
+    @Inject(CheckoutRequestsService) private readonly requests: CheckoutRequestsService,
   ) {}
 
   private access(user: AuthenticatedUserContext, type: ReportType, scoped?: string) {
@@ -538,7 +541,18 @@ export class ReportsController {
       const bucket = assetStatus(row.asset, row.status);
       statusBuckets[bucket] = (statusBuckets[bucket] ?? 0) + 1;
     }
-    const [[licenseTotals], [accessoryTotals], [consumableTotals], [componentTotals], [myAcceptances], [myRequests], [pendingQueue], [overdueAudits], [activeMaint]] =
+    const [
+      [licenseTotals],
+      [accessoryTotals],
+      [consumableTotals],
+      [componentTotals],
+      [myAcceptances],
+      [myRequests],
+      pendingQueue,
+      [overdueAudits],
+      [activeMaint],
+      [branding],
+    ] =
       await Promise.all([
         canLicenses
           ? this.db.execute<{ total: number }>(
@@ -568,12 +582,7 @@ export class ReportsController {
           sql`select count(*)::int as total from ${checkoutRequests}
             where deleted_at is null and state = 'pending' and user_id = ${user.id}`,
         ),
-        permitsKey(user, 'assets.checkout')
-          ? this.db.execute<{ total: number }>(
-              sql`select count(*)::int as total from ${checkoutRequests}
-                where deleted_at is null and state = 'pending'`,
-            )
-          : Promise.resolve([{ total: 0 }]),
+        this.requests.staffPendingCount(user, scope),
         permitsKey(user, 'assets.audit')
           ? this.db.execute<{ total: number }>(
               sql`select count(*)::int as total from ${assets}
@@ -587,8 +596,14 @@ export class ReportsController {
                 where ${assetMaintenances.deletedAt} is null and ${assetMaintenances.completedAt} is null and ${this.hardware.visible(scope)}`,
             )
           : Promise.resolve([{ total: 0 }]),
+        this.db
+          .select({ dashboardMessage: settings.dashboardMessage })
+          .from(settings)
+          .orderBy(settings.id)
+          .limit(1),
       ]);
     return success({
+      dashboard_message: branding?.dashboardMessage ?? null,
       assets_total: assetRows.length,
       status_breakdown: statusBuckets,
       licenses_total: licenseTotals?.total ?? 0,
@@ -597,7 +612,7 @@ export class ReportsController {
       components_total: componentTotals?.total ?? 0,
       my_pending_acceptances: myAcceptances?.total ?? 0,
       my_pending_requests: myRequests?.total ?? 0,
-      pending_checkout_requests: pendingQueue?.total ?? 0,
+      pending_checkout_requests: pendingQueue,
       overdue_audits: overdueAudits?.total ?? 0,
       active_maintenances: activeMaint?.total ?? 0,
     });

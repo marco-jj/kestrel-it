@@ -359,6 +359,21 @@ export class InventorySubresourcesService {
       licenses: assignedLicenses.rows,
       accessories: assignedAccessories.rows,
       consumables: assignedConsumables.rows,
+      pagination: {
+        current_page: assignedAssets.current_page,
+        total_pages: Math.max(
+          assignedAssets.total_pages,
+          assignedLicenses.total_pages,
+          assignedAccessories.total_pages,
+          assignedConsumables.total_pages,
+        ),
+        totals: {
+          assets: assignedAssets.total,
+          licenses: assignedLicenses.total,
+          accessories: assignedAccessories.total,
+          consumables: assignedConsumables.total,
+        },
+      },
     });
   }
 

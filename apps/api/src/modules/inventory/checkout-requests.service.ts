@@ -7,13 +7,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  CHECKOUT_REQUEST_PERMISSIONS,
   RequestableInputSchema,
   type AuthenticatedUserContext,
   type DatatableQuery,
-  type PermissionKey,
   type SecondaryResource,
 } from '@kestrel-it/shared';
-import { and, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard.js';
 import type { EnvConfig } from '../../config/env.schema.js';
@@ -47,29 +48,14 @@ import {
 import { SecondaryAssignmentsService } from './secondary-assignments.service.js';
 import { SecondaryCatalogService, secondaryTables, usedStock } from './secondary-catalog.service.js';
 
-export type RequestableKind = 'asset' | 'model' | 'license' | 'accessory' | 'consumable' | 'component';
+export type RequestableKind = keyof typeof CHECKOUT_REQUEST_PERMISSIONS;
 type CheckoutRequest = typeof checkoutRequests.$inferSelect;
-const ALL_REQUESTABLE_KINDS: readonly RequestableKind[] = [
-  'asset',
-  'model',
-  'license',
-  'accessory',
-  'consumable',
-  'component',
-];
+const ALL_REQUESTABLE_KINDS = Object.keys(CHECKOUT_REQUEST_PERMISSIONS) as RequestableKind[];
 const SECONDARY_REQUEST_MAP: Partial<Record<RequestableKind, SecondaryResource>> = {
   license: 'licenses',
   accessory: 'accessories',
   consumable: 'consumables',
   component: 'components',
-};
-const CHECKOUT_PERM_MAP: Record<RequestableKind, PermissionKey> = {
-  asset: 'assets.checkout',
-  model: 'assets.checkout',
-  license: 'licenses.checkout',
-  accessory: 'accessories.checkout',
-  consumable: 'consumables.checkout',
-  component: 'components.checkout',
 };
 
 @Injectable()
@@ -241,14 +227,20 @@ export class CheckoutRequestsService {
     return and(isNull(checkoutRequests.deletedAt), eq(checkoutRequests.state, 'pending'));
   }
 
-  async list(query: DatatableQuery, user: AuthenticatedUserContext, url: string, staff = false) {
-    const allowedKinds = staff
-      ? ALL_REQUESTABLE_KINDS.filter((kind) => permitsKey(user, CHECKOUT_PERM_MAP[kind]))
-      : ALL_REQUESTABLE_KINDS;
-    if (staff && allowedKinds.length === 0)
-      throw new ForbiddenException('Checkout permission required');
-    const scope = await this.fmcs.resolve(user);
-    const supported = inArray(checkoutRequests.requestableType, [...allowedKinds]);
+  private staffKinds(user: AuthenticatedUserContext) {
+    return ALL_REQUESTABLE_KINDS.filter((kind) =>
+      permitsKey(user, CHECKOUT_REQUEST_PERMISSIONS[kind]),
+    );
+  }
+
+  private requestFilters(
+    user: AuthenticatedUserContext,
+    scope: FmcsScope,
+    allowedKinds: RequestableKind[],
+    staff: boolean,
+    search?: string,
+  ) {
+    const supported = inArray(checkoutRequests.requestableType, allowedKinds);
     const visibility = or(
       and(
         eq(checkoutRequests.requestableType, 'asset'),
@@ -281,7 +273,7 @@ export class CheckoutRequestsService {
         this.catalogService.visible('components', scope),
       ),
     );
-    const filters = and(
+    return and(
       supported,
       isNull(checkoutRequests.deletedAt),
       visibility,
@@ -293,19 +285,22 @@ export class CheckoutRequestsService {
             eq(users.activated, true),
           )
         : eq(checkoutRequests.userId, user.id),
-      query.search
+      search
         ? or(
-            contains(checkoutRequests.notes, query.search),
-            contains(assets.assetTag, query.search),
-            contains(assets.name, query.search),
-            contains(models.name, query.search),
-            contains(licenses.name, query.search),
-            contains(accessories.name, query.search),
-            contains(consumables.name, query.search),
-            contains(components.name, query.search),
+            contains(checkoutRequests.notes, search),
+            contains(assets.assetTag, search),
+            contains(assets.name, search),
+            contains(models.name, search),
+            contains(licenses.name, search),
+            contains(accessories.name, search),
+            contains(consumables.name, search),
+            contains(components.name, search),
           )
         : undefined,
     );
+  }
+
+  private joinRequestItems<T extends PgSelect>(query: T) {
     const assetJoin = and(
       eq(checkoutRequests.requestableType, 'asset'),
       eq(checkoutRequests.requestableId, assets.id),
@@ -330,38 +325,54 @@ export class CheckoutRequestsService {
       eq(checkoutRequests.requestableType, 'component'),
       eq(checkoutRequests.requestableId, components.id),
     );
+    return query
+      .innerJoin(users, eq(checkoutRequests.userId, users.id))
+      .leftJoin(assets, assetJoin)
+      .leftJoin(models, modelJoin)
+      .leftJoin(licenses, licenseJoin)
+      .leftJoin(accessories, accessoryJoin)
+      .leftJoin(consumables, consumableJoin)
+      .leftJoin(components, componentJoin);
+  }
+
+  async staffPendingCount(user: AuthenticatedUserContext, scope: FmcsScope) {
+    const allowedKinds = this.staffKinds(user);
+    if (allowedKinds.length === 0) return 0;
+    const [total] = await this.countRequests(this.requestFilters(user, scope, allowedKinds, true));
+    return total!.value;
+  }
+
+  private countRequests(filters: SQL | undefined) {
+    return this.joinRequestItems(
+      this.db.select({ value: count() }).from(checkoutRequests).$dynamic(),
+    ).where(filters);
+  }
+
+  async list(query: DatatableQuery, user: AuthenticatedUserContext, url: string, staff = false) {
+    const allowedKinds = staff ? this.staffKinds(user) : ALL_REQUESTABLE_KINDS;
+    if (staff && allowedKinds.length === 0) {
+      throw new ForbiddenException('Checkout permission required');
+    }
+    const scope = await this.fmcs.resolve(user);
+    const filters = this.requestFilters(user, scope, allowedKinds, staff, query.search);
     const [[total], rows] = await Promise.all([
-      this.db
-        .select({ value: count() })
-        .from(checkoutRequests)
-        .innerJoin(users, eq(checkoutRequests.userId, users.id))
-        .leftJoin(assets, assetJoin)
-        .leftJoin(models, modelJoin)
-        .leftJoin(licenses, licenseJoin)
-        .leftJoin(accessories, accessoryJoin)
-        .leftJoin(consumables, consumableJoin)
-        .leftJoin(components, componentJoin)
-        .where(filters),
-      this.db
-        .select({
-          request: checkoutRequests,
-          tag: assets.assetTag,
-          assetName: assets.name,
-          modelName: models.name,
-          licenseName: licenses.name,
-          accessoryName: accessories.name,
-          consumableName: consumables.name,
-          componentName: components.name,
-          username: users.username,
-        })
-        .from(checkoutRequests)
-        .innerJoin(users, eq(checkoutRequests.userId, users.id))
-        .leftJoin(assets, assetJoin)
-        .leftJoin(models, modelJoin)
-        .leftJoin(licenses, licenseJoin)
-        .leftJoin(accessories, accessoryJoin)
-        .leftJoin(consumables, consumableJoin)
-        .leftJoin(components, componentJoin)
+      this.countRequests(filters),
+      this.joinRequestItems(
+        this.db
+          .select({
+            request: checkoutRequests,
+            tag: assets.assetTag,
+            assetName: assets.name,
+            modelName: models.name,
+            licenseName: licenses.name,
+            accessoryName: accessories.name,
+            consumableName: consumables.name,
+            componentName: components.name,
+            username: users.username,
+          })
+          .from(checkoutRequests)
+          .$dynamic(),
+      )
         .where(filters)
         .orderBy(desc(checkoutRequests.id))
         .limit(query.limit)
@@ -484,7 +495,7 @@ export class CheckoutRequestsService {
     if (row.state !== 'pending')
       throw new ConflictException('Only pending requests can be canceled');
     const type = this.kind(row);
-    if (staff && !permitsKey(user, CHECKOUT_PERM_MAP[type]))
+    if (staff && !permitsKey(user, CHECKOUT_REQUEST_PERMISSIONS[type]))
       throw new ForbiddenException('Checkout permission required');
     const scope = await this.fmcs.resolve(user, tx);
     const item = await this.item(tx, scope, type, row.requestableId, { includeDeletedModel: true });
@@ -517,7 +528,7 @@ export class CheckoutRequestsService {
       if (row.state !== 'pending')
         throw new ConflictException('Only pending requests can be fulfilled');
       const type = this.kind(row);
-      if (!permitsKey(user, CHECKOUT_PERM_MAP[type]))
+      if (!permitsKey(user, CHECKOUT_REQUEST_PERMISSIONS[type]))
         throw new ForbiddenException('Checkout permission required');
       const scope = await this.fmcs.resolve(user, tx);
       await this.item(tx, scope, type, row.requestableId);

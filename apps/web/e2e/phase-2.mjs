@@ -557,4 +557,108 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
       await page.getByRole('heading', { name: 'Login Attempts Audit' }).waitFor();
     },
   );
+
+  await t.test('shows scoped checkout navigation, all assigned pages, and branding notices', async () => {
+    const operatorName = 'component-operator-' + marker;
+    const operatorPassword = randomUUID();
+    const operator = await create('/users', {
+      username: operatorName,
+      activated: true,
+      password: operatorPassword,
+      permissions: { 'components.checkout': 1 },
+    });
+    const component = await create('/components', {
+      name: 'Requestable component ' + marker,
+      qty: 1,
+      requestable: true,
+    });
+    const request = await create('/account/request/components/' + component.id, {});
+    const patch = (body) => api(page, 'PATCH', '/settings', body);
+    const settings = await read('/settings');
+    const loginNote = 'Sign-in maintenance notice ' + marker;
+    const dashboardMessage = 'Dashboard maintenance notice ' + marker;
+    const noAcceptance = await create('/categories', {
+      name: 'Self-service category ' + marker,
+      category_type: 'asset',
+    });
+    const selfServiceModel = await create('/models', {
+      name: 'Self-service model ' + marker,
+      category_id: noAcceptance.id,
+    });
+    const tag = (index) => 'SELF-' + marker + '-' + String(index).padStart(2, '0');
+    for (let index = 1; index <= 51; index += 1) {
+      const assigned = await create('/hardware', {
+        name: 'Self-service asset ' + marker,
+        status_id: status.id,
+        model_id: selfServiceModel.id,
+        asset_tag: tag(index),
+      });
+      await create('/hardware/' + assigned.id + '/checkout', {
+        target_type: 'user',
+        target_id: operator.id,
+      });
+    }
+
+    await patch({ profile_edit: false, login_note: loginNote, dashboard_message: dashboardMessage });
+    let operatorPage;
+    try {
+      operatorPage = await signIn(browser, operatorName, operatorPassword);
+      await operatorPage.getByText(dashboardMessage, { exact: true }).waitFor();
+      const queue = await api(operatorPage, 'GET', '/requests');
+      assert(queue.rows.some(({ id }) => id === request.id));
+      await operatorPage.getByRole('link', { name: queue.total + ' pending requests', exact: true }).waitFor();
+      await operatorPage.getByRole('link', { name: 'Checkout Requests', exact: true }).waitFor();
+      await operatorPage.keyboard.press('Control+k');
+      const palette = operatorPage.getByRole('dialog', { name: 'Global Command Palette' });
+      await palette.getByRole('textbox', { name: 'Command search' }).fill('Checkout Requests');
+      await palette.getByRole('option').filter({ hasText: 'Checkout Requests' }).click();
+      await operatorPage.getByRole('row').filter({ hasText: component.name }).waitFor();
+
+      await operatorPage.goto('/account/view-assets');
+      await operatorPage.getByRole('heading', { name: 'Hardware Assets (51)', exact: true }).waitFor();
+      const pagination = operatorPage.getByRole('navigation', { name: 'Assigned inventory pages' });
+      await pagination.getByText('Page 1 of 2', { exact: true }).waitFor();
+      assert.equal(await operatorPage.getByText(tag(51), { exact: true }).count(), 0);
+      await pagination.getByRole('button', { name: 'Next' }).click();
+      await pagination.getByText('Page 2 of 2', { exact: true }).waitFor();
+      await operatorPage.getByText(tag(51), { exact: true }).waitFor();
+      assert.equal(await pagination.getByRole('button', { name: 'Next' }).isDisabled(), true);
+      await pagination.getByRole('button', { name: 'Previous' }).click();
+      await pagination.getByText('Page 1 of 2', { exact: true }).waitFor();
+      await operatorPage.getByText(tag(1), { exact: true }).waitFor();
+
+      const [lastAsset] = (await read('/hardware?search=' + tag(51))).rows;
+      assert.equal(lastAsset.asset_tag, tag(51));
+      await create('/hardware/' + lastAsset.id + '/checkin', {});
+      await pagination.getByRole('button', { name: 'Next' }).click();
+      await operatorPage.getByRole('heading', { name: 'Hardware Assets (50)', exact: true }).waitFor();
+      await pagination.waitFor({ state: 'hidden' });
+      await operatorPage.getByText(tag(1), { exact: true }).waitFor();
+
+      await operatorPage.goto('/account/profile');
+      await operatorPage.getByText('Self-service profile and password changes are disabled.').waitFor();
+      assert.equal(await operatorPage.getByRole('button', { name: 'Update Password' }).count(), 0);
+      await patch({ profile_edit: true });
+      await operatorPage.reload();
+      await operatorPage.getByRole('button', { name: 'Update Password' }).waitFor();
+
+      const visitor = await browser.newContext({ baseURL });
+      try {
+        const login = await visitor.newPage();
+        await login.goto('/login');
+        await login.getByText(loginNote, { exact: true }).waitFor();
+        assert.equal(await login.getByText(dashboardMessage, { exact: true }).count(), 0);
+      } finally {
+        await visitor.close();
+      }
+    } finally {
+      await operatorPage?.context().close();
+      await patch({
+        profile_edit: settings.profile_edit,
+        login_note: settings.login_note,
+        dashboard_message: settings.dashboard_message,
+      });
+      await create('/account/requests/' + request.id + '/cancel', {});
+    }
+  });
 });

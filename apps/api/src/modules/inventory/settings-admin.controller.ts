@@ -291,6 +291,9 @@ export class SettingsAdminController {
       if (!row) throw new NotFoundException('User not found');
       let nextPasswordHash: string | undefined;
       if (dto.new_password) {
+        if (!row.password) {
+          throw new ForbiddenException('This account has no local password to change');
+        }
         const minLen = config?.pwdSecureMin ?? 10;
         if (dto.new_password.length < minLen) {
           throw new UnprocessableEntityException({
@@ -299,15 +302,13 @@ export class SettingsAdminController {
             payload: null,
           });
         }
-        if (row.password) {
-          const ok = await this.crypto.verifyPassword(dto.current_password ?? '', row.password);
-          if (!ok) {
-            throw new UnprocessableEntityException({
-              status: 'error',
-              messages: { current_password: ['Current password is incorrect'] },
-              payload: null,
-            });
-          }
+        const ok = await this.crypto.verifyPassword(dto.current_password ?? '', row.password);
+        if (!ok) {
+          throw new UnprocessableEntityException({
+            status: 'error',
+            messages: { current_password: ['Current password is incorrect'] },
+            payload: null,
+          });
         }
         nextPasswordHash = this.crypto.hashPassword(dto.new_password);
       }
