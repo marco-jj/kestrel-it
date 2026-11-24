@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "source_repository": "grokability/snipe-it@resources/assets/js",
+  "source_directory_sha256": "56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846",
+  "rea_static_evidence_id": "ev_95045c3076342242105a426899f074703dbd59c29eca5e63831849d33c9cfafd",
+  "rea_static_parent_evidence_id": "ev_a4d27357f2780d310dd042b4b4ea40aee308201bbe0395062c4b736cfb53137e",
+  "rea_runtime_evidence_id": "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8",
+  "rea_ledger_evidence_id": "ev_cdf9fa956bb744276953bca9bd0ae5becdc4551abcd3863fecc95ca63b8ef617",
+  "ledger_id": "rol_890a99c96bd2d8947ebe67cd780e167e4db0f1ff61dcff2323e757291da56da0",
+  "closure_digest": "8b93c290e49057af49be28343e0f66bc6feefe5b0d34a9350c54a29d0da46f04",
+  "coverage": {
+    "status": "complete"
+  },
+  "status": "open",
+  "summary": {
+    "total": 7,
+    "required": 7,
+    "verified": 0,
+    "required_open": 7,
+    "by_status": [
+      {
+        "key": "unowned",
+        "count": 0
+      },
+      {
+        "key": "characterized",
+        "count": 0
+      },
+      {
+        "key": "implemented",
+        "count": 7
+      },
+      {
+        "key": "verified",
+        "count": 0
+      },
+      {
+        "key": "contradicted",
+        "count": 0
+      },
+      {
+        "key": "blocked",
+        "count": 0
+      },
+      {
+        "key": "out-of-scope",
+        "count": 0
+      },
+      {
+        "key": "unknown",
+        "count": 0
+      }
+    ],
+    "by_application_layer": [
+      {
+        "key": "cli",
+        "count": 0
+      },
+      {
+        "key": "protocol",
+        "count": 0
+      },
+      {
+        "key": "electron",
+        "count": 0
+      },
+      {
+        "key": "persistence",
+        "count": 0
+      },
+      {
+        "key": "process",
+        "count": 0
+      },
+      {
+        "key": "runtime",
+        "count": 0
+      },
+      {
+        "key": "packaging",
+        "count": 0
+      },
+      {
+        "key": "native-abi",
+        "count": 0
+      },
+      {
+        "key": "application",
+        "count": 7
+      },
+      {
+        "key": "other",
+        "count": 0
+      }
+    ],
+    "by_evidence_authority": [
+      {
+        "key": "shipped-artifact",
+        "count": 7
+      },
+      {
+        "key": "controlled-replay",
+        "count": 0
+      },
+      {
+        "key": "historical-reference",
+        "count": 0
+      },
+      {
+        "key": "external-service",
+        "count": 0
+      },
+      {
+        "key": "analyst-inference",
+        "count": 0
+      }
+    ],
+    "by_source_state": [
+      {
+        "key": "candidate",
+        "count": 0
+      },
+      {
+        "key": "observed",
+        "count": 0
+      },
+      {
+        "key": "reviewed",
+        "count": 7
+      },
+      {
+        "key": "unknown",
+        "count": 0
+      }
+    ]
+  },
+  "reports": {
+    "missing_owner_obligation_ids": [],
+    "missing_verifier_obligation_ids": [],
+    "contradicted_obligation_ids": [],
+    "residual_unknown_ids": []
+  },
+  "vendored_files_superseded": [
+    {
+      "upstream_file": "signature_pad.js",
+      "kestrel_owner": "apps/web/src/app/features/inventory/acceptance-page.component.ts",
+      "notes": "HTML5 canvas EULA signature integrated natively in AcceptancePageComponent and verified server-side"
+    },
+    {
+      "upstream_file": "FileSaver.min.js",
+      "kestrel_owner": "apps/web/src/app/features/inventory/inventory-files.component.ts",
+      "notes": "Replaced by native saveDownload(blob, name)"
+    },
+    {
+      "upstream_file": "jspdf-dejavu-fonts.js",
+      "kestrel_owner": "apps/api/src/modules/inventory/labels.controller.ts",
+      "notes": "PDFKit label and EULA generation moved server-side"
+    },
+    {
+      "upstream_file": "build-jspdf-dejavu-fonts.js",
+      "kestrel_owner": "apps/api/src/modules/inventory/acceptance-artifacts.ts",
+      "notes": "Build-time client PDF font bundle superseded by server-side PDF rendering"
+    }
+  ],
+  "obligations": [
+    {
+      "obligation_id": "obl.base64",
+      "title": "Client-side UTF-8 report export encoding",
+      "family": "ui",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "7b430af34ac441ee27866e288e6255718bd3e639b663288c9cc316c4e81ab650",
+        "application_node_id": "jag_node_e94c80f6005c76d5df03938bf3373d474ff6e8dd0a9feb19d675243d22001ab6",
+        "semantic_node_id": "jsrg_node_0750bab9caa7d035e7009298da761bac6d6e35674227f4bbce6c5808514289bd",
+        "location": "extensions/jquery.base64.js:7"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/features/inventory/reports-page.component.ts",
+        "symbol": "ReportsPageComponent",
+        "owner_sha256": "70d18a5e01f66395b0792008e7e380dadec584a483e651ffd6357cab1949224f"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "ReportQuerySchema",
+        "domain_type": "ReportType"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    },
+    {
+      "obligation_id": "obl.calendar",
+      "title": "Unified FullCalendar maintenance & checkout schedule",
+      "family": "api",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "b53a433289aeef11179c2716a7887f0b5da54a47f14c8ab1fa671095e57a3257",
+        "application_node_id": "jag_node_c1c8aa3cffe2c9ce05110a1a426a74271e07b5b1a44e5d88d08d215da894ac8a",
+        "semantic_node_id": "jsrg_node_01ecf79fc2158a0f8313be936b5938c08e12485731e33cd2c33693d7e4a29ac1",
+        "location": "snipeit-calendar.js:1"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/features/inventory/inventory-calendar.component.ts",
+        "symbol": "InventoryCalendarComponent",
+        "owner_sha256": "5fcea78e4e50d4d435105b798a312835665d215ab3dc69beaceb0cb07accc546"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "CalendarQuerySchema",
+        "domain_type": "CalendarEventDto"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    },
+    {
+      "obligation_id": "obl.dragtable",
+      "title": "Interactive column sorting & table state persistence",
+      "family": "ui",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "2315225ebc227323581f702fec411e669a645c5c62b9fae453503e1dd1d38416",
+        "application_node_id": "jag_node_adba871b0ac4a0b319f28029a4545751eeb06606429249ecf3c5838ef11e5837",
+        "semantic_node_id": "jsrg_node_00918c9a59301bbbf889733e349193d20efeb776300be425b568a83dc5e5c744",
+        "location": "dragtable.js:1"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/shared/ui/data-grid.component.ts",
+        "symbol": "KestrelDataGridComponent",
+        "owner_sha256": "203970fdc48af4031b78755dc682e2dd7ded666d7e43a886413af06a5fb7807d"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "DatatableQuerySchema",
+        "domain_type": "DataGridRow"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    },
+    {
+      "obligation_id": "obl.main_ui",
+      "title": "Operator asset workspace & global interactions",
+      "family": "ui",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "5eac69c34887e1a65ee1fd114a472e75c09bbba7050b71ef114153b4bac56375",
+        "application_node_id": "jag_node_56c3f6040c6725fc04997ff22aaaefdc3b95fc4fe7dbff5e593fb9ca7dd2517b",
+        "semantic_node_id": "jsrg_node_00213949237027d87d0fe08084d8d888b9c7398956775f0a3d74a0520d0283ca",
+        "location": "snipeit.js:1460"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/features/inventory/hardware-page.component.ts",
+        "symbol": "HardwarePageComponent",
+        "owner_sha256": "a4d17de1d82bc878854cec059cd3b6807ab637bc80b55d8acbe11e2f21de35e9"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "HardwareQuerySchema",
+        "domain_type": "Hardware"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    },
+    {
+      "obligation_id": "obl.modals",
+      "title": "Dynamic modal & slide-drawer form host",
+      "family": "ui",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "8048906ef2e601bcfac661db67572e1dcdfc00478581c5aeaab42d74986589fb",
+        "application_node_id": "jag_node_98dfb1c865bc0be30cc3deb92fca83912ea7a7f1df5a74ee9a43ce67e93fd750",
+        "semantic_node_id": "jsrg_node_001c97cf51f292ce0ce66b979cb32560ed7482c691c9baf90ef8b4a8de53ccd7",
+        "location": "snipeit_modals.js:203"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/shared/ui/slide-drawer.component.ts",
+        "symbol": "KestrelSlideDrawerComponent",
+        "owner_sha256": "6d68dbb14d940b2181098fd4edaa4ce40dfc5072a1211eb88db50f062a3aa746"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "SelectlistQuerySchema",
+        "domain_type": "SelectlistOption"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    },
+    {
+      "obligation_id": "obl.pwgen",
+      "title": "Directory user password generator extension",
+      "family": "ui",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "a67a80afbd92cd9210ba14fb4ba6d69b7f150e8508bfcb747cb11c465cfd2da1",
+        "application_node_id": "jag_node_b0af1d130cd9d8002ab175b8cf4a9e951937bd0ee30ed79ff34293634d853b98",
+        "semantic_node_id": "jsrg_node_0e185fc5e63c723a3e5bbb4ee2ed89f50394e52d34e0174309caf20f49f971ff",
+        "location": "extensions/pGenerator.jquery.js:175"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/features/inventory/directory-page.component.ts",
+        "symbol": "DirectoryPageComponent",
+        "owner_sha256": "019992f7532bcf6b89b053bf8743b81e575d1d8cd48374d00fe6c9ea1b30bfc7"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "InventoryBulkSchema",
+        "domain_type": "CoreInventoryResource"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    },
+    {
+      "obligation_id": "obl.reorder_cols",
+      "title": "Column and fieldset ordering extension",
+      "family": "ui",
+      "status": "implemented",
+      "target": {
+        "artifact_sha256": "4b6248de05cd5eab2f60de540f676221e384cd0465a3db66cbab1102addc54d3",
+        "application_node_id": "jag_node_1965282eaf87db08068a37dc6ff46f41e3cda6d05c0dccff2a239d494187e8af",
+        "semantic_node_id": "jsrg_node_003b3d101408d91a54710535ed64ea8e0c587a372af8cb7b73ff70d39929b1dd",
+        "location": "bootstrap-table-reorder-columns.js:2060"
+      },
+      "owner": {
+        "module_path": "apps/web/src/app/features/inventory/custom-fields-page.component.ts",
+        "symbol": "CustomFieldsPageComponent",
+        "owner_sha256": "c4663c6179ea81a028e3ab57e2da54f6a70398e16ffdc8ef5b362b0cd0508ef5"
+      },
+      "parser_type": {
+        "parser": "zod",
+        "schema": "CustomFieldOrderSchema",
+        "domain_type": "CustomFieldFormMode"
+      },
+      "diagnostics": [
+        {
+          "code": "inapplicable-fixture-proof",
+          "detail": "positive fixture proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "inapplicable-verifier-proof",
+          "detail": "Verifier proof qualification: unrecognized-proof."
+        },
+        {
+          "code": "static-only",
+          "detail": "No static authority characterizes the original finite behavior."
+        },
+        {
+          "code": "weak-original-case-authority",
+          "detail": "Original positive behavior lacks static Evidence."
+        }
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { InventoryFilesComponent, saveDownload } from './inventory-files.component.js';
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import {
   FormControl,
@@ -7,7 +8,7 @@ import {
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import type { InventoryCustomField } from '@kestrel-it/shared';
 import { AuthStore } from '../../core/auth/auth.store.js';
 import {
@@ -25,6 +26,8 @@ import { field, permissionFor, reference, type InventoryField } from './director
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import { InventoryFormFieldsComponent } from './inventory-form-fields.component.js';
 
+import { AssetAuditFormComponent } from './asset-audit-form.component.js';
+import { OrderItemsComponent } from './order-items.component.js';
 import { AssetLifecycleComponent } from './asset-lifecycle.component.js';
 
 const modelFields: InventoryField[] = [
@@ -91,6 +94,10 @@ type AssetFormRecord = DataGridRow & {
     InventoryFormFieldsComponent,
     CustomFieldFormSectionComponent,
     AssetLifecycleComponent,
+    AssetAuditFormComponent,
+    OrderItemsComponent,
+    InventoryFilesComponent,
+    RouterLink,
   ],
   template: `
     <header class="inventory-header">
@@ -180,6 +187,15 @@ type AssetFormRecord = DataGridRow & {
     @if (message()) {
       <p role="status">{{ message() }}</p>
     }
+    @if (isHardware && canAudit() && !deleted()) {
+      <div class="toolbar">
+        <a class="k-btn k-btn-secondary" routerLink="/hardware/audit/due">Audits due</a>
+        <a class="k-btn k-btn-secondary" routerLink="/hardware/audit/overdue">Overdue audits</a>
+      </div>
+    }
+    @if (isHardware && !deleted()) {
+      <button class="k-btn k-btn-secondary" [disabled]="!grid()?.selectedIds()?.size" (click)="printSelected()">Print selected labels</button>
+    }
     <kestrel-data-grid
       [columns]="columns"
       [rows]="rows()"
@@ -187,7 +203,8 @@ type AssetFormRecord = DataGridRow & {
       [page]="page()"
       [loading]="loading()"
       [creatable]="can('create') && !deleted()"
-      [selectable]="isHardware && (can('edit') || can('delete'))"
+      [selectable]="isHardware && (!deleted() || can('delete'))"
+      [bulkAudit]="isHardware && !deleted() && canAudit()"
       [bulkEdit]="!deleted() && can('edit')"
       [bulkDelete]="!deleted() && can('delete')"
       [bulkRestore]="deleted() && can('delete')"
@@ -198,6 +215,11 @@ type AssetFormRecord = DataGridRow & {
       (sortChanged)="sort = $event.sort; order = $event.order; load()"
       (pageChanged)="page.set($event); load()"
     />
+    <kestrel-slide-drawer [open]="audit() !== null" title="Audit assets" (closed)="auditClosed()">
+      @if (audit(); as job) {
+        <kestrel-asset-audit-form [asset]="job.asset" [ids]="job.ids" (saved)="auditSaved($event)" (closed)="auditClosed()" />
+      }
+    </kestrel-slide-drawer>
     <kestrel-slide-drawer
       [open]="drawer()"
       [title]="drawerTitle()"
@@ -207,6 +229,54 @@ type AssetFormRecord = DataGridRow & {
       @if (drawer()) {
         @switch (mode()) {
           @case ('view') {
+            <div class="toolbar">
+              <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('overview')">Overview</button>
+              <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('orders')">Orders</button>
+              @if (isHardware) {
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('licenses')">Licenses</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('components')">Components</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('accessories')">Accessories</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('maintenances')">Maintenances</button>
+              }
+              @if (canReadFiles()) {
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('files')">Files</button>
+              }
+              @if (isHardware && detailTag()) {
+                <button type="button" class="k-btn k-btn-secondary" (click)="printTags([detailTag()])">Print label</button>
+              }
+            </div>
+            @if (detailTab() === 'files' && recordId()) {
+              <kestrel-inventory-files [resource]="isHardware ? 'hardware' : 'models'" [itemId]="recordId()!" [canWrite]="canWriteFiles()" />
+            } @else if (detailTab() === 'orders' && recordId()) {
+              <kestrel-order-items [itemId]="recordId()!" [itemType]="isHardware ? 'asset' : 'model'" />
+            } @else if (detailTab() === 'licenses' || detailTab() === 'components' || detailTab() === 'accessories' || detailTab() === 'maintenances') {
+              @if (detailSubLoading()) {
+                <p role="status">Loading {{ detailTab() }}…</p>
+              } @else if (detailSubRows().length) {
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name / Title</th>
+                        <th>Key / Type / Qty</th>
+                        <th>Date / Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (sub of detailSubRows(); track $index) {
+                        <tr>
+                          <td>{{ subCell(sub, ['name', 'title']) }}</td>
+                          <td class="k-mono">{{ subCell(sub, ['serial', 'model_number', 'maintenance_type', 'assigned_qty', 'seat_id']) }}</td>
+                          <td>{{ subCell(sub, ['start_date', 'assigned_at', 'note', 'notes']) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <p>No {{ detailTab() }} linked to this asset.</p>
+              }
+            } @else {
             <dl>
               @for (item of details(); track item.label) {
                 <dt>{{ item.label }}</dt>
@@ -216,11 +286,16 @@ type AssetFormRecord = DataGridRow & {
             <h2>History</h2>
             <ul>
               @for (item of history(); track item.id) {
-                <li>{{ item['action_type'] }} · {{ display(item['action_date']) }}</li>
+                <li>{{ item['action_type'] }} · {{ display(item['action_date']) }}
+                  @if (item['has_photo']) {
+                    <button type="button" class="k-btn k-btn-secondary" (click)="downloadAudit(item)">Download photo</button>
+                  }
+                </li>
               } @empty {
                 <li>No activity recorded.</li>
               }
             </ul>
+            }
           }
           @case ('delete') {
             <p>Delete {{ ids().length }} {{ ids().length === 1 ? 'record' : 'records' }}?</p>
@@ -360,8 +435,9 @@ type AssetFormRecord = DataGridRow & {
 export class HardwarePageComponent implements OnInit {
   private readonly api = inject(InventoryApi);
   private readonly auth = inject(AuthStore);
-  private readonly grid = viewChild(KestrelDataGridComponent);
-  readonly isHardware = inject(ActivatedRoute).snapshot.routeConfig?.path === 'hardware';
+  readonly grid = viewChild(KestrelDataGridComponent);
+  private readonly route = inject(ActivatedRoute);
+  readonly isHardware = this.route.snapshot.routeConfig?.path?.startsWith('hardware') === true;
   readonly path = this.isHardware ? '/hardware' : '/models';
   readonly permission = this.isHardware ? 'assets' : 'models';
   readonly columns: DataGridColumn[] = this.isHardware
@@ -393,6 +469,11 @@ export class HardwarePageComponent implements OnInit {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly drawer = signal(false);
+  readonly detailTab = signal<'overview'|'orders'|'files'|'licenses'|'components'|'accessories'|'maintenances'>('overview');
+  readonly detailSubRows = signal<DataGridRow[]>([]);
+  readonly detailSubLoading = signal(false);
+  readonly detailTag = signal('');
+  readonly audit = signal<{ asset?: DataGridRow; ids: number[] } | null>(null);
   readonly mode = signal<DrawerMode>('view');
   readonly drawerTitle = signal('');
   readonly error = signal('');
@@ -422,9 +503,85 @@ export class HardwarePageComponent implements OnInit {
   private formSequence = 0;
   private fieldSequence = 0;
 
+  canReadFiles() {
+    return this.isHardware ? this.auth.can('assets.files') : this.auth.can('assets.view') || this.canWriteFiles();
+  }
+
+  canWriteFiles() {
+    return this.isHardware ? this.auth.can('assets.files') : this.auth.isSuperUser() ||
+      this.auth.currentUser()?.keyPermissions?.['models.files'] === true;
+  }
+
+  private async openTag(tag: string) {
+    try {
+      const row = await this.api.read<DataGridRow>(`/hardware/bytag/${encodeURIComponent(tag)}`);
+      if (typeof row.id === 'number') await this.open('view',row.id,row);
+    } catch (error) { this.error.set(inventoryError(error)); }
+  }
+
+  async printSelected() {
+    const selected = this.grid()?.selectedIds() ?? new Set();
+    const tags = this.rows().filter((row) => row.id !== undefined && selected.has(row.id))
+      .map((row) => String(row['asset_tag'] ?? '')).filter(Boolean);
+    await this.printTags(tags);
+  }
+
+  async printTags(tags: string[]) {
+    if (!tags.length) return;
+    try {
+      saveDownload(await this.api.postBlob('/hardware/labels',{ asset_tags:tags,format:'pdf' }),'asset-labels.pdf');
+    } catch (error) { this.error.set(inventoryError(error)); }
+  }
+
   ngOnInit(): void {
+    const routeAction = this.route.snapshot.data['routeAction'];
+    if (routeAction === 'bulk-checkout') {
+      this.applied = { status: 'deployable' };
+      this.message.set('Showing deployable assets. Select Check out on an asset row.');
+    }
     void this.load();
     if (this.isHardware) void this.loadSearches();
+    const tag = this.route.snapshot.paramMap.get('tag');
+    const detail = Number(this.route.snapshot.paramMap.get('id') ?? this.route.snapshot.queryParamMap.get('detail'));
+    if (routeAction === 'create') void this.open('edit');
+    if (tag) void this.openTag(tag);
+    if (detail > 0) void this.open('view', detail);
+  }
+
+  async selectDetailTab(
+    tab: 'overview'|'orders'|'files'|'licenses'|'components'|'accessories'|'maintenances',
+  ) {
+    this.detailTab.set(tab);
+    const id = this.recordId();
+    if (!id || tab === 'overview' || tab === 'orders' || tab === 'files') return;
+    this.detailSubRows.set([]);
+    this.detailSubLoading.set(true);
+    try {
+      const path =
+        tab === 'licenses'
+          ? `/hardware/${id}/licenses`
+          : tab === 'components'
+            ? `/hardware/${id}/assigned/components`
+            : tab === 'accessories'
+              ? `/hardware/${id}/assigned/accessories`
+              : '/maintenances';
+      const query: Record<string, string | number> =
+        tab === 'maintenances' ? { asset_id: id, limit: 50 } : { limit: 50 };
+      const result = await this.api.records(path, query);
+      this.detailSubRows.set(result.rows ?? []);
+    } catch (error) {
+      this.error.set(inventoryError(error));
+    } finally {
+      this.detailSubLoading.set(false);
+    }
+  }
+
+  subCell(row: DataGridRow, keys: string[]): string {
+    for (const key of keys) {
+      const val = row[key];
+      if (val !== null && val !== undefined && val !== '') return String(val);
+    }
+    return '—';
   }
 
   can(action: 'create' | 'edit' | 'delete'): boolean {
@@ -570,6 +727,9 @@ export class HardwarePageComponent implements OnInit {
     this.error.set('');
     this.message.set('');
     this.mode.set(mode);
+    this.detailTab.set('overview');
+    this.detailSubRows.set([]);
+    this.detailTag.set('');
     this.recordId.set(id ?? null);
     this.customFields.set([]);
     this.customValues.set({});
@@ -588,7 +748,13 @@ export class HardwarePageComponent implements OnInit {
       if (mode === 'view') {
         const recordFields = this.isHardware ? assetFields : modelFields;
         const custom = data['custom_fields'] as Record<string, { value: unknown }> | undefined;
+        this.detailTag.set(String(data['asset_tag'] ?? ''));
         this.details.set([
+          ...(this.isHardware ? [
+            { label: 'Book value', value: this.display(data['book_value']) },
+            { label: 'Last audit', value: this.display(data['last_audit_date']) },
+            { label: 'Next audit', value: this.display(data['next_audit_date']) },
+          ] : []),
           ...recordFields.map(({ key, label }) => ({ label, value: this.display(data[key]) })),
           ...Object.entries(custom ?? {}).map(([label, item]) => ({
             label,
@@ -733,6 +899,11 @@ export class HardwarePageComponent implements OnInit {
   act(event: { action: DataGridActionType; row: DataGridRow }): void {
     if (typeof event.row.id !== 'number') return;
     if (event.action === 'request' || event.action === 'cancel') return;
+    if (event.action === 'files') return;
+    if (event.action === 'audit') {
+      void this.openAudit(event.row.id);
+      return;
+    }
     const mode = event.action === 'update' ? 'edit' : event.action;
     if (mode === 'checkout' || mode === 'checkin') {
       this.lifecycle.set({ action: mode, row: event.row });
@@ -740,6 +911,39 @@ export class HardwarePageComponent implements OnInit {
     }
     this.ids.set([event.row.id]);
     void this.open(mode, event.row.id, event.row);
+  }
+
+  canAudit(): boolean {
+    return this.auth.isSuperUser() || this.auth.currentUser()?.keyPermissions?.['assets.audit'] === true;
+  }
+
+  async openAudit(id: number) {
+    try {
+      this.audit.set({ asset: await this.api.read<DataGridRow>(`/hardware/${id}/audit`), ids: [] });
+    } catch (error) { this.error.set(inventoryError(error)); }
+  }
+
+  auditClosed() {
+    this.audit.set(null);
+    this.grid()?.clearSelection();
+    void this.load();
+  }
+
+  auditSaved(message: string) {
+    this.message.set(message);
+    this.auditClosed();
+  }
+
+  async downloadAudit(row: DataGridRow) {
+    try {
+      const blob = await this.api.blob(`/hardware/${this.recordId()}/audits/${row.id}/photo`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audit-${row.id}.${blob.type === 'image/png' ? 'png' : 'jpg'}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { this.error.set(inventoryError(error)); }
   }
 
   canCheckin(): boolean {
@@ -769,6 +973,10 @@ export class HardwarePageComponent implements OnInit {
   bulk(event: { action: string; selectedIds: Array<number | string> }) {
     if (event.selectedIds.length > 100) {
       this.error.set('Select up to 100 assets for a bulk change.');
+      return;
+    }
+    if (event.action === 'bulk_audit') {
+      this.audit.set({ ids: event.selectedIds.map(Number) });
       return;
     }
     this.ids.set(event.selectedIds.map(Number));

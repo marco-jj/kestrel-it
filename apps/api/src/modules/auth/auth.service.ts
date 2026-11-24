@@ -63,6 +63,44 @@ interface OidcDiscoveryDoc {
   userinfo_endpoint?: string;
 }
 
+// Leave room in the 4 KiB cookie for JWT encoding, PKCE state, and cookie attributes.
+const MAX_SSO_REDIRECT_BYTES = 2048;
+
+export function sanitizeSsoRedirectPath(target: string | null | undefined): string {
+  if (typeof target !== 'string') {
+    return '/dashboard';
+  }
+  const trimmed = target.trim();
+  if (
+    !trimmed.startsWith('/') ||
+    trimmed.startsWith('//') ||
+    trimmed.includes('\\') ||
+    /[\x00-\x1f\x7f]/.test(trimmed)
+  ) {
+    return '/dashboard';
+  }
+  try {
+    const parsed = new URL(trimmed, 'http://kestrel.local');
+    if (parsed.origin !== 'http://kestrel.local' || parsed.pathname.startsWith('//')) {
+      return '/dashboard';
+    }
+    if (
+      parsed.pathname === '/login' ||
+      parsed.pathname.startsWith('/login/') ||
+      parsed.pathname === '/setup' ||
+      parsed.pathname.startsWith('/setup/')
+    ) {
+      return '/dashboard';
+    }
+    const destination = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return Buffer.byteLength(destination) <= MAX_SSO_REDIRECT_BYTES
+      ? destination
+      : '/dashboard';
+  } catch {
+    return '/dashboard';
+  }
+}
+
 @Injectable()
 export class AuthService {
   private static readonly FEDERATED_MFA_AMR_VALUES = new Set([
@@ -283,6 +321,7 @@ export class AuthService {
         oidcEnabled: settings.oidcEnabled,
         oidcIssuerUrl: settings.oidcIssuerUrl,
         oidcClientId: settings.oidcClientId,
+        loginNote: settings.loginNote,
       })
       .from(settings)
       .limit(1);
@@ -323,6 +362,7 @@ export class AuthService {
 
     return {
       local: true,
+      loginNote: settingsRow?.loginNote ?? null,
       twoFactorPolicy: settingsRow?.twoFactorEnabled ?? TWO_FACTOR_POLICY.DISABLED,
       sso: {
         enabled: ssoEnabled,
@@ -338,7 +378,7 @@ export class AuthService {
     };
   }
 
-  async buildOidcAuthorizationRedirect(): Promise<{
+  async buildOidcAuthorizationRedirect(redirect?: string): Promise<{
     redirectUrl: string;
     stateCookieToken: string;
   }> {
@@ -359,10 +399,12 @@ export class AuthService {
       expectedRedirectUri: oidcConfig.redirectUri,
     });
 
+    const destination = sanitizeSsoRedirectPath(redirect);
     const stateCookieToken = await this.jwtService.signOidcState({
       state,
       nonce,
       codeVerifier,
+      ...(destination !== '/dashboard' && destination !== '/' ? { redirect: destination } : {}),
     });
 
     const authUrl = new URL(discovery.authorization_endpoint);
@@ -389,7 +431,7 @@ export class AuthService {
     stateCookieToken: string;
     remoteIp?: string;
     userAgent?: string;
-  }): Promise<LoginResponse> {
+  }): Promise<{ result: LoginResponse; destination: string }> {
     const verifiedState = await this.jwtService.verifyToken<OidcStatePayload>(
       params.stateCookieToken,
       'oidc_state',
@@ -437,9 +479,10 @@ export class AuthService {
       loginVia: oidcConfig.protocol,
     });
 
-    return this.completeUserAuthentication(user, {
+    const result = await this.completeUserAuthentication(user, {
       federatedMfaSatisfied: AuthService.hasFederatedMfaClaim(mergedClaims),
     });
+    return { result, destination: sanitizeSsoRedirectPath(verifiedState.redirect) };
   }
 
   private async exchangeAuthorizationCode(params: {

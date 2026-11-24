@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
 import type { EnvConfig } from '../config/env.schema.js';
 import { DRIZZLE_DB, type DrizzleDb } from './database.tokens.js';
-import { authConsumedTokens, settings, statusLabels, users } from './schema/index.js';
+import { authConsumedTokens, inventoryMailOutbox, settings, statusLabels, users } from './schema/index.js';
 
 type DbOrTx = Pick<DrizzleDb, 'select' | 'insert'>;
 const STARTUP_LOCK = 1_804_723_651;
@@ -187,6 +187,11 @@ export class DatabaseBootstrapService {
         siteName,
         alertEmail: email,
         createdBy: adminUser?.id ?? 1,
+      });
+      await tx.insert(inventoryMailOutbox).values({
+        recipient: email, subject: 'Kestrel-IT is ready',
+        message: `Your administrator account for ${siteName} has been created.`, event: 'first-admin',
+        availableAt: new Date(),
       });
     });
 

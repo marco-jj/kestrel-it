@@ -19,6 +19,7 @@ import {
 } from '@kestrel-it/shared';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
 import { PatService } from './pat.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 @ApiTags('Account')
 @ApiBearerAuth()
@@ -33,6 +34,7 @@ export class AccountPatController {
     return this.patService.listUserTokens(user);
   }
 
+  @ApiZodBody(CreatePatRequestSchema)
   @Post()
   @ApiOperation({ summary: 'Create a new personal access token (plaintext returned once)' })
   async create(

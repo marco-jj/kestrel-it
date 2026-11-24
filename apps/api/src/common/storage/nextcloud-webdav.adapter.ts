@@ -98,6 +98,7 @@ export class NextcloudWebDavAdapter implements StorageProvider {
     const response = await fetch(objectUrl, {
       method: 'DELETE',
       headers: { authorization: settings.authHeader },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok && response.status !== 404) {

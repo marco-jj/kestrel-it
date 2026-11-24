@@ -78,11 +78,22 @@ export const AcceptanceResponseSchema = z
   })
   .strict();
 
-export const RequestableTypeSchema = z.enum(['hardware', 'models']);
+export const REQUESTABLE_TYPES = [
+  'hardware',
+  'models',
+  'licenses',
+  'accessories',
+  'consumables',
+  'components',
+] as const;
+export type RequestableType = (typeof REQUESTABLE_TYPES)[number];
+export const RequestableTypeSchema = z.enum(REQUESTABLE_TYPES);
+
 export const RequestableInputSchema = z
   .object({
     start_date: date.nullable().optional(),
     end_date: date.nullable().optional(),
+    quantity: z.coerce.number().int().min(1).max(10_000).optional(),
     notes: note,
   })
   .strict()

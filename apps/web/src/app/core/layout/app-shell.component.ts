@@ -17,6 +17,9 @@ export interface NavItem {
 }
 
 export const NAVIGATION_ITEMS: readonly NavItem[] = [
+  { label: 'Calendar', route: '/calendar', section: 'overview' },
+  { label: 'Maintenance', route: '/maintenances', section: 'operations', requiredPermission: 'assets.view' },
+  { label: 'Depreciation', route: '/depreciations', section: 'operations', requiredPermission: 'depreciations.view' },
   { label: 'Dashboard', route: '/dashboard', section: 'overview' },
   { label: 'Assets', route: '/hardware', section: 'inventory', requiredPermission: 'assets.view' },
   { label: 'Asset Models', route: '/models', section: 'inventory', requiredPermission: 'models.view' },
@@ -70,33 +73,55 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
   { label: 'Manufacturers', route: '/manufacturers', section: 'inventory', requiredPermission: 'manufacturers.view' },
   { label: 'Suppliers', route: '/suppliers', section: 'inventory', requiredPermission: 'suppliers.view' },
   { label: 'Status Labels', route: '/statuslabels', section: 'inventory', requiredPermission: 'statuslabels.view' },
+  { label: 'My Profile', route: '/account/profile', section: 'operations' },
+  { label: 'My Assigned Items', route: '/account/view-assets', section: 'operations' },
   { label: 'Checkout Acceptances', route: '/account/accept', section: 'operations' },
   { label: 'Requestable Inventory', route: '/account/requestable', section: 'operations',
     requiredPermission: 'assets.view.requestable', directPermission: true },
   { label: 'My Requests', route: '/account/requests', section: 'operations' },
-  { label: 'Checkout Requests', route: '/requests', section: 'operations',
-    requiredPermission: 'assets.checkout', directPermission: true },
-  { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import' },
+  {
+    label: 'API Tokens',
+    route: '/account/api',
+    section: 'operations',
+    requiredPermission: 'self.api',
+    directPermission: true,
+  },
+  { label: 'Checkout Requests', route: '/requests', section: 'operations' },
+  { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import', directPermission: true },
   {
     label: 'Reports',
     route: '/reports',
     section: 'operations',
     requiredPermission: 'reports.view',
+    directPermission: true,
   },
-  {
-    label: 'Settings',
-    route: '/admin/settings',
-    section: 'admin',
-    requiredPermission: 'superuser',
-  },
+  { label: 'Labels', route: '/admin/labels', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Settings', route: '/admin/settings', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Notifications', route: '/admin/notifications', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Branding', route: '/admin/branding', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'SSO / OIDC', route: '/admin/integrations', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Login Attempts', route: '/admin/login-attempts', section: 'admin', requiredPermission: 'superuser' },
 ];
 
 export function filterNavigationItems(store: AuthStore): NavItem[] {
-  return NAVIGATION_ITEMS.filter(
-    (item) => !item.requiredPermission || (item.directPermission
-      ? store.currentUser()?.isSuperUser === true || store.currentUser()?.keyPermissions?.[item.requiredPermission] === true
-      : store.can(item.requiredPermission)),
-  );
+  return NAVIGATION_ITEMS.filter((item) => {
+    if (item.route === '/requests') return store.canManageCheckoutRequests();
+    if (item.route === '/calendar') {
+      return (
+        store.isSuperUser() ||
+        store.isAdmin() ||
+        store.can('assets.view') ||
+        store.can('licenses.view') ||
+        store.can('users.view') ||
+        store.currentUser()?.keyPermissions?.['assets.checkout'] === true
+      );
+    }
+    if (!item.requiredPermission) return true;
+    return item.directPermission
+      ? store.currentUser()?.isSuperUser === true ||
+          store.currentUser()?.keyPermissions?.[item.requiredPermission] === true
+      : store.can(item.requiredPermission);
+  });
 }
 
 const SECTION_LABELS: Record<NavItem['section'], string> = {

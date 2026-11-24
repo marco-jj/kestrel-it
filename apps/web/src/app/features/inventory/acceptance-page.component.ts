@@ -16,6 +16,7 @@ import { InventoryApi, inventoryError } from './inventory-api.js';
 interface Acceptance {
   id: number;
   asset_id: number;
+  item_type?: string;
   asset_tag: string | null;
   asset_name: string | null;
   state: 'pending' | 'accepted' | 'declined';
@@ -119,7 +120,7 @@ interface Acceptance {
           @for (item of rows(); track item.id) {
             <li>
               <a [routerLink]="['/account/accept', item.id]"
-                >{{ item.asset_tag || 'Asset #' + item.asset_id }} {{ item.asset_name }}</a
+                >{{ item.asset_tag || '#' + item.asset_id }} {{ item.asset_name }}</a
               >
               <span>{{ item.state }}</span>
               @if (item.has_eula) {

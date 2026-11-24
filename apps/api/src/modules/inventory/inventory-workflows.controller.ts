@@ -9,27 +9,49 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  AcceptanceResponseSchema,
+  AssetCheckinInputSchema,
+  AssetCheckoutInputSchema,
+  RequestableInputSchema,
   DatatableQuerySchema,
   InventoryIdSchema,
   RequestableTypeSchema,
   SelectlistQuerySchema,
   type AuthenticatedUserContext,
+  type RequestableType,
 } from '@kestrel-it/shared';
 import { z } from 'zod';
 import { CurrentUser, RequireKeyPermission } from '../../common/decorators/auth.decorators.js';
 import { permitsKey } from '../../common/guards/permissions.guard.js';
 import { AssetCheckoutService } from './asset-checkout.service.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
-import { CheckoutRequestsService } from './checkout-requests.service.js';
+import {
+  FulfillRequestSchema,
+  CheckoutRequestsService,
+  type RequestableKind,
+} from './checkout-requests.service.js';
 import { DirectoryService } from './directory.service.js';
 import { HardwareService } from './hardware.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const tag = z.string().trim().min(1).max(255);
-const kind = (value: string) =>
-  parse(RequestableTypeSchema, value) === 'hardware' ? 'asset' : 'model';
+const requestableKindMap: Record<RequestableType, RequestableKind> = {
+  hardware: 'asset',
+  models: 'model',
+  licenses: 'license',
+  accessories: 'accessory',
+  consumables: 'consumable',
+  components: 'component',
+};
+const TypedRequestSchema = z.enum(['models', 'licenses', 'accessories', 'consumables', 'components']);
+const kind = (value: string): RequestableKind =>
+  requestableKindMap[parse(RequestableTypeSchema, value)];
 
+@ApiTags('Hardware Workflows')
+@ApiBearerAuth()
 @Controller('hardware')
 export class AssetWorkflowsController {
   constructor(
@@ -59,6 +81,7 @@ export class AssetWorkflowsController {
     return this.directory.options(target === 'user' ? 'users' : 'locations', query, user, true);
   }
 
+  @ApiZodBody(AssetCheckoutInputSchema)
   @Post(':id/checkout')
   @RequireKeyPermission('assets.checkout')
   checkout(
@@ -69,6 +92,7 @@ export class AssetWorkflowsController {
     return this.service.checkout(parse(InventoryIdSchema, id), body, user);
   }
 
+  @ApiZodBody(AssetCheckoutInputSchema)
   @Post('bytag/:tag/checkout')
   @RequireKeyPermission('assets.checkout')
   checkoutByTag(
@@ -79,6 +103,7 @@ export class AssetWorkflowsController {
     return this.service.checkout(parse(tag, assetTag), body, user);
   }
 
+  @ApiZodBody(AssetCheckinInputSchema, false)
   @Post(':id/checkin')
   @RequireKeyPermission('assets.checkin')
   checkin(
@@ -89,6 +114,7 @@ export class AssetWorkflowsController {
     return this.service.checkin(parse(InventoryIdSchema, id), body ?? {}, user);
   }
 
+  @ApiZodBody(AssetCheckinInputSchema, false)
   @Post('bytag/:tag/checkin')
   @RequireKeyPermission('assets.checkin')
   checkinByTag(
@@ -99,6 +125,7 @@ export class AssetWorkflowsController {
     return this.service.checkin(parse(tag, assetTag), body ?? {}, user);
   }
 
+  @ApiZodBody(AssetCheckinInputSchema.extend({ asset_tag: tag }))
   @Post('checkinbytag')
   @RequireKeyPermission('assets.checkin')
   checkinWithTag(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
@@ -107,6 +134,8 @@ export class AssetWorkflowsController {
   }
 }
 
+@ApiTags('Account Self-Service')
+@ApiBearerAuth()
 @Controller('account')
 export class InventoryAccountController {
   constructor(
@@ -115,6 +144,7 @@ export class InventoryAccountController {
   ) {}
 
   @Get('accept')
+  @ApiOperation({ summary: 'List pending checkout acceptances for the signed-in user' })
   getAcceptances(
     @Query() query: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
@@ -128,6 +158,7 @@ export class InventoryAccountController {
     return this.acceptances.get(parse(InventoryIdSchema, id), user);
   }
 
+  @ApiZodBody(AcceptanceResponseSchema)
   @Post('accept/:id')
   respond(
     @Param('id') id: string,
@@ -183,7 +214,9 @@ export class InventoryAccountController {
     return this.requests.cancel(parse(InventoryIdSchema, id), user);
   }
 
+  @ApiZodBody(RequestableInputSchema, false)
   @Post('request/:id')
+  @ApiOperation({ summary: 'Request a hardware asset from the self-service catalog' })
   requestAsset(
     @Param('id') id: string,
     @Body() body: unknown,
@@ -193,33 +226,46 @@ export class InventoryAccountController {
   }
 
   @Post('request/:id/cancel')
+  @ApiOperation({ summary: 'Cancel a pending self-service asset request' })
   cancelAsset(@Param('id') id: string, @CurrentUser() user: AuthenticatedUserContext) {
     return this.requests.cancelByItem('asset', parse(InventoryIdSchema, id), user);
   }
 
-  @Post('request/models/:id')
-  requestModel(
+  @ApiZodBody(RequestableInputSchema, false)
+  @Post('request/:type/:id')
+  @ApiOperation({ summary: 'Request a model or secondary inventory item from the catalog' })
+  requestTypedItem(
+    @Param('type') type: string,
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
-    return this.requests.create('model', parse(InventoryIdSchema, id), body, user);
+    const resolved = requestableKindMap[parse(TypedRequestSchema, type)];
+    return this.requests.create(resolved, parse(InventoryIdSchema, id), body, user);
   }
 
-  @Post('request/models/:id/cancel')
-  cancelModel(@Param('id') id: string, @CurrentUser() user: AuthenticatedUserContext) {
-    return this.requests.cancelByItem('model', parse(InventoryIdSchema, id), user);
+  @Post('request/:type/:id/cancel')
+  @ApiOperation({ summary: 'Cancel a pending self-service request for a model or secondary item' })
+  cancelTypedItem(
+    @Param('type') type: string,
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUserContext,
+  ) {
+    const resolved = requestableKindMap[parse(TypedRequestSchema, type)];
+    return this.requests.cancelByItem(resolved, parse(InventoryIdSchema, id), user);
   }
 }
 
+@ApiTags('Checkout Requests Queue')
+@ApiBearerAuth()
 @Controller('requests')
-@RequireKeyPermission('assets.checkout')
 export class InventoryRequestsController {
   constructor(
     @Inject(CheckoutRequestsService) private readonly requests: CheckoutRequestsService,
   ) {}
 
   @Get()
+  @ApiOperation({ summary: 'List pending checkout requests for operator fulfillment' })
   list(
     @Query() query: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
@@ -228,7 +274,9 @@ export class InventoryRequestsController {
     return this.requests.list(parse(DatatableQuerySchema, query), user, req.url, true);
   }
 
+  @ApiZodBody(FulfillRequestSchema, false)
   @Post(':id/fulfill')
+  @ApiOperation({ summary: 'Fulfill a pending checkout request' })
   fulfill(
     @Param('id') id: string,
     @Body() body: unknown,
@@ -238,6 +286,7 @@ export class InventoryRequestsController {
   }
 
   @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel a pending checkout request as operator' })
   cancel(@Param('id') id: string, @CurrentUser() user: AuthenticatedUserContext) {
     return this.requests.cancel(parse(InventoryIdSchema, id), user, true);
   }

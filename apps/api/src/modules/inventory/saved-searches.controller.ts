@@ -16,12 +16,16 @@ import {
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { and, eq } from 'drizzle-orm';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import { savedSearches } from '../../db/schema/index.js';
 import { HardwareService } from './hardware.service.js';
 import { parse, success } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
+@ApiTags('Saved Searches')
+@ApiBearerAuth()
 @Controller('saved-searches')
 @RequirePermission('assets.view')
 export class SavedSearchesController {
@@ -76,6 +80,7 @@ export class SavedSearchesController {
     return this.serialize(row);
   }
 
+  @ApiZodBody(SavedSearchInputSchema)
   @Post()
   async create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     const { name, query } = parse(SavedSearchInputSchema, body);
@@ -92,6 +97,7 @@ export class SavedSearchesController {
     return success(this.serialize(row!));
   }
 
+  @ApiZodBody(SavedSearchInputSchema.partial())
   @Patch(':id')
   async update(
     @Param('id') id: string,
@@ -113,6 +119,7 @@ export class SavedSearchesController {
     return success(this.serialize(row));
   }
 
+  @ApiZodBody(SavedSearchInputSchema.partial())
   @Put(':id')
   replace(
     @Param('id') id: string,

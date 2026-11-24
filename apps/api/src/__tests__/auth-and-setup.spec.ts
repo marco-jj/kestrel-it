@@ -52,7 +52,9 @@ function makeConfigMock(overrides: Record<string, unknown> = {}) {
   } as unknown as ConstructorParameters<typeof CryptoService>[0];
 }
 
-function makePermissionsMap(grants: string[] = []): AuthenticatedUserContext['effectivePermissions'] {
+function makePermissionsMap(
+  grants: string[] = [],
+): AuthenticatedUserContext['effectivePermissions'] {
   const map = {} as AuthenticatedUserContext['effectivePermissions'];
   for (const key of ALL_PERMISSIONS) {
     map[key] = grants.includes(key);
@@ -182,13 +184,15 @@ describe('SetupNotCompletedGuard & SetupService', () => {
         refreshToken: 'ref',
         user: { id } as AuthenticatedUserContext,
       })),
-    } as unknown as ConstructorParameters<typeof SetupService>[4];
+    } as unknown as ConstructorParameters<typeof SetupService>[5];
 
+    const enqueue = vi.fn(async () => undefined);
     const service = new SetupService(
       dbMock,
       makeConfigMock(),
       bootstrapMock,
       crypto,
+      { enqueue } as unknown as ConstructorParameters<typeof SetupService>[4],
       authMock,
     );
 
@@ -206,6 +210,13 @@ describe('SetupNotCompletedGuard & SetupService', () => {
       email: 'marco@example.com',
       password: 'SuperSecurePassword123',
     });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      'marco@example.com',
+      expect.any(String),
+      expect.any(String),
+      'first-admin',
+    );
 
     expect(res.status).toBe('authenticated');
     expect(insertedTables.map((i) => (i as { table: unknown }).table)).toEqual([
@@ -311,7 +322,8 @@ describe('OidcUserProvisioningService (JIT + Linking)', () => {
     const dbMock = {
       select: () => ({
         from: (table: unknown) => ({
-          limit: async () => (table === settings ? [{ ...baseSettings, oidcSyncOnLogin: false }] : []),
+          limit: async () =>
+            table === settings ? [{ ...baseSettings, oidcSyncOnLogin: false }] : [],
           where: () => ({
             limit: async () => {
               // First query is tuple match -> empty; second query is username fallback -> existingUser
@@ -336,7 +348,8 @@ describe('OidcUserProvisioningService (JIT + Linking)', () => {
     let whereCalls = 0;
     (dbMock as unknown as { select: unknown }).select = () => ({
       from: (table: unknown) => ({
-        limit: async () => (table === settings ? [{ ...baseSettings, oidcSyncOnLogin: false }] : []),
+        limit: async () =>
+          table === settings ? [{ ...baseSettings, oidcSyncOnLogin: false }] : [],
         where: () => ({
           limit: async () => {
             whereCalls += 1;
@@ -743,25 +756,27 @@ describe('OAuth 2.0 / OAuth 2.1 (PKCE S256 & UserInfo Normalization)', () => {
       new OidcUserProvisioningService(dbMock, config),
     );
 
-    const issueSession = vi.spyOn(authService, 'issueSessionForUser').mockImplementation(async (userId) => ({
-      status: 'authenticated',
-      accessToken: `acc-${userId}`,
-      refreshToken: await jwt.signRefreshToken({ userId }),
-      user: {
-        id: userId,
-        username: 'alice',
-        email: 'alice@example.com',
-        displayName: 'Alice',
-        isSuperUser: false,
-        isAdmin: false,
-        userCompanyIds: [],
-        groupIds: [],
-        effectivePermissions: makePermissionsMap([]),
-        twoFactorEnrolled: false,
-        twoFactorVerified: true,
-        authMethod: 'jwt',
-      },
-    }));
+    const issueSession = vi
+      .spyOn(authService, 'issueSessionForUser')
+      .mockImplementation(async (userId) => ({
+        status: 'authenticated',
+        accessToken: `acc-${userId}`,
+        refreshToken: await jwt.signRefreshToken({ userId }),
+        user: {
+          id: userId,
+          username: 'alice',
+          email: 'alice@example.com',
+          displayName: 'Alice',
+          isSuperUser: false,
+          isAdmin: false,
+          userCompanyIds: [],
+          groupIds: [],
+          effectivePermissions: makePermissionsMap([]),
+          twoFactorEnrolled: false,
+          twoFactorVerified: true,
+          authMethod: 'jwt',
+        },
+      }));
 
     const initialRefreshToken = await jwt.signRefreshToken({ userId: 7 });
     issueSession.mockRejectedValueOnce(new Error('Account lookup temporarily unavailable'));
@@ -851,12 +866,7 @@ describe('BetterAuthService & BetterAuthProvisioningBridge', () => {
       })),
     } as unknown as AuthService;
 
-    const baService = new BetterAuthService(
-      dbMock,
-      config,
-      oidcProvisioningMock,
-      authServiceMock,
-    );
+    const baService = new BetterAuthService(dbMock, config, oidcProvisioningMock, authServiceMock);
 
     const status = baService.getStatus();
     expect(status).toEqual({
@@ -916,9 +926,9 @@ describe('BetterAuthService & BetterAuthProvisioningBridge', () => {
       { ...assertion, signature },
       { remoteIp: '10.0.0.5', userAgent: 'Vitest' },
     );
-    await expect(
-      baService.exchangeSession({ ...assertion, signature }),
-    ).rejects.toThrow(UnauthorizedException);
+    await expect(baService.exchangeSession({ ...assertion, signature })).rejects.toThrow(
+      UnauthorizedException,
+    );
 
     expect(session.status).toBe('authenticated');
     if (session.status === 'authenticated') {

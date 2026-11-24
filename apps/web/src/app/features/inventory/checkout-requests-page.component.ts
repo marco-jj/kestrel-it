@@ -14,8 +14,17 @@ import {
 import { KestrelSlideDrawerComponent } from '../../shared/ui/slide-drawer.component.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 
-type Catalog = 'hardware' | 'models';
+type Catalog = 'hardware' | 'models' | 'licenses' | 'accessories' | 'consumables' | 'components';
 type Operation = 'request' | 'cancel' | 'checkout';
+
+const CATALOG_TABS: ReadonlyArray<{ key: Catalog; label: string }> = [
+  { key: 'hardware', label: 'Hardware' },
+  { key: 'models', label: 'Models' },
+  { key: 'licenses', label: 'Licenses' },
+  { key: 'accessories', label: 'Accessories' },
+  { key: 'consumables', label: 'Consumables' },
+  { key: 'components', label: 'Components' },
+];
 
 @Component({
   selector: 'kestrel-checkout-requests-page',
@@ -41,24 +50,17 @@ type Operation = 'request' | 'cancel' | 'checkout';
     </header>
     @if (!staff && !personal) {
       <div class="tabs" aria-label="Inventory type">
-        <button
-          type="button"
-          class="k-btn"
-          [class.k-btn-primary]="catalog() === 'hardware'"
-          [class.k-btn-secondary]="catalog() !== 'hardware'"
-          (click)="choose('hardware')"
-        >
-          Hardware
-        </button>
-        <button
-          type="button"
-          class="k-btn"
-          [class.k-btn-primary]="catalog() === 'models'"
-          [class.k-btn-secondary]="catalog() !== 'models'"
-          (click)="choose('models')"
-        >
-          Models
-        </button>
+        @for (tab of tabs; track tab.key) {
+          <button
+            type="button"
+            class="k-btn"
+            [class.k-btn-primary]="catalog() === tab.key"
+            [class.k-btn-secondary]="catalog() !== tab.key"
+            (click)="choose(tab.key)"
+          >
+            {{ tab.label }}
+          </button>
+        }
       </div>
     }
     @if (error() && !drawer()) {
@@ -83,14 +85,17 @@ type Operation = 'request' | 'cancel' | 'checkout';
       @if (drawer()) {
         <p>{{ label() }}</p>
         @if (operation() === 'request') {
+          @if (catalog() !== 'hardware' && catalog() !== 'models') {
+            <label>Quantity <input type="number" min="1" [(ngModel)]="quantity" /></label>
+          }
           <label>Start date <input type="date" [(ngModel)]="start" /></label>
           <label>End date <input type="date" [(ngModel)]="end" /></label>
           <label>Notes <textarea rows="3" [(ngModel)]="notes"></textarea></label>
         }
         @if (operation() === 'checkout') {
-          @if (row()?.['requestable_type'] === 'model') {
+          @if (needsTargetAsset(row())) {
             <kestrel-async-select
-              label="Select an available asset"
+              [label]="row()?.['requestable_type'] === 'component' ? 'Select target host asset' : 'Select an available asset'"
               [options]="availableAssets()"
               [allowQuickCreate]="false"
               (selectionChanged)="selectAsset($event)"
@@ -170,6 +175,7 @@ export class CheckoutRequestsPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   readonly staff = this.route.snapshot.routeConfig?.path === 'requests';
   readonly personal = this.route.snapshot.routeConfig?.path === 'account/requests';
+  readonly tabs = CATALOG_TABS;
   readonly catalog = signal<Catalog>('hardware');
   readonly rows = signal<DataGridRow[]>([]);
   readonly total = signal(0);
@@ -186,6 +192,7 @@ export class CheckoutRequestsPageComponent implements OnInit {
   start = '';
   end = '';
   notes = '';
+  quantity = 1;
   private asset: number | null = null;
   private request = 0;
   private assetRequest = 0;
@@ -195,21 +202,32 @@ export class CheckoutRequestsPageComponent implements OnInit {
   }
 
   columns() {
+    const current = this.catalog();
     const cols =
       this.staff || this.personal
         ? [
+            { key: 'requestable_type', label: 'Type' },
             { key: 'item', label: 'Item' },
+            { key: 'quantity', label: 'Qty' },
             { key: 'state', label: 'State' },
             { key: 'requested_at', label: 'Requested at' },
             ...(this.staff ? [{ key: 'requester', label: 'Requester' }] : []),
           ]
-        : [
-            {
-              key: this.catalog() === 'hardware' ? 'asset_tag' : 'model_number',
-              label: this.catalog() === 'hardware' ? 'Tag' : 'Model number',
-            },
-            { key: 'name', label: 'Name' },
-          ];
+        : current === 'hardware'
+          ? [
+              { key: 'asset_tag', label: 'Tag' },
+              { key: 'name', label: 'Name' },
+            ]
+          : current === 'models'
+            ? [
+                { key: 'model_number', label: 'Model number' },
+                { key: 'name', label: 'Name' },
+                { key: 'remaining', label: 'Available' },
+              ]
+            : [
+                { key: 'name', label: 'Name' },
+                { key: 'remaining', label: 'Available' },
+              ];
     return cols.map((column) => ({ ...column, sortable: false }));
   }
 
@@ -254,19 +272,25 @@ export class CheckoutRequestsPageComponent implements OnInit {
     }
   }
 
+  needsTargetAsset(row: DataGridRow | null): boolean {
+    const type = row?.['requestable_type'];
+    return type === 'model' || type === 'component';
+  }
+
   act(event: { action: DataGridActionType; row: DataGridRow }) {
     const action = event.action;
     if (action !== 'request' && action !== 'cancel' && action !== 'checkout') return;
     this.operation.set(action);
     this.row.set(event.row);
     this.asset = null;
+    this.quantity = 1;
     this.start = '';
     this.end = '';
     this.notes = '';
     this.error.set('');
     this.message.set('');
     this.drawer.set(true);
-    if (action === 'checkout' && event.row['requestable_type'] === 'model')
+    if (action === 'checkout' && this.needsTargetAsset(event.row))
       void this.loadAssets('');
   }
 
@@ -275,13 +299,16 @@ export class CheckoutRequestsPageComponent implements OnInit {
   }
 
   async loadAssets(search: string) {
-    const modelId = this.row()?.['requestable_id'];
-    if (typeof modelId !== 'number') return;
+    const current = this.row();
+    const reqType = current?.['requestable_type'];
+    const modelId = current?.['requestable_id'];
+    if (reqType === 'model' && typeof modelId !== 'number') return;
     const request = ++this.assetRequest;
     try {
-      const data = await this.api.read<SelectlistResponse>('/hardware/targets/asset', {
-        statusType: 'deployable',
-        model_id: modelId,
+      const targetPath =
+        reqType === 'component' ? '/components/targets/asset' : '/hardware/targets/asset';
+      const data = await this.api.read<SelectlistResponse>(targetPath, {
+        ...(reqType === 'model' ? { statusType: 'deployable', model_id: Number(modelId) } : {}),
         search,
       });
       if (request === this.assetRequest)
@@ -295,20 +322,30 @@ export class CheckoutRequestsPageComponent implements OnInit {
     const row = this.row();
     const operation = this.operation();
     if (this.saving() || typeof row?.id !== 'number') return;
-    if (operation === 'checkout' && row['requestable_type'] === 'model' && this.asset === null) {
-      this.error.set('Select an available asset of this model.');
+    if (operation === 'checkout' && this.needsTargetAsset(row) && this.asset === null) {
+      this.error.set(
+        row['requestable_type'] === 'component'
+          ? 'Select a host asset for this component.'
+          : 'Select an available asset of this model.',
+      );
       return;
     }
     this.saving.set(true);
     this.error.set('');
     try {
-      const catalog = this.catalog() === 'models' ? '/models' : '';
-      const self = `/account/request${catalog}/${row.id}`;
+      const catalog = this.catalog();
+      const self =
+        catalog === 'hardware'
+          ? `/account/request/${row.id}`
+          : `/account/request/${catalog}/${row.id}`;
       if (operation === 'request') {
         await this.api.write('POST', self, {
           start_date: this.start || null,
           end_date: this.end || null,
           notes: this.notes || null,
+          ...(catalog !== 'hardware' && catalog !== 'models'
+            ? { quantity: Math.max(1, Number(this.quantity) || 1) }
+            : {}),
         });
       } else if (operation === 'cancel') {
         const path = this.staff

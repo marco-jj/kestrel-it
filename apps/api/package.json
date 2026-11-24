@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "tsc -p tsconfig.build.json && drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "openapi:export": "tsc -p tsconfig.build.json && node dist/openapi/generate-openapi.js",
+    "openapi:check": "tsc -p tsconfig.build.json && node dist/openapi/generate-openapi.js --check"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -24,7 +26,12 @@
     "@nestjs/schedule": "^6.0.0",
     "@nestjs/swagger": "^11.0.5",
     "bcryptjs": "^2.4.3",
+    "bwip-js": "^4.11.4",
+    "csv-parse": "^7.0.3",
     "drizzle-orm": "^0.40.0",
+    "exceljs": "^4.4.0",
+    "fastify": "5.12.8",
+    "ipaddr.js": "^2.5.0",
     "jose": "^6.0.8",
     "nodemailer": "^7.0.13",
     "pdfkit": "^0.17.2",
@@ -32,7 +39,8 @@
     "postgres": "^3.4.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.11",
@@ -40,6 +48,7 @@
     "@types/nodemailer": "^7.0.12",
     "@types/pdfkit": "^0.17.7",
     "@types/pngjs": "^6.0.5",
+    "@zxing/library": "^0.23.0",
     "drizzle-kit": "^0.30.5"
   }
 }

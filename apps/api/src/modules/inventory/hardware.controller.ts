@@ -12,7 +12,11 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  AssetInputSchema,
+  AssetModelInputSchema,
+  InventoryBulkSchema,
   CustomFieldFormModeSchema,
   DatatableQuerySchema,
   HardwareQuerySchema,
@@ -22,14 +26,18 @@ import {
 } from '@kestrel-it/shared';
 import { z } from 'zod';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
-import { permitsEntity } from '../../common/guards/permissions.guard.js';
+import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard.js';
 import { AssetModelsService } from './asset-models.service.js';
 import { HardwareService } from './hardware.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const tagSchema = z.string().min(1).max(255);
+const modelCloneSchema = z.object({ name: z.string().trim().min(1).max(255) }).strict();
 const modelQuery = DatatableQuerySchema.extend({ deleted: z.enum(['0', '1']).optional() });
 
+@ApiTags('Hardware')
+@ApiBearerAuth()
 @Controller('hardware')
 export class HardwareController {
   constructor(@Inject(HardwareService) private readonly hardware: HardwareService) {}
@@ -65,6 +73,7 @@ export class HardwareController {
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
     if (
+      !(mode === 'audit' && permitsKey(user, 'assets.audit')) &&
       !['view', 'create', 'edit', 'checkout', 'checkin'].some((action) =>
         permitsEntity(user, `assets.${action}` as 'assets.view'),
       )
@@ -106,6 +115,7 @@ export class HardwareController {
 
   @Get(':id/history')
   @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List immutable action log history for a hardware asset' })
   history(
     @Param('id') id: string,
     @Query() query: unknown,
@@ -121,17 +131,88 @@ export class HardwareController {
     );
   }
 
+  @Get(':id/licenses')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List licenses assigned to a hardware asset' })
+  licenses(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedLicenses(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/assigned/assets')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List child assets checked out to a hardware asset' })
+  assignedAssets(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedAssets(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/assigned/accessories')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List accessories checked out to a hardware asset (suppresses rows without accessories.view)' })
+  assignedAccessories(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedAccessories(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/assigned/components')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List components checked out to a hardware asset (suppresses rows without components.view)' })
+  assignedComponents(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedComponents(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @ApiZodBody(AssetInputSchema)
   @Post()
   @RequirePermission('assets.create')
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.hardware.save(body, user);
   }
 
+  @ApiZodBody(InventoryBulkSchema)
   @Patch('bulk')
   bulk(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.hardware.bulk(body, user);
   }
 
+  @ApiZodBody(AssetInputSchema.partial())
   @Patch(':id')
   @RequirePermission('assets.edit')
   update(
@@ -142,6 +223,7 @@ export class HardwareController {
     return this.hardware.save(body, user, parse(InventoryIdSchema, id));
   }
 
+  @ApiZodBody(AssetInputSchema.partial())
   @Put(':id')
   @RequirePermission('assets.edit')
   replace(
@@ -165,6 +247,8 @@ export class HardwareController {
   }
 }
 
+@ApiTags('Asset Models')
+@ApiBearerAuth()
 @Controller('models')
 export class AssetModelsController {
   constructor(
@@ -236,12 +320,14 @@ export class AssetModelsController {
     );
   }
 
+  @ApiZodBody(AssetModelInputSchema)
   @Post()
   @RequirePermission('models.create')
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.models.save(body, user);
   }
 
+  @ApiZodBody(AssetModelInputSchema.partial())
   @Patch(':id')
   @RequirePermission('models.edit')
   update(
@@ -252,6 +338,7 @@ export class AssetModelsController {
     return this.models.save(body, user, parse(InventoryIdSchema, id));
   }
 
+  @ApiZodBody(AssetModelInputSchema.partial())
   @Put(':id')
   @RequirePermission('models.edit')
   replace(
@@ -262,6 +349,7 @@ export class AssetModelsController {
     return this.update(id, body, user);
   }
 
+  @ApiZodBody(modelCloneSchema)
   @Post(':id/clone')
   @RequirePermission('models.view', 'models.create')
   clone(
@@ -269,7 +357,7 @@ export class AssetModelsController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
-    const { name } = parse(z.object({ name: z.string().trim().min(1).max(255) }).strict(), body);
+    const { name } = parse(modelCloneSchema, body);
     return this.models.clone(parse(InventoryIdSchema, id), name, user);
   }
 
@@ -286,6 +374,8 @@ export class AssetModelsController {
   }
 }
 
+@ApiTags('Depreciations')
+@ApiBearerAuth()
 @Controller('depreciations')
 export class DepreciationSelectorController {
   constructor(@Inject(AssetModelsService) private readonly models: AssetModelsService) {}

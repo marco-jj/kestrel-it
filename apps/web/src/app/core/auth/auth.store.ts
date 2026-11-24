@@ -1,6 +1,7 @@
 import { HttpErrorResponse, type HttpClient } from '@angular/common/http';
 import { Injectable, computed, signal } from '@angular/core';
 import {
+  CHECKOUT_REQUEST_PERMISSIONS,
   canAccessCompanyRecord,
   type AuthenticatedUserContext,
   type AuthProvidersStatusResponse,
@@ -25,6 +26,13 @@ export class AuthStore {
   readonly isSetupCompleted = computed(() => this.setupStatus()?.setupCompleted ?? false);
   readonly isSuperUser = computed(() => this.currentUser()?.isSuperUser ?? false);
   readonly isAdmin = computed(() => this.currentUser()?.isAdmin ?? false);
+  readonly canManageCheckoutRequests = computed(() => {
+    const user = this.currentUser();
+    if (!user) return false;
+    return user.isSuperUser || Object.values(CHECKOUT_REQUEST_PERMISSIONS).some(
+      (permission) => user.keyPermissions?.[permission] === true,
+    );
+  });
   readonly userCompanyIds = computed(() => this.currentUser()?.userCompanyIds ?? []);
   readonly displayName = computed(() => {
     const user = this.currentUser();

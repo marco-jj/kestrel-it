@@ -169,13 +169,17 @@ export class AssetCheckoutService {
       ? '\nReview and respond: ' +
         new URL(`/account/accept/${acceptanceId}`, this.env.get('APP_URL', { infer: true })).href
       : '';
-    await this.mail.enqueue(
-      tx,
-      target.email,
-      `Asset checked out: ${assetLabel}`,
-      `Asset ${assetLabel} was assigned to you.${acceptUrl}` +
-        this.emailFields(entries, customFields, user),
-    );
+    const shouldEmail = category?.requireAcceptance || category?.checkinEmail ||
+      (category?.useDefaultEula ? config?.defaultEulaText : category?.eulaText);
+    await this.mail.lifecycle(tx, {
+      event: 'checkout.asset',
+      companyId: asset.companyId,
+      alertOnResponse: acceptanceId !== null,
+      suppressEmail: dto.sign_in_place,
+      recipient: shouldEmail ? target.email ?? await this.mail.emailRecipient(tx, dto.target_type, dto.target_id) : null,
+      subject: `Asset checked out: ${assetLabel}`,
+      message: `Asset ${assetLabel} was assigned to you.${acceptUrl}` + this.emailFields(entries, customFields, user),
+    });
     return {
       id: asset.id,
       action_log_id: log!.id,
@@ -272,20 +276,13 @@ export class AssetCheckoutService {
         actionDate: date,
         actionSource: 'api',
       });
-      if (category?.checkinEmail && asset.assignedType === 'user' && asset.assignedTo !== null) {
-        const [assignee] = await tx
-          .select({ email: users.email })
-          .from(users)
-          .where(eq(users.id, asset.assignedTo))
-          .limit(1);
-        const label = asset.assetTag ?? `#${asset.id}`;
-        await this.mail.enqueue(
-          tx,
-          assignee?.email,
-          `Asset checked in: ${label}`,
-          `Asset ${label} was checked in.` + this.emailFields(entries, customFields, user),
-        );
-      }
+      const label = asset.assetTag ?? `#${asset.id}`;
+      await this.mail.lifecycle(tx, {
+        event: 'checkin.asset', companyId: asset.companyId,
+        recipient: category?.checkinEmail ? await this.mail.emailRecipient(tx,asset.assignedType,asset.assignedTo) : null,
+        subject: `Asset checked in: ${label}`,
+        message: `Asset ${label} was checked in.` + this.emailFields(entries, customFields, user),
+      });
       return success({ id: asset.id, checked_in: true }, 'Asset checked in');
     });
   }

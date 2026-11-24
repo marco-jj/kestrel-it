@@ -108,27 +108,33 @@ Verifica della Fase 2 con `pnpm build`, `pnpm typecheck` e `pnpm test`. Per i te
 ### 🏆 FASE 3 — Full Parity (Secondary Inventory, Audits, Depreciation, Importers, Reports, Notifications)
 > **Riferimenti:** [`docs/04`](docs/04-domain-workflows-and-state.md), [`docs/05`](docs/05-api-contracts-and-modules.md), [`docs/06`](docs/06-storage-auth-and-jobs.md), [`docs/07`](docs/07-frontend-angular-map.md)
 
-- [ ] **Piano 3.1 — Inventario Secondario & Predefined Kits**
+- [x] **Piano 3.1 — Inventario Secondario & Predefined Kits**
   - `Licenses` & `LicenseSeats` (checkout a User/Asset, mascheramento product key con permesso `licenses.keys`, `reassignable`, `unreassignable_seat`).
   - `Accessories` & `AccessoryCheckout` (checkout multiplo con note per singola assegnazione, `adjustQuantity` con metadati d'ordine `OrderItems`).
   - `Consumables` (consumo one-way, `adjustQuantity`, soglie `min_amt`).
   - `Components` (checkout con quantità parziale verso Asset, checkin parziale/totale).
   - `PredefinedKits` con checkout atomico. `PredefinedKitCheckoutService` acquisisce i lock `FOR UPDATE`, rivalida disponibilità e FMCS e annulla l'intero kit al fallimento di una voce. [Flusso](docs/04-domain-workflows-and-state.md#3-checkout-di-predefined-kits-predefinedkitcheckoutservicephp)
-- [ ] **Piano 3.2 — Audits, Maintenances, Depreciation, Orders & Calendar**
+- [x] **Piano 3.2 — Audits, Maintenances, Depreciation, Orders & Calendar**
   - `Asset Audits` (singolo e bulk, calcolo `next_audit_date`, upload foto audit).
   - `Maintenances` & `MaintenanceTypes` (ciclo apertura/completamento, note, costi, flag `is_warranty`).
   - `Depreciations` & `DepreciableService` (metodi `linear`, `half_1`, `half_2`, `diminish` con anno fiscale e `depreciation_min` fisso o percentuale).
   - `Orders` & `OrderItems` + `CalendarEvents` (`/api/v1/calendar/events`) + `LowStock` (`/api/v1/low-stock`).
-- [ ] **Piano 3.3 — File Uploads, Generatore Etichette QR/Barcode & Reportistica**
+Verifica dei Piani 3.1 e 3.2 con `pnpm build`, `pnpm typecheck`, `pnpm test` con PostgreSQL 16 e lo [scenario Chromium](apps/web/e2e/README.md). La migrazione `0005_phase_three_operations.sql` crea i tipi di manutenzione predefiniti e recupera gli eventi del calendario e le righe d’ordine dai dati esistenti. La verifica include un database vuoto e l’upgrade da una Fase 2 con dati.
+
+- [x] **Piano 3.3 — File Uploads, Generatore Etichette QR/Barcode & Reportistica**
   - `UploadedFilesController` (`/api/v1/{object_type}/{id}/files`) collegato a `StorageProvider`.
   - Motore di generazione Etichette PDF (`/api/v1/hardware/labels`, layout personalizzabili `CustomUserLabel`, QR Code 2D e Barcode 1D Code128/Code39).
-  - 8+ Report (Activity, Custom Asset Report con `ReportTemplates`, Depreciation, License, Maintenance, Unaccepted Assets, Accessories, Audit) con export CSV/Excel.
-- [ ] **Piano 3.4 — Motore CSV Importer (12 tipi), Notifiche (26) & Cron Jobs**
+  - 10 report con export CSV/Excel, inclusi Custom Asset, Custom Component e Custom Consumable con template salvabili.
+- [x] **Piano 3.4 — Motore CSV Importer (12 tipi), Notifiche (26) & Cron Jobs**
   - Importer CSV streaming con mappatura colonne (`field_map`) per tutti i 12 tipi di Snipe-IT.
   - Notifiche multi-canale (Email, Slack, Microsoft Teams, Google Chat / Generic Webhook) + webhook per singola Company.
   - Job schedulati giornalieri/settimanali (`inventory-alerts`, `expiring-alerts`, `expected-checkin`, `upcoming-audits`, `acceptance-reminders`).
-- [ ] **Piano 3.5 — Verifica Formale di Parità con REA**
-  - Esecuzione di `inspect_api_contract`, `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage` e `verify_reconstruction` per misurare la copertura delle funzionalità mappate. Verificare con test di contratto e di flusso i casi che richiedono evidenza a runtime.
+Verifica dei Piani 3.3 e 3.4 con build, typecheck, suite PostgreSQL 16 e Chromium. La migrazione `0006_operational_workflows.sql` conserva la coda SMTP e i template esistenti durante l’upgrade dal Piano 3.2. La [mappa di parità](docs/08-upstream-feature-map.md#verifiche-di-comportamento-dei-piani-3134) collega i test dei Piani 3.1–3.4 ai riferimenti upstream. Il backup pre-import appartiene al flusso di backup e ripristino.
+
+- [x] **Piano 3.5 — Verifica Formale di Parità con REA**
+  - Il contratto [OpenAPI rigenerato](docs/openapi.json) coincide con quello versionato e contiene 299 path e 435 operazioni inline. Sul working tree basato su `b4f5790` sono passati la build, il typecheck, 131 test con PostgreSQL 16 e 18 verifiche in Chromium.
+  - Il [manifest di copertura](docs/rea-coverage-manifest.json) contiene gli SHA-256 aggiornati. REA riporta 2 boundary `ready` e 5 `unknown` perché i relativi esiti di verifica fanno riferimento agli hash precedenti. Il [ledger JavaScript](docs/rea-obligation-manifest.json) rimane `open` con 7 owner corrispondenti e 0 obblighi verificati formalmente.
+  - Il confronto pixel per pixel tra le schermate di login di Kestrel-IT e Snipe-IT `576e1c3` a 1280 × 800 riporta `fail` per l'equivalenza visiva della pagina. Le schermate, gli hash e gli esiti sono nella [sintesi REA](docs/rea-evidence-summary.json).
 
 ---
 

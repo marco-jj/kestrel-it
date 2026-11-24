@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   ALL_PERMISSIONS,
+  AccountProfileUpdateSchema,
   FmcsCompanyAssignmentError,
+  GeneralSettingsUpdateSchema,
+  REQUESTABLE_TYPES,
+  RequestableInputSchema,
+  RequestableTypeSchema,
   allowedElementKeysForFormat,
   buildCustomFieldZodSchema,
   buildFieldsetZodSchema,
@@ -247,6 +252,65 @@ describe('Custom Fields compatibility & dynamic Zod builder', () => {
       fieldsetSchema.safeParse({
         _snipeit_tag_code_3: 'invalid',
         _snipeit_os_4: 'windows',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates all six requestable catalog types and quantity constraints', () => {
+    expect(REQUESTABLE_TYPES).toEqual([
+      'hardware',
+      'models',
+      'licenses',
+      'accessories',
+      'consumables',
+      'components',
+    ]);
+    for (const kind of REQUESTABLE_TYPES) {
+      expect(RequestableTypeSchema.safeParse(kind).success).toBe(true);
+    }
+    expect(RequestableTypeSchema.safeParse('kits').success).toBe(false);
+    expect(RequestableInputSchema.safeParse({ quantity: 2, notes: 'Need two units' }).success).toBe(true);
+    expect(RequestableInputSchema.safeParse({ quantity: 0 }).success).toBe(false);
+    expect(
+      RequestableInputSchema.safeParse({ start_date: '2026-12-10', end_date: '2026-12-01' }).success,
+    ).toBe(false);
+  });
+
+  it('validates strict global settings and account profile update schemas', () => {
+    expect(
+      GeneralSettingsUpdateSchema.safeParse({
+        site_name: 'Kestrel Operations',
+        per_page: 50,
+        depreciation_method: 'half_1',
+        header_color: '#0f172a',
+        oidc_enabled: true,
+        oidc_issuer_url: 'https://sso.example.test',
+      }).success,
+    ).toBe(true);
+
+    expect(
+      GeneralSettingsUpdateSchema.safeParse({
+        header_color: 'not-a-hex-color',
+      }).success,
+    ).toBe(false);
+
+    expect(
+      GeneralSettingsUpdateSchema.safeParse({
+        next_auto_tag_base: 99,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      AccountProfileUpdateSchema.safeParse({
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        email: 'ada@example.test',
+      }).success,
+    ).toBe(true);
+
+    expect(
+      AccountProfileUpdateSchema.safeParse({
+        new_password: 'NewSecurePassword1!',
       }).success,
     ).toBe(false);
   });

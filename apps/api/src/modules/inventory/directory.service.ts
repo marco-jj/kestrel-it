@@ -1,3 +1,5 @@
+import { InventoryMailService } from './inventory-mail.service.js';
+import { hasSecondaryAssignments } from './assignment-integrity.js';
 import {
   ConflictException,
   ForbiddenException,
@@ -28,6 +30,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   SQL,
 } from 'drizzle-orm';
 import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
@@ -36,6 +39,7 @@ import { CryptoService } from '../../common/crypto/crypto.service.js';
 import { permitsEntity } from '../../common/guards/permissions.guard.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import * as schema from '../../db/schema/index.js';
+import { userEmailMatches } from '../../db/user-email.js';
 import { companyWebhookFields, directoryDefinitions } from './directory-definitions.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
 import {
@@ -93,6 +97,7 @@ const deletionReferences: Partial<Record<CoreInventoryResource, [PgTable, string
     [schema.companyUser, 'companyId'],
     [schema.locations, 'companyId'],
     [schema.departments, 'companyId'],
+    [schema.orders, 'companyId'],
     [schema.assets, 'companyId'],
     [schema.licenses, 'companyId'],
     [schema.accessories, 'companyId'],
@@ -106,6 +111,9 @@ const deletionReferences: Partial<Record<CoreInventoryResource, [PgTable, string
     [schema.assets, 'rtdLocationId'],
     [schema.users, 'locationId'],
     [schema.departments, 'locationId'],
+    [schema.accessories, 'locationId'],
+    [schema.consumables, 'locationId'],
+    [schema.components, 'locationId'],
   ],
   departments: [[schema.users, 'departmentId']],
   users: [
@@ -143,6 +151,7 @@ export class DirectoryService {
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     @Inject(FmcsScopeService) private readonly fmcs: FmcsScopeService,
+    @Inject(InventoryMailService) private readonly mail: InventoryMailService,
     @Inject(CryptoService) private readonly crypto: CryptoService,
   ) {}
 
@@ -334,7 +343,7 @@ export class DirectoryService {
     requireAction(user, resource, 'create');
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
-      const row = await this.save(tx, resource, scope, user, body);
+      const row = await this.saveInTransaction(tx, resource, scope, user, body);
       return success(
         this.serialize(resource, row, user, await this.labels(tx, resource, scope, [row])),
       );
@@ -346,7 +355,7 @@ export class DirectoryService {
     requireAction(user, resource, 'edit');
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
-      const row = await this.save(tx, resource, scope, user, body, id);
+      const row = await this.saveInTransaction(tx, resource, scope, user, body, id);
       return success(
         this.serialize(resource, row, user, await this.labels(tx, resource, scope, [row])),
       );
@@ -366,7 +375,7 @@ export class DirectoryService {
       const scope = await this.fmcs.resolve(user, tx);
       for (const id of ids) {
         if (dto.action === 'edit') {
-          await this.save(tx, resource, scope, user, dto.changes, id);
+          await this.saveInTransaction(tx, resource, scope, user, dto.changes, id);
         } else {
           await this.changeDeleted(tx, resource, scope, user, id, dto.action);
         }
@@ -392,13 +401,14 @@ export class DirectoryService {
     return row;
   }
 
-  private async save(
+  async saveInTransaction(
     tx: InventoryTransaction,
     resource: CoreInventoryResource,
     scope: FmcsScope,
     user: AuthenticatedUserContext,
     body: unknown,
     id?: number,
+    importRecipient = false,
   ) {
     const definition = directoryDefinitions[resource];
     const validator = z.object(definition.shape).strict();
@@ -407,14 +417,22 @@ export class DirectoryService {
     const columns = columnsOf(definition.table);
     if (
       resource === 'companies' &&
-      !user.isSuperUser &&
       Object.keys(companyWebhookFields).some((key) => Object.hasOwn(input, key))
     ) {
-      throw new ForbiddenException('Company webhook changes require a superuser');
+      if (!user.isSuperUser)
+        throw new ForbiddenException('Company webhook changes require a superuser');
+      const endpoint =
+        'webhook_endpoint' in input ? input.webhook_endpoint : existing?.webhookEndpoint;
+      const provider =
+        'webhook_selected' in input ? input.webhook_selected : existing?.webhookSelected;
+      if (endpoint && !provider)
+        throw new UnprocessableEntityException('Select a webhook provider');
     }
     if (resource === 'companies' && scope.enabled && (id === undefined || 'parent_id' in input)) {
       throw new ForbiddenException('Company hierarchy changes require a superuser under FMCS');
     }
+    const sendWelcome = resource === 'users' && !existing && input.send_welcome === true;
+    delete input.send_welcome;
     if (resource === 'users') {
       if (
         !user.isSuperUser &&
@@ -425,7 +443,21 @@ export class DirectoryService {
       ) {
         throw new ForbiddenException('Username and email changes require a superuser');
       }
-      await this.validateUser(tx, input, user, scope, id);
+      await this.validateUser(tx, input, user, scope, id, existing?.email);
+      const start = input.start_date === undefined ? existing?.startDate : input.start_date;
+      const end = input.end_date === undefined ? existing?.endDate : input.end_date;
+      if (typeof start === 'string' && typeof end === 'string' && start > end) {
+        throw new UnprocessableEntityException('End date cannot precede start date');
+      }
+      if (id !== undefined && Array.isArray(input.company_ids) &&
+        await hasSecondaryAssignments(tx, 'user', id)) {
+        const current = await tx.select({ id: schema.companyUser.companyId }).from(schema.companyUser)
+          .where(eq(schema.companyUser.userId, id));
+        const next = new Set(input.company_ids);
+        if (current.length !== next.size || current.some((membership) => !next.has(membership.id))) {
+          throw new ConflictException('Check in secondary inventory before changing the user company');
+        }
+      }
       if (!existing && scope.enabled && input.company_ids === undefined) {
         const companyId = this.fmcs.assign(scope, undefined);
         input.company_ids = companyId === null ? [] : [companyId];
@@ -434,6 +466,11 @@ export class DirectoryService {
     }
     if (columns.companyId && (id === undefined || 'company_id' in input)) {
       input.company_id = this.fmcs.assign(scope, input.company_id as number | null | undefined);
+    }
+    if (resource === 'locations' && id !== undefined && scope.scopeLocations &&
+      'company_id' in input && input.company_id !== existing?.companyId &&
+      await hasSecondaryAssignments(tx, 'location', id)) {
+      throw new ConflictException('Check in secondary inventory before changing the location company');
     }
     for (const [key, target] of Object.entries(definition.references ?? {})) {
       const targetId = input[key];
@@ -463,7 +500,7 @@ export class DirectoryService {
     }
     if (typeof input.password === 'string')
       values.password = this.crypto.hashPassword(input.password);
-    if (resource === 'users' && !existing && !user.isSuperUser) values.inventoryOnly = true;
+    if (resource === 'users' && !existing && (!user.isSuperUser || importRecipient)) values.inventoryOnly = true;
     if (resource === 'users' && input.activated !== undefined) {
       values.inventoryOnly = false;
       values.activatedAt = input.activated === true ? (existing?.activatedAt ?? new Date()) : null;
@@ -476,6 +513,8 @@ export class DirectoryService {
             .returning()
         : await tx.update(definition.table).set(values).where(eq(columns.id!, id)).returning();
     if (resource === 'users') await this.saveMemberships(tx, scope, Number(saved!.id), input);
+    if (sendWelcome && typeof saved?.email === 'string')
+      await this.mail.enqueue(tx,saved.email,'Welcome to Kestrel-IT','Your Kestrel-IT account has been created.','welcome');
     return saved!;
   }
 
@@ -485,6 +524,7 @@ export class DirectoryService {
     actor: AuthenticatedUserContext,
     scope: FmcsScope,
     id?: number,
+    currentEmail?: unknown,
   ) {
     if (
       !actor.isSuperUser &&
@@ -530,6 +570,27 @@ export class DirectoryService {
         .limit(1);
       if (duplicate && duplicate.id !== id)
         throw new ConflictException('Username is already in use');
+    }
+    const email = typeof input.email === 'string' ? input.email.trim() : '';
+    if (email && (id === undefined || input.email !== currentEmail)) {
+      const [duplicate] = await tx
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(
+          and(
+            id !== undefined ? ne(schema.users.id, id) : undefined,
+            isNull(schema.users.deletedAt),
+            userEmailMatches(schema.users.email, email),
+          ),
+        )
+        .limit(1);
+      if (duplicate) {
+        throw new ConflictException({
+          status: 'error',
+          messages: { email: ['Email is already in use'] },
+          payload: null,
+        });
+      }
     }
     if (Array.isArray(input.company_ids)) this.validateMembershipScope(scope, input.company_ids);
   }
@@ -631,7 +692,9 @@ export class DirectoryService {
     if (resource === 'users')
       await this.validateUser(
         tx,
-        action === 'restore' ? { username: row.username } : {},
+        action === 'restore'
+          ? { username: row.username, ...(typeof row.email === 'string' ? { email: row.email } : {}) }
+          : {},
         user,
         scope,
         id,
@@ -673,7 +736,9 @@ export class DirectoryService {
             ),
           )
           .limit(1);
-        if (assigned) throw new ConflictException('An asset is still assigned to this record');
+        if (assigned || await hasSecondaryAssignments(tx, resource === 'users' ? 'user' : 'location', id)) {
+          throw new ConflictException('Inventory is still assigned to this record');
+        }
       }
     }
     if (columns.deletedAt) {
@@ -747,6 +812,10 @@ export class DirectoryService {
     const output: Row = { id: row.id, display_name: this.label(resource, row, labels) };
     if (resource === 'users') output.inventory_only = row.inventoryOnly;
     for (const [key, column] of Object.entries(columnsOf(definition.table))) {
+      if (key === 'webhookEndpoint') {
+        if (user.isSuperUser) output.webhook_configured = Boolean(row[key]);
+        continue;
+      }
       if (key === 'password' || !Object.hasOwn(definition.shape, column.name)) continue;
       if (!user.isSuperUser && superuserField(column.name)) continue;
       output[column.name] = row[key];

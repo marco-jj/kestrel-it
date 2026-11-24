@@ -1,3 +1,7 @@
+import { recordAcquisition } from './acquisitions.js';
+import { hasSecondaryAssignments } from './assignment-integrity.js';
+import { depreciationValue } from './depreciation.js';
+import { currentSettings } from './phase-three-queries.js';
 import {
   ConflictException,
   ForbiddenException,
@@ -18,12 +22,18 @@ import { z } from 'zod';
 import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import {
+  accessories,
+  accessoriesCheckout,
   actionLogs,
   assets,
   checkoutRequests,
+  components,
+  componentsAssets,
   customFieldDefaults,
   customFields,
+  depreciations,
   licenseSeats,
+  licenses,
   models,
   settings,
   statusLabels,
@@ -48,6 +58,8 @@ import {
   type InventoryTransaction,
 } from './inventory-queries.js';
 
+import { scopedAssignmentTarget } from './inventory-visibility.js';
+
 export type Hardware = typeof assets.$inferSelect;
 type StatusLabel = typeof statusLabels.$inferSelect;
 type HardwareInput = Partial<z.output<typeof AssetInputSchema>>;
@@ -67,11 +79,27 @@ const allowedSorts = {
   checkin_counter: assets.checkinCounter,
 } as const;
 
-export function assetStatus(asset: Hardware, status: StatusLabel | null) {
-  if (asset.archived || status?.archived) return 'archived';
+export const emptyAssetStatusCounts = () => ({
+  deployable: 0,
+  deployed: 0,
+  pending: 0,
+  archived: 0,
+  undeployable: 0,
+});
+
+function classifyAssetStatus(
+  archived: boolean,
+  assigned: boolean,
+  status: Pick<StatusLabel, 'archived' | 'pending' | 'deployable'> | null,
+) {
+  if (archived || status?.archived) return 'archived';
   if (status?.pending) return 'pending';
   if (!status?.deployable) return 'undeployable';
-  return asset.assignedTo === null ? 'deployable' : 'deployed';
+  return assigned ? 'deployed' : 'deployable';
+}
+
+export function assetStatus(asset: Hardware, status: StatusLabel | null) {
+  return classifyAssetStatus(asset.archived, asset.assignedTo !== null, status);
 }
 
 function formattedDate(raw: Date | string | null) {
@@ -97,6 +125,33 @@ export class HardwareService {
       deleted ? isNotNull(assets.deletedAt) : isNull(assets.deletedAt),
       this.fmcs.predicate(scope, 'hardware', assets.id, assets.companyId),
     );
+  }
+
+  async statusCounts(scope: FmcsScope) {
+    const assigned = sql<boolean>`${assets.assignedTo} is not null`;
+    const groups = await this.db
+      .select({
+        archived: assets.archived,
+        assigned,
+        status: {
+          archived: statusLabels.archived,
+          pending: statusLabels.pending,
+          deployable: statusLabels.deployable,
+        },
+        total: count(),
+      })
+      .from(assets)
+      .leftJoin(
+        statusLabels,
+        and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
+      )
+      .where(this.visible(scope))
+      .groupBy(assets.archived, assigned, statusLabels.archived, statusLabels.pending, statusLabels.deployable);
+    const counts = emptyAssetStatusCounts();
+    for (const group of groups) {
+      counts[classifyAssetStatus(group.archived, group.assigned, group.status)] += group.total;
+    }
+    return counts;
   }
 
   async find(
@@ -139,7 +194,15 @@ export class HardwareService {
       this.status(this.db, row.statusId),
       this.assetFields(this.db, row.modelId),
     ]);
-    return this.serialize(row, status, entries, user);
+    const record = this.serialize(row, status, entries, user);
+    const [[schedule], config] = await Promise.all([
+      row.modelId === null ? Promise.resolve([]) : this.db.select({ schedule: depreciations })
+        .from(models).innerJoin(depreciations, eq(depreciations.id, models.depreciationId))
+        .where(eq(models.id, row.modelId)),
+      currentSettings(this.db),
+    ]);
+    return { ...record, book_value: depreciationValue(schedule?.schedule, row.purchaseCost, row.purchaseDate,
+      config?.depreciationMethod ?? 'default', new Date().toISOString().slice(0, 10)) };
   }
 
   async assetFields(db: InventoryDatabase, modelId: number | null) {
@@ -392,13 +455,16 @@ export class HardwareService {
   }
 
   async save(body: unknown, user: AuthenticatedUserContext, id?: number) {
+    return inventoryWrite(this.db, async (tx) =>
+      success(await this.saveInTransaction(tx, body, user, id)));
+  }
+
+  async saveInTransaction(tx: InventoryTransaction, body: unknown, user: AuthenticatedUserContext, id?: number) {
     const dto =
       id === undefined ? parse(AssetInputSchema, body) : parse(AssetInputSchema.partial(), body);
-    return inventoryWrite(this.db, async (tx) => {
-      const scope = await this.fmcs.resolve(user, tx);
-      const current = id === undefined ? undefined : await this.find(tx, scope, id, { lock: true });
-      return success(await this.persist(tx, dto, scope, user, current));
-    });
+    const scope = await this.fmcs.resolve(user, tx);
+    const current = id === undefined ? undefined : await this.find(tx, scope, id, { lock: true });
+    return this.persist(tx, dto, scope, user, current);
   }
 
   async bulk(input: unknown, user: AuthenticatedUserContext) {
@@ -454,6 +520,9 @@ export class HardwareService {
         'Check in this asset before changing its company or current location',
       );
 
+    if (current && companyId !== current.companyId && await hasSecondaryAssignments(tx, 'asset', current.id)) {
+      throw new ConflictException('Check in secondary inventory before changing this asset company');
+    }
     const locations = await this.resolveLocations(tx, dto, scope, companyId, current);
 
     const serial = dto.serial !== undefined ? dto.serial || null : (current?.serial ?? null);
@@ -510,7 +579,13 @@ export class HardwareService {
           .insert(assets)
           .values({ ...changed, createdBy: user.id })
           .returning();
-    await this.log(tx, row!, user.id, current ? 'update' : 'create');
+    const orderNumber = row!.orderNumber?.trim();
+    const orderItemId = !current && orderNumber ? await recordAcquisition(tx, {
+      number: orderNumber, itemType: 'asset', itemId: row!.id, companyId, supplierId: row!.supplierId,
+      purchaseDate: row!.purchaseDate, quantity: 1, unitCost: row!.purchaseCost, currency: config?.defaultCurrency,
+      createdBy: user.id,
+    }) : undefined;
+    await this.log(tx, row!, user.id, current ? 'update' : 'create', orderItemId);
     return this.serialize(row!, status, entries, user);
   }
 
@@ -642,11 +717,6 @@ export class HardwareService {
           ),
         )
         .limit(1);
-      const [seat] = await tx
-        .select({ id: licenseSeats.id })
-        .from(licenseSeats)
-        .where(and(eq(licenseSeats.assetId, row.id), isNull(licenseSeats.deletedAt)))
-        .limit(1);
       const [request] = await tx
         .select({ id: checkoutRequests.id })
         .from(checkoutRequests)
@@ -659,7 +729,7 @@ export class HardwareService {
           ),
         )
         .limit(1);
-      if (row.assignedTo !== null || child || seat || request)
+      if (row.assignedTo !== null || child || request || await hasSecondaryAssignments(tx, 'asset', row.id))
         throw new ConflictException('This asset is still in use');
     }
     await tx
@@ -669,9 +739,10 @@ export class HardwareService {
     await this.log(tx, row, user.id, restore ? 'restore' : 'delete');
   }
 
-  async log(tx: InventoryTransaction, row: Hardware, actorId: number, actionType: string) {
+  async log(tx: InventoryTransaction, row: Hardware, actorId: number, actionType: string, orderItemId?: number) {
     await tx.insert(actionLogs).values({
       actionType,
+      orderItemId,
       itemType: 'asset',
       itemId: row.id,
       createdBy: actorId,
@@ -720,6 +791,202 @@ export class HardwareService {
         target_id:
           row.targetType !== 'user' || permitsEntity(user, 'users.view') ? row.targetId : null,
         note: row.note,
+        has_photo: row.actionType === 'audit' && !!row.filename,
+      })),
+      query,
+      url,
+    );
+  }
+
+  async assignedAssets(id: number, query: HardwareQuery, user: AuthenticatedUserContext, url: string) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    const filters = and(
+      this.visible(scope),
+      eq(assets.assignedType, 'asset'),
+      eq(assets.assignedTo, id),
+    );
+    const [[total], rows] = await Promise.all([
+      this.db.select({ value: count() }).from(assets).where(filters),
+      this.db
+        .select({ asset: assets, status: statusLabels, fieldsetId: models.fieldsetId })
+        .from(assets)
+        .leftJoin(
+          statusLabels,
+          and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
+        )
+        .leftJoin(models, eq(models.id, assets.modelId))
+        .where(filters)
+        .orderBy(asc(assets.assetTag), asc(assets.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    return datatable(total!.value, await this.serializeAssetRows(rows, user), query, url);
+  }
+
+  async serializeAssetRows(
+    rows: { asset: Hardware; status: StatusLabel | null; fieldsetId: number | null }[],
+    user: AuthenticatedUserContext,
+  ) {
+    const sets = [...new Set(rows.map(({ fieldsetId }) => fieldsetId))];
+    const fields = new Map(await Promise.all(
+      sets.map(async (setId) => [setId, await this.validation.fields(this.db, setId)] as const),
+    ));
+    return rows.map(({ asset, status, fieldsetId }) =>
+      this.serialize(asset, status, fields.get(fieldsetId) ?? [], user),
+    );
+  }
+
+  async assignedLicenses(id: number, query: HardwareQuery, user: AuthenticatedUserContext, url: string) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    if (!permitsEntity(user, 'licenses.view')) return datatable(0, [], query, url);
+    const licenseScope = this.fmcs.predicate(scope, 'licenses', licenses.id, licenses.companyId);
+    const filters = and(
+      eq(licenseSeats.assetId, id),
+      isNull(licenseSeats.deletedAt),
+      isNull(licenses.deletedAt),
+      licenseScope,
+    );
+    const [[total], rows] = await Promise.all([
+      this.db
+        .select({ value: count() })
+        .from(licenseSeats)
+        .innerJoin(licenses, eq(licenses.id, licenseSeats.licenseId))
+        .where(filters),
+      this.db
+        .select({
+          seatId: licenseSeats.id,
+          licenseId: licenses.id,
+          name: licenses.name,
+          serial: licenses.serial,
+          assignedTo: scopedAssignmentTarget(this.fmcs, scope, user, 'user', licenseSeats.assignedTo),
+          unreassignableSeat: licenseSeats.unreassignableSeat,
+          notes: licenseSeats.notes,
+        })
+        .from(licenseSeats)
+        .innerJoin(licenses, eq(licenses.id, licenseSeats.licenseId))
+        .where(filters)
+        .orderBy(asc(licenses.name), asc(licenseSeats.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    const canKeys = permitsKey(user, 'licenses.keys');
+    return datatable(
+      total!.value,
+      rows.map((row) => ({
+        id: row.licenseId,
+        seat_id: row.seatId,
+        name: row.name,
+        serial: row.serial === null ? null : canKeys ? row.serial : '***************',
+        assigned_to: row.assignedTo,
+        unreassignable_seat: row.unreassignableSeat,
+        notes: row.notes,
+      })),
+      query,
+      url,
+    );
+  }
+
+  async assignedAccessories(
+    id: number,
+    query: HardwareQuery,
+    user: AuthenticatedUserContext,
+    url: string,
+  ) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    if (!permitsEntity(user, 'accessories.view')) return datatable(0, [], query, url);
+    const filters = and(
+      eq(accessoriesCheckout.assignedType, 'asset'),
+      eq(accessoriesCheckout.assignedTo, id),
+      isNull(accessories.deletedAt),
+      this.fmcs.predicate(scope, 'accessories', accessories.id, accessories.companyId),
+    );
+    const [[total], rows] = await Promise.all([
+      this.db
+        .select({ value: count() })
+        .from(accessoriesCheckout)
+        .innerJoin(accessories, eq(accessories.id, accessoriesCheckout.accessoryId))
+        .where(filters),
+      this.db
+        .select({
+          assignmentId: accessoriesCheckout.id,
+          accessoryId: accessories.id,
+          name: accessories.name,
+          modelNumber: accessories.modelNumber,
+          companyId: accessories.companyId,
+          note: accessoriesCheckout.note,
+        })
+        .from(accessoriesCheckout)
+        .innerJoin(accessories, eq(accessories.id, accessoriesCheckout.accessoryId))
+        .where(filters)
+        .orderBy(asc(accessories.name), asc(accessoriesCheckout.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    return datatable(
+      total!.value,
+      rows.map((row) => ({
+        id: row.accessoryId,
+        assignment_id: row.assignmentId,
+        name: row.name,
+        model_number: row.modelNumber,
+        company_id: row.companyId,
+        note: row.note,
+      })),
+      query,
+      url,
+    );
+  }
+
+  async assignedComponents(
+    id: number,
+    query: HardwareQuery,
+    user: AuthenticatedUserContext,
+    url: string,
+  ) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    if (!permitsEntity(user, 'components.view')) return datatable(0, [], query, url);
+    const filters = and(
+      eq(componentsAssets.assetId, id),
+      isNull(components.deletedAt),
+      this.fmcs.predicate(scope, 'components', components.id, components.companyId),
+    );
+    const [[total], rows] = await Promise.all([
+      this.db
+        .select({ value: count() })
+        .from(componentsAssets)
+        .innerJoin(components, eq(components.id, componentsAssets.componentId))
+        .where(filters),
+      this.db
+        .select({
+          assignmentId: componentsAssets.id,
+          componentId: components.id,
+          name: components.name,
+          serial: components.serial,
+          assignedQty: componentsAssets.assignedQty,
+          companyId: components.companyId,
+          note: componentsAssets.note,
+        })
+        .from(componentsAssets)
+        .innerJoin(components, eq(components.id, componentsAssets.componentId))
+        .where(filters)
+        .orderBy(asc(components.name), asc(componentsAssets.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    return datatable(
+      total!.value,
+      rows.map((row) => ({
+        id: row.componentId,
+        assignment_id: row.assignmentId,
+        name: row.name,
+        serial: row.serial,
+        assigned_qty: row.assignedQty,
+        company_id: row.companyId,
+        note: row.note,
       })),
       query,
       url,
@@ -762,6 +1029,8 @@ export class HardwareService {
       last_checkout: formattedDate(row.lastCheckout),
       last_checkin: formattedDate(row.lastCheckin),
       expected_checkin: formattedDate(row.expectedCheckin),
+      last_audit_date: formattedDate(row.lastAuditDate),
+      next_audit_date: formattedDate(row.nextAuditDate),
       checkout_counter: row.checkoutCounter,
       checkin_counter: row.checkinCounter,
       requests_counter: row.requestsCounter,
@@ -777,6 +1046,7 @@ export class HardwareService {
             delete: canDelete && row.assignedTo === null,
             checkout: permitsKey(user, 'assets.checkout') && currentStatus === 'deployable',
             checkin: permitsKey(user, 'assets.checkin') && row.assignedTo !== null,
+            audit: permitsKey(user, 'assets.audit'),
             bulk_selectable: { edit: canEdit, delete: canDelete && row.assignedTo === null },
           },
     };

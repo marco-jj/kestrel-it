@@ -177,6 +177,18 @@ function createInMemoryDrizzleHarness() {
         return actual === expected;
       }
 
+      const emailMatch = normalized.match(
+        /^lower\(btrim\("([^"]+)"\."([^"]+)"\)\)\s*=\s*lower\(\$(\d+)\)$/i,
+      );
+      if (emailMatch) {
+        const resolved = resolveColumnProp(primaryTable, emailMatch[1], emailMatch[2]!, extraTables);
+        if (!resolved) return false;
+        const actual = rowByTable.get(resolved.targetTableName)?.[resolved.prop];
+        const expected = params[Number(emailMatch[3]) - 1];
+        return typeof actual === 'string' && typeof expected === 'string' &&
+          actual.trim().toLowerCase() === expected.toLowerCase();
+      }
+
       const eqColMatch = normalized.match(
         /^(?:"([^"]+)"\.)?"([^"]+)"\s*=\s*(?:"([^"]+)"\.)?"([^"]+)"$/i,
       );
@@ -935,11 +947,24 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
   });
 
   it('executes OIDC PKCE S256 login + RS256 JWKS callback, enforces MFA policy, and blocks subject rebinding', async () => {
-    const performOidcFlow = async (accept = 'application/json') => {
-      const loginRes = await app.inject({ method: 'GET', url: '/api/v1/auth/oidc/login' });
+    const performOidcFlow = async (
+      accept = 'application/json',
+      redirect?: string,
+      protocol: 'oidc' | 'oauth' = 'oidc',
+    ) => {
+      const loginUrl =
+        redirect !== undefined
+          ? `/api/v1/auth/${protocol}/login?redirect=${encodeURIComponent(redirect)}`
+          : `/api/v1/auth/${protocol}/login`;
+      const loginRes = await app.inject({ method: 'GET', url: loginUrl });
       expect(loginRes.statusCode).toBe(302);
       const stateCookie = getCookieValue(loginRes.cookies, 'kestrel_oidc_state')!;
       expect(stateCookie).toBeTruthy();
+      const stateCookieHeader = [loginRes.headers['set-cookie']]
+        .flat()
+        .find((header) => header?.startsWith('kestrel_oidc_state='));
+      expect(stateCookieHeader).toBeDefined();
+      expect(Buffer.byteLength(stateCookieHeader!)).toBeLessThan(4096);
 
       const location = new URL(String(loginRes.headers['location']));
       const state = location.searchParams.get('state')!;
@@ -952,7 +977,7 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
 
       return app.inject({
         method: 'GET',
-        url: `/api/v1/auth/oidc/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
+        url: `/api/v1/auth/${protocol}/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
         headers: { cookie: `kestrel_oidc_state=${stateCookie}`, accept },
       });
     };
@@ -969,6 +994,19 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     const browserChallenge = await performOidcFlow('text/html');
     expect(browserChallenge.statusCode).toBe(303);
     expect(browserChallenge.headers['location']).toBe('/login?sso=challenge');
+    const redirectedChallenge = await performOidcFlow(
+      'text/html',
+      '/hardware/audit/due-or-overdue',
+      'oauth',
+    );
+    expect(redirectedChallenge.statusCode).toBe(303);
+    expect(redirectedChallenge.headers['location']).toBe(
+      '/login?sso=challenge&redirect=%2Fhardware%2Faudit%2Fdue-or-overdue',
+    );
+    const longReportPath = '/reports/custom?columns=' + 'inventory_column,'.repeat(180);
+    const oversizedChallenge = await performOidcFlow('text/html', longReportPath, 'oauth');
+    expect(oversizedChallenge.statusCode).toBe(303);
+    expect(oversizedChallenge.headers['location']).toBe('/login?sso=challenge');
     const challengeCookie = browserChallenge.cookies.find((c) => c.name === 'kestrel_sso_challenge');
     expect(challengeCookie).toMatchObject({ httpOnly: true });
     const handoff = await app.inject({
@@ -995,6 +1033,39 @@ describe('Auth & Setup Fastify HTTP E2E (1.4 & 1.4b Runtime Verification)', () =
     expect(browserSuccess.statusCode).toBe(303);
     expect(browserSuccess.headers['location']).toBe('/dashboard');
     expect(getCookieValue(browserSuccess.cookies, 'kestrel_access_token')).toBeTruthy();
+
+    const redirectedSuccess = await performOidcFlow('text/html', '/hardware/audit/due-or-overdue');
+    expect(redirectedSuccess.statusCode).toBe(303);
+    expect(redirectedSuccess.headers['location']).toBe('/hardware/audit/due-or-overdue');
+
+    const longestSupportedPath = '/reports/custom?columns='.padEnd(2048, 'x');
+    const boundedSuccess = await performOidcFlow('text/html', longestSupportedPath);
+    expect(boundedSuccess.statusCode).toBe(303);
+    expect(boundedSuccess.headers['location']).toBe(longestSupportedPath);
+
+    const encodedReportPath = '/reports/custom?columns=' + 'è'.repeat(700);
+    const oversizedSuccess = await performOidcFlow('text/html', encodedReportPath);
+    expect(oversizedSuccess.statusCode).toBe(303);
+    expect(oversizedSuccess.headers['location']).toBe('/dashboard');
+    expect(getCookieValue(oversizedSuccess.cookies, 'kestrel_access_token')).toBeTruthy();
+
+    const unsafeSuccess = await performOidcFlow('text/html', '//evil.example/phish', 'oauth');
+    expect(unsafeSuccess.statusCode).toBe(303);
+    expect(unsafeSuccess.headers['location']).toBe('/dashboard');
+
+    const verifyToken = vi.spyOn(app.get(JwtService), 'verifyToken');
+    try {
+      const normalized = await performOidcFlow('text/html', '/settings/..//network-path');
+      expect(normalized.statusCode).toBe(303);
+      expect(normalized.headers['location']).toBe('/dashboard');
+      const stateChecks = verifyToken.mock.results.filter(
+        (_, index) => verifyToken.mock.calls[index]?.[1] === 'oidc_state',
+      );
+      expect(stateChecks).toHaveLength(1);
+      await expect(stateChecks[0]!.value).resolves.not.toHaveProperty('redirect');
+    } finally {
+      verifyToken.mockRestore();
+    }
 
     // Subject rebinding attempt with different sub on same issuer & username must fail with 401
     oidcSubjectMode = 'rebinding_attack';

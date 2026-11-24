@@ -39,6 +39,7 @@ import {
 } from '../../common/guards/jwt-or-pat-auth.guard.js';
 import { AuthService } from './auth.service.js';
 import { BetterAuthService } from './better-auth.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 interface HttpCookieReply {
   setCookie(name: string, value: string, options: Record<string, unknown>): unknown;
@@ -69,6 +70,7 @@ export class AuthController {
     return this.authService.getAuthProvidersStatus();
   }
 
+  @ApiZodBody(LoginRequestSchema)
   @Public()
   @Post('auth/login')
   @HttpCode(200)
@@ -99,6 +101,7 @@ export class AuthController {
     return result;
   }
 
+  @ApiZodBody(RefreshTokenRequestSchema, false)
   @Public()
   @Post('auth/refresh')
   @HttpCode(200)
@@ -124,6 +127,7 @@ export class AuthController {
     return result;
   }
 
+  @ApiZodBody(TwoFactorEnrollRequestSchema, false)
   @Public()
   @Post('auth/2fa/enroll')
   @HttpCode(200)
@@ -138,6 +142,7 @@ export class AuthController {
     return this.authService.enrollTwoFactor(userId);
   }
 
+  @ApiZodBody(TwoFactorVerifyRequestSchema)
   @Public()
   @Post('auth/2fa/verify')
   @HttpCode(200)
@@ -173,9 +178,12 @@ export class AuthController {
   @Public()
   @Get('auth/oidc/login')
   @ApiOperation({ summary: 'Initiate OIDC Authorization Code + PKCE flow' })
-  async oidcLogin(@Res() reply: HttpCookieReply): Promise<void> {
+  async oidcLogin(
+    @Query('redirect') redirect: string | undefined,
+    @Res() reply: HttpCookieReply,
+  ): Promise<void> {
     const { redirectUrl, stateCookieToken } =
-      await this.authService.buildOidcAuthorizationRedirect();
+      await this.authService.buildOidcAuthorizationRedirect(redirect);
     const isProd = process.env['NODE_ENV'] === 'production';
 
     reply.clearCookie(SSO_CHALLENGE_COOKIE, { path: '/' });
@@ -204,7 +212,7 @@ export class AuthController {
       throw new BadRequestException('Missing OIDC callback code, state, or state cookie');
     }
 
-    const result = await this.authService.handleOidcCallback({
+    const { result, destination } = await this.authService.handleOidcCallback({
       code,
       state,
       stateCookieToken,
@@ -223,7 +231,7 @@ export class AuthController {
     }
 
     if (result.status === 'authenticated') {
-      reply.redirect('/dashboard', 303);
+      reply.redirect(destination, 303);
     } else {
       reply.setCookie(SSO_CHALLENGE_COOKIE, result.challengeToken, {
         httpOnly: true,
@@ -232,7 +240,11 @@ export class AuthController {
         path: '/',
         maxAge: 300,
       });
-      reply.redirect('/login?sso=challenge', 303);
+      const challengeUrl =
+        destination !== '/dashboard' && destination !== '/'
+          ? `/login?sso=challenge&redirect=${encodeURIComponent(destination)}`
+          : '/login?sso=challenge';
+      reply.redirect(challengeUrl, 303);
     }
   }
 
@@ -257,8 +269,11 @@ export class AuthController {
   @Public()
   @Get('auth/oauth/login')
   @ApiOperation({ summary: 'Initiate OAuth 2.0 / OAuth 2.1 Authorization Code + PKCE (S256) flow' })
-  async oauthLogin(@Res() reply: HttpCookieReply): Promise<void> {
-    return this.oidcLogin(reply);
+  async oauthLogin(
+    @Query('redirect') redirect: string | undefined,
+    @Res() reply: HttpCookieReply,
+  ): Promise<void> {
+    return this.oidcLogin(redirect, reply);
   }
 
   @Public()
@@ -274,6 +289,7 @@ export class AuthController {
     return this.oidcCallback(code, state, request, reply);
   }
 
+  @ApiZodBody(BetterAuthSessionExchangeRequestSchema)
   @Public()
   @Post('auth/better-auth/exchange')
   @HttpCode(200)
@@ -305,6 +321,7 @@ export class AuthController {
     return result;
   }
 
+  @ApiZodBody(RefreshTokenRequestSchema, false)
   @Public()
   @Post(['logout', 'auth/logout'])
   @HttpCode(200)

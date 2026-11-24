@@ -22,6 +22,7 @@ import {
 } from '../../common/guards/jwt-or-pat-auth.guard.js';
 import { SetupNotCompletedGuard } from './setup-not-completed.guard.js';
 import { SetupService } from './setup.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 interface HttpCookieReply {
   setCookie(name: string, value: string, options: Record<string, unknown>): unknown;
@@ -39,6 +40,7 @@ export class SetupController {
     return this.setupService.getPreflightStatus();
   }
 
+  @ApiZodBody(CompleteSetupRequestSchema)
   @Public()
   @UseGuards(SetupNotCompletedGuard)
   @Post('complete')

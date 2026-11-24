@@ -15,6 +15,10 @@ const DEVELOPMENT_JWT_SECRET = 'dev-only-jwt-secret-change-me-in-production';
 
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  SCHEDULER_TIMEZONE: z.string().default('UTC').refine((value) => {
+    try { Intl.DateTimeFormat('en', { timeZone: value }); return true; }
+    catch { return false; }
+  }, 'Invalid scheduler timezone'),
   APP_NAME: z.string().min(1).default('Kestrel-IT'),
   APP_URL: z.string().url().default('http://localhost:4200'),
   API_PORT: z.coerce.number().int().min(1).max(65_535).default(3000),

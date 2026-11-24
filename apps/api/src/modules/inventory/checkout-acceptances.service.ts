@@ -10,15 +10,22 @@ import {
   type AuthenticatedUserContext,
   type DatatableQuery,
   type StorageBucketCategory,
+  type PolymorphicItemType,
 } from '@kestrel-it/shared';
-import { and, count, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { permitsKey } from '../../common/guards/permissions.guard.js';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../common/storage/storage.interface.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import {
   actionLogs,
+  accessories,
+  accessoriesCheckout,
   assets,
+  consumables,
+  consumablesUsers,
+  licenses,
+  licenseSeats,
   checkoutAcceptances,
   models,
   settings,
@@ -27,7 +34,6 @@ import {
 import { acceptancePdf, signaturePng } from './acceptance-artifacts.js';
 import { fieldIssue } from './custom-fields-validation.service.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
-import { HardwareService } from './hardware.service.js';
 import { InventoryMailService } from './inventory-mail.service.js';
 import {
   datatable,
@@ -47,7 +53,6 @@ export class CheckoutAcceptancesService {
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     @Inject(FmcsScopeService) private readonly fmcs: FmcsScopeService,
-    @Inject(HardwareService) private readonly hardware: HardwareService,
     @Inject(InventoryMailService) private readonly mail: InventoryMailService,
   ) {}
 
@@ -55,49 +60,73 @@ export class CheckoutAcceptancesService {
     const scope = await this.fmcs.resolve(user);
     const own = eq(checkoutAcceptances.assignedToId, user.id);
     const delegated = permitsKey(user, 'assets.checkout')
-      ? and(
-          eq(checkoutAcceptances.alertOnResponseId, user.id),
-          eq(checkoutAcceptances.signInPlace, true),
-        )
+      ? and(eq(checkoutAcceptances.checkoutableType, 'asset'),
+          eq(checkoutAcceptances.alertOnResponseId, user.id), eq(checkoutAcceptances.signInPlace, true))
       : undefined;
-    const filters = and(
-      eq(checkoutAcceptances.checkoutableType, 'asset'),
-      isNull(checkoutAcceptances.deletedAt),
-      history ? own : or(own, delegated),
-      history
-        ? or(isNotNull(checkoutAcceptances.acceptedAt), isNotNull(checkoutAcceptances.declinedAt))
-        : and(isNull(checkoutAcceptances.acceptedAt), isNull(checkoutAcceptances.declinedAt)),
-      history ? undefined : eq(assets.assignedType, 'user'),
-      history ? undefined : eq(assets.assignedTo, checkoutAcceptances.assignedToId),
-      history
-        ? this.fmcs.predicate(scope, 'hardware', assets.id, assets.companyId)
-        : this.hardware.visible(scope),
-    );
-    const [[total], rows] = await Promise.all([
-      this.db
-        .select({ value: count() })
-        .from(checkoutAcceptances)
-        .innerJoin(assets, eq(assets.id, checkoutAcceptances.checkoutableId))
-        .where(filters),
-      this.db
-        .select({ acceptance: checkoutAcceptances, tag: assets.assetTag, name: assets.name })
-        .from(checkoutAcceptances)
-        .innerJoin(assets, eq(assets.id, checkoutAcceptances.checkoutableId))
-        .where(filters)
-        .orderBy(desc(checkoutAcceptances.id))
-        .limit(query.limit)
-        .offset(pageOffset(query)),
+    const filter = and(isNull(checkoutAcceptances.deletedAt), history ? own : or(own, delegated),
+      history ? or(isNotNull(checkoutAcceptances.acceptedAt), isNotNull(checkoutAcceptances.declinedAt))
+        : and(isNull(checkoutAcceptances.acceptedAt), isNull(checkoutAcceptances.declinedAt)));
+    const source = this.subjects(scope, !history);
+    const from = sql`from ${checkoutAcceptances} join lateral (${source}) as item on true where ${filter}`;
+    const [totals, rows] = await Promise.all([
+      this.db.execute<{ total: number }>(sql`select count(*)::int as total ${from}`),
+      this.db.execute<{
+        id: number; asset_id: number; asset_tag: string | null; asset_name: string | null;
+        item_type: PolymorphicItemType; state: string; accepted_at: string | null;
+        declined_at: string | null; created_at: string; has_eula: boolean; has_signature: boolean;
+      }>(sql`select ${checkoutAcceptances.id}, item.inventory_id as asset_id, item.tag as asset_tag, item.name as asset_name,
+        item.item_type, case when ${checkoutAcceptances.acceptedAt} is not null then 'accepted'
+          when ${checkoutAcceptances.declinedAt} is not null then 'declined' else 'pending' end as state,
+        ${checkoutAcceptances.acceptedAt}, ${checkoutAcceptances.declinedAt}, ${checkoutAcceptances.createdAt},
+        ${checkoutAcceptances.storedEulaFile} is not null as has_eula,
+        ${checkoutAcceptances.signatureFilename} is not null as has_signature
+        ${from} order by ${checkoutAcceptances.id} desc limit ${query.limit} offset ${pageOffset(query)}`),
     ]);
-    return datatable(
-      total!.value,
-      rows.map(({ acceptance, tag, name }) => ({
-        ...this.present(acceptance),
-        asset_tag: tag,
-        asset_name: name,
-      })),
-      query,
-      url,
-    );
+    const stamp = (value: string | null) => value === null ? null : new Date(value).toISOString();
+    return datatable(totals[0]!.total, rows.map((row) => ({ ...row,
+      accepted_at: stamp(row.accepted_at), declined_at: stamp(row.declined_at), created_at: stamp(row.created_at),
+    })), query, url);
+  }
+
+  subjects(scope: FmcsScope, pending: boolean) {
+    const acceptance = checkoutAcceptances;
+    const subjectId = acceptance.checkoutableId;
+    const owner = acceptance.assignedToId;
+    const scopeFor = (table: typeof accessories | typeof consumables | typeof licenses) =>
+      this.fmcs.predicate(scope, 'inventory', table.id, table.companyId) ?? sql`true`;
+    const assignment = (type: 'accessory' | 'consumable') => {
+      const inventory = type === 'accessory' ? accessories : consumables;
+      const active = type === 'accessory' ? sql`
+        from ${accessoriesCheckout} where ${accessoriesCheckout.accessoryId} = ${inventory.id}
+        and ${accessoriesCheckout.id}::text = ${actionLogs.logMeta}->>'assignment_id'
+        and ${accessoriesCheckout.assignedType} = 'user' and ${accessoriesCheckout.assignedTo} = ${owner}`
+        : sql`from ${consumablesUsers} where ${consumablesUsers.consumableId} = ${inventory.id}
+        and ${consumablesUsers.id}::text = ${actionLogs.logMeta}->>'assignment_id'
+        and ${consumablesUsers.assignedTo} = ${owner} and ${consumablesUsers.consumedAt} is null`;
+      return sql`select ${inventory.id}, ${inventory.name}, null::text, ${inventory.companyId}, null::int,
+        null::int, null::text, ${type}::text from ${inventory}
+        where ${acceptance.checkoutableType} = ${type} and ${inventory.id} = ${subjectId}
+          and ${scopeFor(inventory)} ${pending ? sql`and ${inventory.deletedAt} is null and exists (
+          select 1 from ${actionLogs} where ${actionLogs.acceptedId} = ${acceptance.id}
+            and ${actionLogs.itemType} = ${type} and ${actionLogs.itemId} = ${inventory.id}
+            and ${actionLogs.actionType} = 'checkout' and exists (select 1 ${active})
+        )` : sql.empty()}`;
+    };
+    return sql`
+      select ${assets.id} as inventory_id, ${assets.name}, ${assets.assetTag} as tag, ${assets.companyId},
+        ${assets.locationId}, ${assets.modelId}, ${assets.serial}, 'asset'::text as item_type
+      from ${assets} where ${acceptance.checkoutableType} = 'asset' and ${assets.id} = ${subjectId}
+        and ${this.fmcs.predicate(scope, 'hardware', assets.id, assets.companyId) ?? sql`true`}
+        ${pending ? sql`and ${assets.deletedAt} is null and ${assets.assignedType} = 'user'
+          and ${assets.assignedTo} = ${owner}` : sql.empty()}
+      union all select ${licenses.id}, ${licenses.name}, null::text, ${licenses.companyId}, null::int, null::int,
+        null::text, 'license'::text from ${licenseSeats} join ${licenses} on ${licenses.id} = ${licenseSeats.licenseId}
+      where ${acceptance.checkoutableType} = 'license_seat' and ${licenseSeats.id} = ${subjectId}
+        and ${scopeFor(licenses)} ${pending ? sql`and ${licenseSeats.deletedAt} is null and
+          ${licenses.deletedAt} is null and ${licenseSeats.assignedTo} = ${owner}` : sql.empty()}
+      union all ${assignment('accessory')}
+      union all ${assignment('consumable')}
+    `;
   }
 
   async get(id: number, user: AuthenticatedUserContext) {
@@ -105,6 +134,8 @@ export class CheckoutAcceptancesService {
     const { asset, row } = await this.access(this.db, scope, id, user);
     return {
       ...this.present(row),
+      asset_id: asset.id,
+      item_type: asset.itemType,
       asset_tag: asset.assetTag,
       asset_name: asset.name,
       eula: row.storedEula,
@@ -177,14 +208,14 @@ export class CheckoutAcceptancesService {
             updatedAt: today,
           })
           .where(eq(checkoutAcceptances.id, id));
-        await tx
+        if (asset.itemType === 'asset') await tx
           .update(assets)
           .set({ accepted: isAccepting ? true : null, updatedAt: today })
           .where(eq(assets.id, asset.id));
         const action = isAccepting ? 'accepted' : 'declined';
         await tx.insert(actionLogs).values({
           actionType: action,
-          itemType: 'asset',
+          itemType: asset.itemType,
           itemId: asset.id,
           createdBy: user.id,
           targetType: 'user',
@@ -210,6 +241,7 @@ export class CheckoutAcceptancesService {
             operator?.email,
             `Asset acceptance ${action}: ${label}`,
             `The checkout acceptance for asset ${label} was ${action}.`,
+            isAccepting ? 'acceptance.accepted' : 'acceptance.declined',
           );
           if (isAccepting)
             await this.mail.enqueue(
@@ -217,6 +249,7 @@ export class CheckoutAcceptancesService {
               assignee.email,
               `Asset acceptance confirmed: ${label}`,
               `Your acceptance for asset ${label} was recorded.`,
+              'acceptance.receipt',
             );
         }
         return success({ id, state: action, has_eula: storedEulaFile !== null });
@@ -237,9 +270,7 @@ export class CheckoutAcceptancesService {
     const { asset, row } = await this.access(db, scope, id, user, lock);
     if (
       row.acceptedAt ||
-      row.declinedAt ||
-      asset.assignedType !== 'user' ||
-      asset.assignedTo !== row.assignedToId
+      row.declinedAt
     ) {
       throw new ConflictException('This checkout acceptance is no longer pending');
     }
@@ -317,38 +348,35 @@ export class CheckoutAcceptancesService {
       .where(
         and(
           eq(checkoutAcceptances.id, id),
-          eq(checkoutAcceptances.checkoutableType, 'asset'),
           isNull(checkoutAcceptances.deletedAt),
         ),
       )
       .limit(1);
     const [row] = await (lock ? query.for('update') : query);
     const delegated =
-      row?.signInPlace && row.alertOnResponseId === user.id && permitsKey(user, 'assets.checkout');
+      row?.checkoutableType === 'asset' && row.signInPlace && row.alertOnResponseId === user.id && permitsKey(user, 'assets.checkout');
     if (!row || (row.assignedToId !== user.id && !delegated))
       throw new NotFoundException('Checkout acceptance not found');
-    if (!lock && (row.acceptedAt || row.declinedAt)) {
-      const [archivable] = await db
-        .select()
-        .from(assets)
-        .where(
-          and(
-            eq(assets.id, row.checkoutableId),
-            this.fmcs.predicate(scope, 'hardware', assets.id, assets.companyId),
-          ),
-        )
-        .limit(1);
-      if (!archivable) throw new NotFoundException('Checkout acceptance not found');
-      return { row, asset: archivable };
+    const [item] = await db.execute<{
+      inventory_id: number; name: string | null; tag: string | null; company_id: number | null;
+      location_id: number | null; model_id: number | null; serial: string | null; item_type: PolymorphicItemType;
+    }>(sql`select item.* from ${checkoutAcceptances} join lateral (
+      ${this.subjects(scope, !row.acceptedAt && !row.declinedAt)}
+    ) as item on true where ${checkoutAcceptances.id} = ${id}`);
+    if (!item) {
+      if (lock) throw new ConflictException('This checkout acceptance is no longer pending');
+      throw new NotFoundException('Checkout acceptance not found');
     }
-    const asset = await this.hardware.find(db, scope, row.checkoutableId, { lock });
-    return { row, asset };
+    return { row, asset: {
+      id: item.inventory_id, name: item.name, assetTag: item.tag, itemType: item.item_type,
+      companyId: item.company_id, locationId: item.location_id, modelId: item.model_id, serial: item.serial,
+    } };
+
   }
 
   private present(row: Acceptance) {
     return {
       id: row.id,
-      asset_id: row.checkoutableId,
       state: row.acceptedAt ? 'accepted' : row.declinedAt ? 'declined' : 'pending',
       accepted_at: row.acceptedAt?.toISOString() ?? null,
       declined_at: row.declinedAt?.toISOString() ?? null,

@@ -29,6 +29,13 @@ export interface CommandItem {
 export const DEFAULT_COMMAND_ITEMS: readonly CommandItem[] = [
   { id: 'nav-dashboard', label: 'Go to Dashboard', category: 'navigation', route: '/dashboard', shortcut: 'G D' },
   {
+    id: 'nav-checkout-requests',
+    label: 'Checkout Requests',
+    category: 'navigation',
+    route: '/requests',
+    keywords: ['queue', 'equipment'],
+  },
+  {
     id: 'nav-hardware',
     label: 'Hardware Assets',
     category: 'navigation',
@@ -77,12 +84,65 @@ export const DEFAULT_COMMAND_ITEMS: readonly CommandItem[] = [
     keywords: ['sites', 'offices'],
   },
   {
+    id: 'nav-account-profile',
+    label: 'My Profile & 2FA',
+    category: 'navigation',
+    route: '/account/profile',
+    keywords: ['account', 'password', 'totp', 'profile'],
+  },
+  {
+    id: 'nav-account-assets',
+    label: 'My Assigned Items',
+    category: 'navigation',
+    route: '/account/view-assets',
+    keywords: ['account', 'assigned', 'my assets'],
+  },
+  {
+    id: 'nav-account-requestable',
+    label: 'Requestable Inventory',
+    category: 'navigation',
+    route: '/account/requestable',
+    keywords: ['request', 'catalog', 'self-service'],
+  },
+  {
+    id: 'nav-account-api',
+    label: 'Personal API Tokens',
+    category: 'navigation',
+    route: '/account/api',
+    requiredPermission: 'self.api',
+    keywords: ['pat', 'token', 'bearer'],
+  },
+  {
     id: 'nav-settings',
     label: 'Global Settings',
     category: 'navigation',
     route: '/admin/settings',
     requiredPermission: 'superuser',
-    keywords: ['admin', 'oidc', 'branding'],
+    keywords: ['admin', 'security', 'general'],
+  },
+  {
+    id: 'nav-admin-branding',
+    label: 'Branding & Custom CSS',
+    category: 'navigation',
+    route: '/admin/branding',
+    requiredPermission: 'superuser',
+    keywords: ['admin', 'branding', 'theme', 'css'],
+  },
+  {
+    id: 'nav-admin-oidc',
+    label: 'SSO / OIDC Integration',
+    category: 'navigation',
+    route: '/admin/integrations',
+    requiredPermission: 'superuser',
+    keywords: ['admin', 'oidc', 'sso', 'oauth'],
+  },
+  {
+    id: 'nav-admin-login-attempts',
+    label: 'Login Attempts Audit',
+    category: 'navigation',
+    route: '/admin/login-attempts',
+    requiredPermission: 'superuser',
+    keywords: ['admin', 'audit', 'auth'],
   },
   {
     id: 'act-create-asset',
@@ -115,9 +175,10 @@ export function filterCommandItems(
   query: string,
   authStore: AuthStore,
 ): CommandItem[] {
-  const permitted = items.filter(
-    (item) => !item.requiredPermission || authStore.can(item.requiredPermission),
-  );
+  const permitted = items.filter((item) => {
+    if (item.route === '/requests') return authStore.canManageCheckoutRequests();
+    return !item.requiredPermission || authStore.can(item.requiredPermission);
+  });
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
     return permitted;

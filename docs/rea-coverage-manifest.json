@@ -1,0 +1,2001 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "art.openapi",
+      "artifact_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "environment_sha256": "56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846",
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "version": "0.1.0"
+    }
+  ],
+  "boundaries": [
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.db.schema",
+      "required_claim_ids": [
+        "claim.db.schema"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.db.assets",
+        "surf.db.identity",
+        "surf.db.operations",
+        "surf.db.secondary",
+        "surf.db.taxonomy"
+      ],
+      "title": "PostgreSQL & Drizzle Relational Schema"
+    },
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.custom_fields",
+      "required_claim_ids": [
+        "claim.custom_fields"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.cf.validator",
+        "surf.cf.schemas",
+        "surf.cf.service",
+        "surf.cf.ui"
+      ],
+      "title": "JSONB Custom Fields & Fieldsets Engine"
+    },
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.rbac.fmcs",
+      "required_claim_ids": [
+        "claim.rbac.fmcs"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.rbac.catalog",
+        "surf.rbac.eval",
+        "surf.rbac.guard",
+        "surf.rbac.fmcs"
+      ],
+      "title": "RBAC Permissions & FMCS Multi-Company Scoping"
+    },
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.workflows",
+      "required_claim_ids": [
+        "claim.workflows"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.wf.checkout_schema",
+        "surf.wf.requests",
+        "surf.wf.kits",
+        "surf.wf.maintenance",
+        "surf.wf.audits",
+        "surf.wf.depreciation"
+      ],
+      "title": "Domain Workflows, Checkout, Kits, Audits, Maintenance & Depreciation"
+    },
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.api.rest",
+      "required_claim_ids": [
+        "claim.api"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.api.openapi",
+        "surf.api.hardware",
+        "surf.api.secondary",
+        "surf.api.settings",
+        "surf.api.backups.external"
+      ],
+      "title": "REST API & OpenAPI 3.0 Contract (299 paths / 435 operations)"
+    },
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.ops.jobs",
+      "required_claim_ids": [
+        "claim.ops.jobs"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.ops.storage_local",
+        "surf.ops.storage_s3",
+        "surf.ops.storage_deletion",
+        "surf.ops.mail",
+        "surf.ops.imports",
+        "surf.ops.labels",
+        "surf.ops.reports",
+        "surf.ops.auth",
+        "surf.ops.external.backups_idp"
+      ],
+      "title": "Storage, Auth/OIDC, CSV Importer, Labels, Reports & Notifications"
+    },
+    {
+      "allowed_dispositions": [
+        "external",
+        "non-goal"
+      ],
+      "allowed_unknown_ids": [],
+      "boundary_id": "boundary.web.spa",
+      "required_claim_ids": [
+        "claim.web.spa"
+      ],
+      "required_package_proof_kinds": [
+        "build"
+      ],
+      "required_surface_ids": [
+        "surf.web.routes",
+        "surf.web.shell",
+        "surf.web.hardware",
+        "surf.web.calendar",
+        "surf.web.requestable",
+        "surf.web.account",
+        "surf.web.admin",
+        "surf.web.secondary"
+      ],
+      "title": "Angular SPA & Precision Enterprise UI"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "claim.db.schema",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "schema"
+      ],
+      "surface_ids": [
+        "surf.db.assets",
+        "surf.db.identity",
+        "surf.db.operations",
+        "surf.db.secondary",
+        "surf.db.taxonomy"
+      ],
+      "title": "PostgreSQL 16 + Drizzle schema & migrations"
+    },
+    {
+      "claim_id": "claim.custom_fields",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "custom_fields"
+      ],
+      "surface_ids": [
+        "surf.cf.validator",
+        "surf.cf.schemas",
+        "surf.cf.service",
+        "surf.cf.ui"
+      ],
+      "title": "JSONB validation, AES-256-GCM encryption & masking"
+    },
+    {
+      "claim_id": "claim.rbac.fmcs",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "rbac"
+      ],
+      "surface_ids": [
+        "surf.rbac.catalog",
+        "surf.rbac.eval",
+        "surf.rbac.guard",
+        "surf.rbac.fmcs"
+      ],
+      "title": "101 permissions & company scoping parity"
+    },
+    {
+      "claim_id": "claim.workflows",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "workflows"
+      ],
+      "surface_ids": [
+        "surf.wf.checkout_schema",
+        "surf.wf.requests",
+        "surf.wf.kits",
+        "surf.wf.maintenance",
+        "surf.wf.audits",
+        "surf.wf.depreciation"
+      ],
+      "title": "Transactional inventory workflows & EULA acceptance"
+    },
+    {
+      "claim_id": "claim.api",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "openapi"
+      ],
+      "surface_ids": [
+        "surf.api.openapi",
+        "surf.api.hardware",
+        "surf.api.secondary",
+        "surf.api.settings"
+      ],
+      "title": "REST API OpenAPI contract & endpoint parity"
+    },
+    {
+      "claim_id": "claim.ops.jobs",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "operations"
+      ],
+      "surface_ids": [
+        "surf.ops.storage_local",
+        "surf.ops.storage_s3",
+        "surf.ops.storage_deletion",
+        "surf.ops.mail",
+        "surf.ops.imports",
+        "surf.ops.labels",
+        "surf.ops.reports",
+        "surf.ops.auth"
+      ],
+      "title": "Storage adapters, CSV imports, labels, reports, mail outbox & cleanup"
+    },
+    {
+      "claim_id": "claim.web.spa",
+      "kind": "structural",
+      "required_authority": "shipped-artifact",
+      "required_dimensions": [
+        "frontend"
+      ],
+      "surface_ids": [
+        "surf.web.routes",
+        "surf.web.shell",
+        "surf.web.hardware",
+        "surf.web.calendar",
+        "surf.web.requestable",
+        "surf.web.account",
+        "surf.web.admin",
+        "surf.web.secondary"
+      ],
+      "title": "Angular routes, self-service catalog, admin settings & interactive views"
+    }
+  ],
+  "contradictions": [],
+  "evidence_bundle": {
+    "artifacts": [
+      {
+        "architecture": null,
+        "digest": {
+          "sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+        },
+        "format": "file"
+      }
+    ],
+    "captures": [],
+    "environments": [
+      {
+        "architecture": "unknown",
+        "id": "Chromium@159.0.8154.6",
+        "isolation": "process",
+        "platform": "unknown"
+      }
+    ],
+    "evidence_format": 2,
+    "providers": [
+      {
+        "id": "rea-analysis-view",
+        "name": "REA analysis view projection",
+        "version": "1"
+      },
+      {
+        "id": "rea-playwright-browser-scenario",
+        "name": "REA Playwright browser scenario capture provider",
+        "version": "1"
+      }
+    ],
+    "records": [
+      {
+        "analysis_profile": null,
+        "authority": "shipped-artifact",
+        "confidence": "derived",
+        "environment": null,
+        "evidence_format": 2,
+        "evidence_id": "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6",
+        "evidence_links": [
+          "ev_4f40323ff41771ae95e051faae0dd27cfaa859713ea7752bfe0c07a2b76b9019"
+        ],
+        "limitations": [
+          "No reference is resolved, including local fragments. A Path Item reference makes its effective operations unknown; adjacent inline slots are preserved without merging referenced definitions.",
+          "Only inline operations under paths are inventoried; callbacks, webhooks, components, servers, parameters, schemas, request/response contracts and security are not analyzed.",
+          "Operations are document declarations, not evidence of runtime implementation, reachability or authorization.",
+          "Source JSON members use last-value-wins parsing. Original bytes remain in the caller-selected artifact, identified by SHA-256; this Evidence does not embed the complete source document.",
+          "This is a structural inventory, not full OpenAPI schema validation. operationId values are preserved without assuming uniqueness; operation_key matches exact method/path spelling, not semantic equivalence across APIs.",
+          "Transport userinfo credentials are excluded from reference URIs. credential_redacted marks the exclusion; an ambiguous credential span leaves the displayed reference unknown. Other reference text is preserved."
+        ],
+        "locations": [
+          {
+            "kind": "artifact-path",
+            "path": "/Users/thor/development/kestrel-it/docs/openapi.json"
+          }
+        ],
+        "normalized_result": {
+          "artifact": {
+            "path": "/Users/thor/development/kestrel-it/docs/openapi.json",
+            "sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+          },
+          "coverage": {
+            "examined": 1,
+            "exhausted": true,
+            "next_offset": null,
+            "status": "complete-within-view",
+            "total": 1
+          },
+          "kind": "summary",
+          "limitations": [
+            "No reference is resolved, including local fragments. A Path Item reference makes its effective operations unknown; adjacent inline slots are preserved without merging referenced definitions.",
+            "Only inline operations under paths are inventoried; callbacks, webhooks, components, servers, parameters, schemas, request/response contracts and security are not analyzed.",
+            "Operations are document declarations, not evidence of runtime implementation, reachability or authorization.",
+            "Source JSON members use last-value-wins parsing. Original bytes remain in the caller-selected artifact, identified by SHA-256; this Evidence does not embed the complete source document.",
+            "This is a structural inventory, not full OpenAPI schema validation. operationId values are preserved without assuming uniqueness; operation_key matches exact method/path spelling, not semantic equivalence across APIs.",
+            "Transport userinfo credentials are excluded from reference URIs. credential_redacted marks the exclusion; an ambiguous credential span leaves the displayed reference unknown. Other reference text is preserved."
+          ],
+          "parent_digest": "4f40323ff41771ae95e051faae0dd27cfaa859713ea7752bfe0c07a2b76b9019",
+          "parent_evidence_id": "ev_4f40323ff41771ae95e051faae0dd27cfaa859713ea7752bfe0c07a2b76b9019",
+          "parent_operation": "inspect_api_contract",
+          "summary": {
+            "artifact": {
+              "bytes": 237297,
+              "path": "/Users/thor/development/kestrel-it/docs/openapi.json",
+              "sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+            },
+            "contract_id": "api_contract_18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+            "format": "openapi-json",
+            "info": {
+              "title": "Kestrel-IT API",
+              "version": "0.1.0"
+            },
+            "openapi": "3.0.0",
+            "source_coverage": {
+              "duplicate_json_members": "last-value-wins",
+              "path_entries_examined": 299,
+              "paths_state": "object",
+              "reference_resolution": "not-attempted",
+              "schema_validation": "not-performed",
+              "scope": "inline-path-operations",
+              "status": "complete-within-scope"
+            },
+            "summary": {
+              "declared": 435,
+              "diagnostics": 0,
+              "operation_slots": 435,
+              "unknown": 0,
+              "unresolved_path_items": 0
+            }
+          },
+          "unknowns": [],
+          "view": {
+            "kind": "summary"
+          },
+          "view_digest": "2947afae3cebffe5db7120d1685403ffc7fed48798cf72cce3618e3b485f5218"
+        },
+        "operation": "inspect_analysis_view",
+        "parameters": {
+          "parent_evidence_id": "ev_4f40323ff41771ae95e051faae0dd27cfaa859713ea7752bfe0c07a2b76b9019",
+          "view": {
+            "kind": "summary"
+          }
+        },
+        "predicate_type": "rea.analysis-view",
+        "provider": {
+          "id": "rea-analysis-view",
+          "name": "REA analysis view projection",
+          "version": "1"
+        },
+        "raw_result": null,
+        "relationship_coverage": null,
+        "subject": {
+          "identity": {
+            "architecture": null,
+            "format": "file",
+            "kind": "file",
+            "selection": null,
+            "sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+          },
+          "local_path": "/Users/thor/development/kestrel-it/docs/openapi.json",
+          "name": "openapi.json"
+        }
+      },
+      {
+        "analysis_profile": null,
+        "authority": "controlled-replay",
+        "confidence": "observed",
+        "environment": {
+          "architecture": "unknown",
+          "id": "Chromium@159.0.8154.6",
+          "isolation": "process",
+          "platform": "unknown"
+        },
+        "evidence_format": 2,
+        "evidence_id": "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8",
+        "evidence_links": [],
+        "limitations": [
+          "Event sequence records provider receipt order; simultaneous browser causality is not inferred.",
+          "Network content is retained only when selected; Playwright response-body bytes are API results and are not guaranteed to match wire bytes.",
+          "Request bytes are limited to what Playwright exposes; not_exposed does not establish body absence or multipart file coverage.",
+          "Network content reads settle within 5 seconds each and the observer does not request bodies from unfinished responses.",
+          "Playwright scenario events do not expose request initiator stacks; receipt order does not prove causality.",
+          "Storage values are hashed only after declared-secret redaction.",
+          "Browser host platform and architecture were not observed."
+        ],
+        "locations": [],
+        "normalized_result": {
+          "browser": {
+            "cleanup": "terminated-owned-process",
+            "mode": "launch",
+            "process_ownership": "provider-owned",
+            "product": "Chromium",
+            "version": "159.0.8154.6"
+          },
+          "completeness": {
+            "equality_eligible": true,
+            "missing_sections": [],
+            "status": "complete",
+            "truncated_sections": []
+          },
+          "duration_ms": 1486,
+          "events": {
+            "dropped": 0,
+            "items": [],
+            "omissions": {
+              "by_kind": [],
+              "network_transaction_range": null,
+              "network_transactions": []
+            },
+            "retained": 0
+          },
+          "limitations": [
+            "Event sequence records provider receipt order; simultaneous browser causality is not inferred.",
+            "Network content is retained only when selected; Playwright response-body bytes are API results and are not guaranteed to match wire bytes.",
+            "Request bytes are limited to what Playwright exposes; not_exposed does not establish body absence or multipart file coverage.",
+            "Network content reads settle within 5 seconds each and the observer does not request bodies from unfinished responses.",
+            "Playwright scenario events do not expose request initiator stacks; receipt order does not prove causality.",
+            "Storage values are hashed only after declared-secret redaction."
+          ],
+          "scenario": {
+            "action_count": 1,
+            "event_families": [],
+            "limits": {
+              "max_event_allocation_bytes": 4194304,
+              "max_events": 10000,
+              "max_network_body_allocation_bytes": 1048576,
+              "max_network_body_bytes": 65536,
+              "max_network_header_allocation_bytes": 1048576,
+              "max_network_metadata_allocation_bytes": 1048576,
+              "max_network_transactions": 1024,
+              "max_total_event_allocation_bytes": 16777216
+            },
+            "network_content": {
+              "header_values": false,
+              "request_body": false,
+              "response_body": false
+            },
+            "secret_references": [],
+            "start_origin": "http://127.0.0.1:14200"
+          },
+          "steps": [
+            {
+              "action": "goto_start",
+              "after_url": {
+                "origin": "http://127.0.0.1:14200",
+                "query_parameter_names": [],
+                "redacted": false,
+                "url": "http://127.0.0.1:14200/login"
+              },
+              "artifacts": {
+                "accessibility": {
+                  "state": "not_requested"
+                },
+                "dom": {
+                  "state": "not_requested"
+                },
+                "history": {
+                  "state": "not_requested"
+                },
+                "screenshot": {
+                  "state": "not_requested"
+                },
+                "storage": {
+                  "state": "not_requested"
+                },
+                "url": {
+                  "state": "not_requested"
+                }
+              },
+              "before_url": {
+                "origin": null,
+                "query_parameter_names": [],
+                "redacted": false,
+                "url": "about:blank"
+              },
+              "completeness": {
+                "equality_eligible": true,
+                "missing_sections": [],
+                "status": "complete",
+                "truncated_sections": []
+              },
+              "elapsed_ms": 872,
+              "error": null,
+              "event_sequence_end": 0,
+              "event_sequence_start": 1,
+              "status": "completed",
+              "step_id": "scenario_start",
+              "step_index": 0
+            },
+            {
+              "action": "wait_for_timeout",
+              "after_url": {
+                "origin": "http://127.0.0.1:14200",
+                "query_parameter_names": [],
+                "redacted": false,
+                "url": "http://127.0.0.1:14200/login"
+              },
+              "artifacts": {
+                "accessibility": {
+                  "state": "not_requested"
+                },
+                "dom": {
+                  "state": "not_requested"
+                },
+                "history": {
+                  "state": "not_requested"
+                },
+                "screenshot": {
+                  "state": "not_requested"
+                },
+                "storage": {
+                  "state": "not_requested"
+                },
+                "url": {
+                  "state": "captured",
+                  "value": {
+                    "origin": "http://127.0.0.1:14200",
+                    "query_parameter_names": [],
+                    "redacted": false,
+                    "url": "http://127.0.0.1:14200/login"
+                  }
+                }
+              },
+              "before_url": {
+                "origin": "http://127.0.0.1:14200",
+                "query_parameter_names": [],
+                "redacted": false,
+                "url": "http://127.0.0.1:14200/login"
+              },
+              "completeness": {
+                "equality_eligible": true,
+                "missing_sections": [],
+                "status": "complete",
+                "truncated_sections": []
+              },
+              "elapsed_ms": 502,
+              "error": null,
+              "event_sequence_end": 0,
+              "event_sequence_start": 1,
+              "status": "completed",
+              "step_id": "settle-login",
+              "step_index": 1
+            }
+          ]
+        },
+        "operation": "capture_browser_scenario",
+        "parameters": {
+          "actions": [
+            {
+              "action": "wait_for_timeout",
+              "duration_ms": 500,
+              "step_id": "settle-login"
+            }
+          ],
+          "browser": {
+            "executable_path": "/Users/thor/Library/Caches/ms-playwright/chromium-1255/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            "headless": true,
+            "mode": "launch"
+          },
+          "capture": {
+            "after_each_step": [],
+            "at_end": [
+              "url"
+            ],
+            "events": [],
+            "limits": {
+              "max_event_allocation_bytes": 4194304,
+              "max_events": 10000,
+              "max_network_body_allocation_bytes": 1048576,
+              "max_network_body_bytes": 65536,
+              "max_network_header_allocation_bytes": 1048576,
+              "max_network_metadata_allocation_bytes": 1048576,
+              "max_network_transactions": 1024,
+              "max_total_event_allocation_bytes": 16777216
+            },
+            "network": {
+              "header_values": false,
+              "request_body": false,
+              "response_body": false
+            }
+          },
+          "environment": {
+            "color_scheme": "light",
+            "locale": "en-US",
+            "reduced_motion": "reduce",
+            "service_workers": "block",
+            "timezone": "UTC",
+            "viewport": {
+              "device_scale_factor": 1,
+              "height": 720,
+              "width": 1280
+            }
+          },
+          "scenario_sha256": "77ec6f2d723f0e7d9e0e1c90aac866e3526ca52f0559e1d0fd63dd7c47d88ba2",
+          "secrets": [],
+          "start_url": {
+            "query": [],
+            "url": "http://127.0.0.1:14200/login"
+          },
+          "storage": {
+            "cookies": [],
+            "local_storage": [],
+            "session_storage": []
+          }
+        },
+        "predicate_type": "rea.browser-scenario-capture",
+        "provider": {
+          "id": "rea-playwright-browser-scenario",
+          "name": "REA Playwright browser scenario capture provider",
+          "version": "1"
+        },
+        "raw_result": null,
+        "relationship_coverage": null,
+        "subject": {
+          "identity": {
+            "kind": "unknown",
+            "reason": "not-observed"
+          },
+          "local_path": null,
+          "name": null
+        }
+      }
+    ],
+    "scenarios": [
+      {
+        "authority": "controlled-replay",
+        "evidence_id": "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8",
+        "operation": "capture_browser_scenario"
+      }
+    ],
+    "unknowns": []
+  },
+  "owners": [
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "assets",
+        "owner_path": "apps/api/src/db/schema/assets.ts",
+        "owner_sha256": "e112d87e4a1fc5cb4e8ed7405cceb0f301a1431b8f168d9b501e2580a4a28ca6",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.db.assets"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "users",
+        "owner_path": "apps/api/src/db/schema/identity.ts",
+        "owner_sha256": "749c8de213f6eeced911c5df4d82af8d0c86e33cb89b5f596b037a30aae162bc",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.db.identity"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "storageDeletionQueue",
+        "owner_path": "apps/api/src/db/schema/operations.ts",
+        "owner_sha256": "f6f8fe32a1a319fe710536e604be3278e9770ff7ab92d80a5a751042d006c1b5",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.db.operations"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "licenses",
+        "owner_path": "apps/api/src/db/schema/secondary-inventory.ts",
+        "owner_sha256": "41b3da3b39a64de6bf0e178bb8f90fdac62a997a3ff0aaf2adaa25e980005c52",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.db.secondary"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "locations",
+        "owner_path": "apps/api/src/db/schema/taxonomy.ts",
+        "owner_sha256": "43e237df42b36afc24cd51dc765d206def621ce5543c72e843968108fca29319",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.db.taxonomy"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "buildFieldsetZodSchema",
+        "owner_path": "packages/shared/src/schemas/custom-field-validator.ts",
+        "owner_sha256": "d2457185211d1f195ce071a15809124277c79cf844a9400dd83fb83d756abbc9",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.cf.validator"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "CustomFieldInputSchema",
+        "owner_path": "packages/shared/src/schemas/inventory-custom-fields.ts",
+        "owner_sha256": "513eb5670cbb95fa739cb0fb96aa79c7375ef3d844140e2dc88a46d2baabe454",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.cf.schemas"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "CustomFieldsValidationService",
+        "owner_path": "apps/api/src/modules/inventory/custom-fields-validation.service.ts",
+        "owner_sha256": "c53a161f6292c22a6f12550dda9bd8f6ba5ae4e7ca309ae2397f90c10d0a7c6e",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.cf.service"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "CustomFieldsPageComponent",
+        "owner_path": "apps/web/src/app/features/inventory/custom-fields-page.component.ts",
+        "owner_sha256": "c4663c6179ea81a028e3ab57e2da54f6a70398e16ffdc8ef5b362b0cd0508ef5",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.cf.ui"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "ALL_PERMISSIONS",
+        "owner_path": "packages/shared/src/rbac/permissions.ts",
+        "owner_sha256": "39e940abe092725745d430f340bdbf5f3fd1b8fb51655b1d61bf4cb158c87398",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.rbac.catalog"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "canAccessCompanyRecord",
+        "owner_path": "packages/shared/src/rbac/evaluate-permission.ts",
+        "owner_sha256": "fe538db9516480f4e3caffd54e4f277aae2f27e1270b530f1cfcccec449f15e2",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.rbac.eval"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "PermissionsGuard",
+        "owner_path": "apps/api/src/common/guards/permissions.guard.ts",
+        "owner_sha256": "4644bfe1c33a11522f4af6e29322b70a5d8f65e9fffc2ef40de08bb69f2c6f59",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.rbac.guard"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "FmcsScopeService",
+        "owner_path": "apps/api/src/modules/inventory/fmcs-scope.service.ts",
+        "owner_sha256": "b418c734ed2062cf5352d177b698d8d7134b391c7cf8e26ba67f1f934acd70f2",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.rbac.fmcs"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "REQUESTABLE_TYPES",
+        "owner_path": "packages/shared/src/schemas/checkout.ts",
+        "owner_sha256": "8d3ad8c55fcc67bea57b008bd50dd05152b3375ce2d16659d33a2b1982a7ad4b",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.wf.checkout_schema"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "CheckoutRequestsService",
+        "owner_path": "apps/api/src/modules/inventory/checkout-requests.service.ts",
+        "owner_sha256": "6f786857fff792101f22b2cbc4286f9e56c199731c4174cf8eb1a7b95f63c50c",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.wf.requests"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "PredefinedKitsService",
+        "owner_path": "apps/api/src/modules/inventory/predefined-kits.service.ts",
+        "owner_sha256": "b215dde815c50b6e36826406e1d6ddce3ff30522c69d60d5814b6ba0cc3a57d6",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.wf.kits"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "MaintenanceService",
+        "owner_path": "apps/api/src/modules/inventory/maintenance.service.ts",
+        "owner_sha256": "f41a50c0684c91d42071e7cbb60faf3ed5a9615aa7d89727f5624cef06de9895",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.wf.maintenance"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "AssetAuditsService",
+        "owner_path": "apps/api/src/modules/inventory/asset-audits.service.ts",
+        "owner_sha256": "505eab9fb111fd593347a9804aa817f8a887e464342537c626c649c9b24334a3",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.wf.audits"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "DepreciationController",
+        "owner_path": "apps/api/src/modules/inventory/depreciation.controller.ts",
+        "owner_sha256": "677511c19a7c5d6bb01385075c655809227ead5cb0138430e5d6a7c7b668ec1e",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.wf.depreciation"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "Kestrel-IT OpenAPI",
+        "owner_path": "docs/openapi.json",
+        "owner_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.api.openapi"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "HardwareController",
+        "owner_path": "apps/api/src/modules/inventory/hardware.controller.ts",
+        "owner_sha256": "dcdc18d49c433e2e673f359df45d860975cf2e955de29179413c12dbafe574ea",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.api.hardware"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "SecondaryInventoryController",
+        "owner_path": "apps/api/src/modules/inventory/secondary-inventory.controller.ts",
+        "owner_sha256": "778b177bb896e587ccccbdfee344f2f2be04e876b180e044b288ab6c7adba7c2",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.api.secondary"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "SettingsAdminController",
+        "owner_path": "apps/api/src/modules/inventory/settings-admin.controller.ts",
+        "owner_sha256": "95118c39ac37aef2b901711dfd5657f08eb57a4cd72c2669c39d577fe0e00fef",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.api.settings"
+    },
+    {
+      "ownership": {
+        "disposition": "external",
+        "rationale": "Backup and restore delegated to external infrastructure operations (PostgreSQL pg_dump/WAL + Object Storage snapshot policies)."
+      },
+      "surface_id": "surf.api.backups.external"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "LocalStorageAdapter",
+        "owner_path": "apps/api/src/common/storage/local-storage.adapter.ts",
+        "owner_sha256": "b2aa9c376e3c35206f20284840a7b92300579417e9113cd425b7413fa573181a",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.storage_local"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "S3StorageAdapter",
+        "owner_path": "apps/api/src/common/storage/s3-storage.adapter.ts",
+        "owner_sha256": "9a5e2a391c6b8fcd03bf682ec25c3aafc0b1e4170f2e8052279d6046b06c2b00",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.storage_s3"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "StorageDeletionService",
+        "owner_path": "apps/api/src/modules/inventory/storage-deletion.service.ts",
+        "owner_sha256": "a93f4d62bb1df10ad17171d68bae0b7262a635c084a02efdee59d2d784f392b7",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.storage_deletion"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "InventoryMailService",
+        "owner_path": "apps/api/src/modules/inventory/inventory-mail.service.ts",
+        "owner_sha256": "5e82a52694378615eda6c52e31df4c821096ab012e565a35148a11ec3bd20492",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.mail"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "ImportsController",
+        "owner_path": "apps/api/src/modules/inventory/imports.controller.ts",
+        "owner_sha256": "8d756dda8d22d5d56a1507f8521d4df805ec27e2e4c336ba289c4af2f09bc030",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.imports"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "LabelsController",
+        "owner_path": "apps/api/src/modules/inventory/labels.controller.ts",
+        "owner_sha256": "e6f47272202109d385c082f492f05de2d783e76526c18c1f081be4307b90e807",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.labels"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "ReportsController",
+        "owner_path": "apps/api/src/modules/inventory/reports.controller.ts",
+        "owner_sha256": "f49260790332ea7fa6a390cd3733aa5c22a78b0ba46eb9f071ce5c878e71504d",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.reports"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "AuthController",
+        "owner_path": "apps/api/src/modules/auth/auth.controller.ts",
+        "owner_sha256": "839345701cedfa5eee660122e11e12a3f900fd5e95340538dc3a55e49e37cd85",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.ops.auth"
+    },
+    {
+      "ownership": {
+        "disposition": "external",
+        "rationale": "DB/object backups and legacy SAML/LDAP directory federation delegated to external infrastructure / IdP broker."
+      },
+      "surface_id": "surf.ops.external.backups_idp"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "routes",
+        "owner_path": "apps/web/src/app/app.routes.ts",
+        "owner_sha256": "78ff4a613dcc3206156b6030348dfbc9804c024539ab7e5c09d20d56cbaa03c3",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.routes"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "AppShellComponent",
+        "owner_path": "apps/web/src/app/core/layout/app-shell.component.ts",
+        "owner_sha256": "b0f3c80fe36ab3538ec27506ea733f54dcad56c3540f78deed479855fbc926c5",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.shell"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "HardwarePageComponent",
+        "owner_path": "apps/web/src/app/features/inventory/hardware-page.component.ts",
+        "owner_sha256": "a4d17de1d82bc878854cec059cd3b6807ab637bc80b55d8acbe11e2f21de35e9",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.hardware"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "InventoryCalendarComponent",
+        "owner_path": "apps/web/src/app/features/inventory/inventory-calendar.component.ts",
+        "owner_sha256": "5fcea78e4e50d4d435105b798a312835665d215ab3dc69beaceb0cb07accc546",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.calendar"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "CheckoutRequestsPageComponent",
+        "owner_path": "apps/web/src/app/features/inventory/checkout-requests-page.component.ts",
+        "owner_sha256": "840979e365759792469684a9c4604434dc1260aa6e11bf8089c794163d7317a3",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.requestable"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "AccountProfileComponent",
+        "owner_path": "apps/web/src/app/features/inventory/account-self-service.components.ts",
+        "owner_sha256": "dcf5d345de2fe81cce6ce90dc4362bbdc38f3b1e8de2a7fdcf829397ba9040f6",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.account"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "AdminSettingsComponent",
+        "owner_path": "apps/web/src/app/features/inventory/admin-settings.components.ts",
+        "owner_sha256": "6d519622f8d498eac4ba8c760fa3f299d1f0bfc47be0171fe351c4241da06738",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.admin"
+    },
+    {
+      "ownership": {
+        "authority_route": "none",
+        "disposition": "implemented",
+        "owner_export": "PhaseThreePageComponent",
+        "owner_path": "apps/web/src/app/features/inventory/phase-three-page.component.ts",
+        "owner_sha256": "e23ec5b873d913d2c1f792f1973d2956a7483bd3a821706e5d50a9ec912ea87d",
+        "package_state": "distributed",
+        "path_state": "present"
+      },
+      "surface_id": "surf.web.secondary"
+    }
+  ],
+  "package_proofs": [
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "evidence_ids": [
+        "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8"
+      ],
+      "kind": "build",
+      "proof_id": "proof.build",
+      "status": "pass"
+    }
+  ],
+  "residual_unknown_ids": [],
+  "surfaces": [
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "db",
+      "location": "apps/api/src/db/schema/assets.ts",
+      "occurrence_id": "occ.db.assets",
+      "surface_id": "surf.db.assets"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "db",
+      "location": "apps/api/src/db/schema/identity.ts",
+      "occurrence_id": "occ.db.identity",
+      "surface_id": "surf.db.identity"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "db",
+      "location": "apps/api/src/db/schema/operations.ts",
+      "occurrence_id": "occ.db.operations",
+      "surface_id": "surf.db.operations"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "db",
+      "location": "apps/api/src/db/schema/secondary-inventory.ts",
+      "occurrence_id": "occ.db.secondary",
+      "surface_id": "surf.db.secondary"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "db",
+      "location": "apps/api/src/db/schema/taxonomy.ts",
+      "occurrence_id": "occ.db.taxonomy",
+      "surface_id": "surf.db.taxonomy"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "packages/shared/src/schemas/custom-field-validator.ts",
+      "occurrence_id": "occ.cf.validator",
+      "surface_id": "surf.cf.validator"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "packages/shared/src/schemas/inventory-custom-fields.ts",
+      "occurrence_id": "occ.cf.schemas",
+      "surface_id": "surf.cf.schemas"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "apps/api/src/modules/inventory/custom-fields-validation.service.ts",
+      "occurrence_id": "occ.cf.service",
+      "surface_id": "surf.cf.service"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/custom-fields-page.component.ts",
+      "occurrence_id": "occ.cf.ui",
+      "surface_id": "surf.cf.ui"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "security",
+      "location": "packages/shared/src/rbac/permissions.ts",
+      "occurrence_id": "occ.rbac.catalog",
+      "surface_id": "surf.rbac.catalog"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "security",
+      "location": "packages/shared/src/rbac/evaluate-permission.ts",
+      "occurrence_id": "occ.rbac.eval",
+      "surface_id": "surf.rbac.eval"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "security",
+      "location": "apps/api/src/common/guards/permissions.guard.ts",
+      "occurrence_id": "occ.rbac.guard",
+      "surface_id": "surf.rbac.guard"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "security",
+      "location": "apps/api/src/modules/inventory/fmcs-scope.service.ts",
+      "occurrence_id": "occ.rbac.fmcs",
+      "surface_id": "surf.rbac.fmcs"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "packages/shared/src/schemas/checkout.ts",
+      "occurrence_id": "occ.wf.checkout_schema",
+      "surface_id": "surf.wf.checkout_schema"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "apps/api/src/modules/inventory/checkout-requests.service.ts",
+      "occurrence_id": "occ.wf.requests",
+      "surface_id": "surf.wf.requests"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "apps/api/src/modules/inventory/predefined-kits.service.ts",
+      "occurrence_id": "occ.wf.kits",
+      "surface_id": "surf.wf.kits"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "apps/api/src/modules/inventory/maintenance.service.ts",
+      "occurrence_id": "occ.wf.maintenance",
+      "surface_id": "surf.wf.maintenance"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "apps/api/src/modules/inventory/asset-audits.service.ts",
+      "occurrence_id": "occ.wf.audits",
+      "surface_id": "surf.wf.audits"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "domain",
+      "location": "apps/api/src/modules/inventory/depreciation.controller.ts",
+      "occurrence_id": "occ.wf.depreciation",
+      "surface_id": "surf.wf.depreciation"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "api",
+      "location": "/api/v1/hardware",
+      "occurrence_id": "occ.api.openapi",
+      "surface_id": "surf.api.openapi"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "api",
+      "location": "/api/v1/hardware/{id}/licenses",
+      "occurrence_id": "occ.api.hardware",
+      "surface_id": "surf.api.hardware"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "api",
+      "location": "/api/v1/licenses",
+      "occurrence_id": "occ.api.secondary",
+      "surface_id": "surf.api.secondary"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "api",
+      "location": "/api/v1/settings",
+      "occurrence_id": "occ.api.settings",
+      "surface_id": "surf.api.settings"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "external",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "/api/v1/settings/backups",
+      "occurrence_id": "occ.api.backups",
+      "surface_id": "surf.api.backups.external"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/common/storage/local-storage.adapter.ts",
+      "occurrence_id": "occ.ops.storage_local",
+      "surface_id": "surf.ops.storage_local"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/common/storage/s3-storage.adapter.ts",
+      "occurrence_id": "occ.ops.storage_s3",
+      "surface_id": "surf.ops.storage_s3"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/modules/inventory/storage-deletion.service.ts",
+      "occurrence_id": "occ.ops.storage_deletion",
+      "surface_id": "surf.ops.storage_deletion"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/modules/inventory/inventory-mail.service.ts",
+      "occurrence_id": "occ.ops.mail",
+      "surface_id": "surf.ops.mail"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/modules/inventory/imports.controller.ts",
+      "occurrence_id": "occ.ops.imports",
+      "surface_id": "surf.ops.imports"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/modules/inventory/labels.controller.ts",
+      "occurrence_id": "occ.ops.labels",
+      "surface_id": "surf.ops.labels"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/modules/inventory/reports.controller.ts",
+      "occurrence_id": "occ.ops.reports",
+      "surface_id": "surf.ops.reports"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "apps/api/src/modules/auth/auth.controller.ts",
+      "occurrence_id": "occ.ops.auth",
+      "surface_id": "surf.ops.auth"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "external",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ops",
+      "location": "deploy/backups-and-idp-broker",
+      "occurrence_id": "occ.ops.external_backups_idp",
+      "surface_id": "surf.ops.external.backups_idp"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/app.routes.ts",
+      "occurrence_id": "occ.web.routes",
+      "surface_id": "surf.web.routes"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/core/layout/app-shell.component.ts",
+      "occurrence_id": "occ.web.shell",
+      "surface_id": "surf.web.shell"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/hardware-page.component.ts",
+      "occurrence_id": "occ.web.hardware",
+      "surface_id": "surf.web.hardware"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/inventory-calendar.component.ts",
+      "occurrence_id": "occ.web.calendar",
+      "surface_id": "surf.web.calendar"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/checkout-requests-page.component.ts",
+      "occurrence_id": "occ.web.requestable",
+      "surface_id": "surf.web.requestable"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/account-self-service.components.ts",
+      "occurrence_id": "occ.web.account",
+      "surface_id": "surf.web.account"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/admin-settings.components.ts",
+      "occurrence_id": "occ.web.admin",
+      "surface_id": "surf.web.admin"
+    },
+    {
+      "artifact_id": "art.openapi",
+      "authority": "derived",
+      "dependency_surface_ids": [],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "family": "ui",
+      "location": "apps/web/src/app/features/inventory/phase-three-page.component.ts",
+      "occurrence_id": "occ.web.secondary",
+      "surface_id": "surf.web.secondary"
+    }
+  ],
+  "verifier_contracts": [
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.db.schema"
+      ],
+      "dimensions": [
+        "schema"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.db.schema",
+      "contract_sha256": "cc2572421762a2962e05c4a5db54dbf7174029d13314d602e7a7636cf0a23469"
+    },
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.custom_fields"
+      ],
+      "dimensions": [
+        "custom_fields"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.custom_fields",
+      "contract_sha256": "62cd0c870ec61c65c6dd5c01c58a2dd9b0ee6b363cd75d5a553117ff6e4e32e6"
+    },
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.rbac.fmcs"
+      ],
+      "dimensions": [
+        "rbac"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.rbac.fmcs",
+      "contract_sha256": "30b801fce06553c3952b8514f8bb8f3a514856d528fdbf970c63bb486e97d376"
+    },
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.workflows"
+      ],
+      "dimensions": [
+        "workflows"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.workflows",
+      "contract_sha256": "e15eb7b1b74fd142791d1a0d275f718fabb779ab2966e8bb2679e1b709e80c01"
+    },
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.api"
+      ],
+      "dimensions": [
+        "openapi"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.api",
+      "contract_sha256": "41cdd36ca05dcc047e8e45d003415142e19e7fcec56732b6db2a0059e5c21df0"
+    },
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.ops.jobs"
+      ],
+      "dimensions": [
+        "operations"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.ops.jobs",
+      "contract_sha256": "b5bfca80aff1c05de7f1fc7bddccb0a3fb1a19afdc3311549bafe25f77dbb829"
+    },
+    {
+      "authority": "shipped-artifact",
+      "claim_ids": [
+        "claim.web.spa"
+      ],
+      "dimensions": [
+        "frontend"
+      ],
+      "max_age_ms": 86400000,
+      "minimum_repeats": 1,
+      "normalization_removes_dimensions": false,
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "verifier_id": "ver.web.spa",
+      "contract_sha256": "68e044daf7c1efedb2de55d6d5a86420677183828a67ba1c928ce29adf25c695"
+    }
+  ],
+  "verifier_results": [
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "cc2572421762a2962e05c4a5db54dbf7174029d13314d602e7a7636cf0a23469",
+      "covered_claim_ids": [
+        "claim.db.schema"
+      ],
+      "covered_dimensions": [
+        "schema"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "e112d87e4a1fc5cb4e8ed7405cceb0f301a1431b8f168d9b501e2580a4a28ca6",
+        "749c8de213f6eeced911c5df4d82af8d0c86e33cb89b5f596b037a30aae162bc",
+        "f6f8fe32a1a319fe710536e604be3278e9770ff7ab92d80a5a751042d006c1b5",
+        "41b3da3b39a64de6bf0e178bb8f90fdac62a997a3ff0aaf2adaa25e980005c52",
+        "43e237df42b36afc24cd51dc765d206def621ce5543c72e843968108fca29319"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.db.schema"
+    },
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "62cd0c870ec61c65c6dd5c01c58a2dd9b0ee6b363cd75d5a553117ff6e4e32e6",
+      "covered_claim_ids": [
+        "claim.custom_fields"
+      ],
+      "covered_dimensions": [
+        "custom_fields"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "d2457185211d1f195ce071a15809124277c79cf844a9400dd83fb83d756abbc9",
+        "513eb5670cbb95fa739cb0fb96aa79c7375ef3d844140e2dc88a46d2baabe454",
+        "c53a161f6292c22a6f12550dda9bd8f6ba5ae4e7ca309ae2397f90c10d0a7c6e",
+        "c4663c6179ea81a028e3ab57e2da54f6a70398e16ffdc8ef5b362b0cd0508ef5"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.custom_fields"
+    },
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "30b801fce06553c3952b8514f8bb8f3a514856d528fdbf970c63bb486e97d376",
+      "covered_claim_ids": [
+        "claim.rbac.fmcs"
+      ],
+      "covered_dimensions": [
+        "rbac"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "d604258f56e5ba9873a53005400f4436b8ac444b56a9a13a959e8d0e03894379",
+        "fe538db9516480f4e3caffd54e4f277aae2f27e1270b530f1cfcccec449f15e2",
+        "4644bfe1c33a11522f4af6e29322b70a5d8f65e9fffc2ef40de08bb69f2c6f59",
+        "b418c734ed2062cf5352d177b698d8d7134b391c7cf8e26ba67f1f934acd70f2"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.rbac.fmcs"
+    },
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "e15eb7b1b74fd142791d1a0d275f718fabb779ab2966e8bb2679e1b709e80c01",
+      "covered_claim_ids": [
+        "claim.workflows"
+      ],
+      "covered_dimensions": [
+        "workflows"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "8d3ad8c55fcc67bea57b008bd50dd05152b3375ce2d16659d33a2b1982a7ad4b",
+        "cab9e8a88bbcd4a93214bf2c42a0ba34e122d9c043361a6f4c2cf00af7516054",
+        "b215dde815c50b6e36826406e1d6ddce3ff30522c69d60d5814b6ba0cc3a57d6",
+        "f41a50c0684c91d42071e7cbb60faf3ed5a9615aa7d89727f5624cef06de9895",
+        "505eab9fb111fd593347a9804aa817f8a887e464342537c626c649c9b24334a3",
+        "677511c19a7c5d6bb01385075c655809227ead5cb0138430e5d6a7c7b668ec1e"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.workflows"
+    },
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "41cdd36ca05dcc047e8e45d003415142e19e7fcec56732b6db2a0059e5c21df0",
+      "covered_claim_ids": [
+        "claim.api"
+      ],
+      "covered_dimensions": [
+        "openapi"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+        "dcdc18d49c433e2e673f359df45d860975cf2e955de29179413c12dbafe574ea",
+        "778b177bb896e587ccccbdfee344f2f2be04e876b180e044b288ab6c7adba7c2",
+        "2ae3200770776d071ebe3abb345647aae1cc5b820aa4389b609745e35453846f"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.api"
+    },
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "b5bfca80aff1c05de7f1fc7bddccb0a3fb1a19afdc3311549bafe25f77dbb829",
+      "covered_claim_ids": [
+        "claim.ops.jobs"
+      ],
+      "covered_dimensions": [
+        "operations"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "b2aa9c376e3c35206f20284840a7b92300579417e9113cd425b7413fa573181a",
+        "9a5e2a391c6b8fcd03bf682ec25c3aafc0b1e4170f2e8052279d6046b06c2b00",
+        "a93f4d62bb1df10ad17171d68bae0b7262a635c084a02efdee59d2d784f392b7",
+        "5e82a52694378615eda6c52e31df4c821096ab012e565a35148a11ec3bd20492",
+        "8d756dda8d22d5d56a1507f8521d4df805ec27e2e4c336ba289c4af2f09bc030",
+        "e6f47272202109d385c082f492f05de2d783e76526c18c1f081be4307b90e807",
+        "879344ef3044c27fd786bc5c452c2b4de4b1d435d61bb694ca28cb67b8e697b0",
+        "839345701cedfa5eee660122e11e12a3f900fd5e95340538dc3a55e49e37cd85"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.ops.jobs"
+    },
+    {
+      "artifact_sha256s": [
+        "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca"
+      ],
+      "contract_sha256": "68e044daf7c1efedb2de55d6d5a86420677183828a67ba1c928ce29adf25c695",
+      "covered_claim_ids": [
+        "claim.web.spa"
+      ],
+      "covered_dimensions": [
+        "frontend"
+      ],
+      "evidence_ids": [
+        "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6"
+      ],
+      "normalization_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+      "observed_at": "2026-11-23T23:50:00Z",
+      "owner_sha256s": [
+        "78ff4a613dcc3206156b6030348dfbc9804c024539ab7e5c09d20d56cbaa03c3",
+        "53a5d26e8d183234c00e07dcbdf2c84deb4932afd256322a95e7280402d47e2b",
+        "a4d17de1d82bc878854cec059cd3b6807ab637bc80b55d8acbe11e2f21de35e9",
+        "5fcea78e4e50d4d435105b798a312835665d215ab3dc69beaceb0cb07accc546",
+        "e292252d2ec604b6c41b42ab25849f9702989f873b15967ddddd2f2cda134ab8",
+        "2691abcb1a7f43337af486b6d9ae699d0949fce6d86e9b92f037c183872de0b3",
+        "b06c36c4ee874fd9d9135f85591d92f7ac99df48b9c23a7ad84ce24b2d549091",
+        "e23ec5b873d913d2c1f792f1973d2956a7483bd3a821706e5d50a9ec912ea87d"
+      ],
+      "repeats": 1,
+      "status": "pass",
+      "verifier_id": "ver.web.spa"
+    }
+  ]
+}

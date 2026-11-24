@@ -12,15 +12,23 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  CustomFieldAssociationSchema,
+  CustomFieldOrderSchema,
+  CustomFieldValuesSchema,
   DatatableQuerySchema,
   InventoryIdSchema,
   SelectlistQuerySchema,
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { z } from 'zod';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { CustomFieldsService } from './custom-fields.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
+
+const fieldsetReference = z.object({ fieldset_id: InventoryIdSchema }).strict();
+const fieldsetAssociation = fieldsetReference.extend({ required: z.boolean().optional() });
 
 abstract class CustomFieldCatalogController {
   protected constructor(
@@ -81,22 +89,22 @@ abstract class CustomFieldCatalogController {
   }
 }
 
+@ApiTags('Custom Fields')
+@ApiBearerAuth()
 @Controller('fields')
 export class CustomFieldsController extends CustomFieldCatalogController {
   constructor(@Inject(CustomFieldsService) service: CustomFieldsService) {
     super(service, 'fields');
   }
 
+  @ApiZodBody(fieldsetAssociation)
   @Post(':id/associate')
   associate(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
-    const input = parse(
-      z.object({ fieldset_id: InventoryIdSchema, required: z.boolean().optional() }).strict(),
-      body,
-    );
+    const input = parse(fieldsetAssociation, body);
     return this.service.associate(
       input.fieldset_id,
       { field_id: parse(InventoryIdSchema, id), required: input.required },
@@ -104,13 +112,14 @@ export class CustomFieldsController extends CustomFieldCatalogController {
     );
   }
 
+  @ApiZodBody(fieldsetReference)
   @Post(':id/disassociate')
   disassociate(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
-    const { fieldset_id } = parse(z.object({ fieldset_id: InventoryIdSchema }).strict(), body);
+    const { fieldset_id } = parse(fieldsetReference, body);
     return this.service.associate(
       fieldset_id,
       { field_id: parse(InventoryIdSchema, id) },
@@ -119,6 +128,7 @@ export class CustomFieldsController extends CustomFieldCatalogController {
     );
   }
 
+  @ApiZodBody(CustomFieldOrderSchema)
   @Post('fieldsets/:id/order')
   reorder(
     @Param('id') id: string,
@@ -129,12 +139,15 @@ export class CustomFieldsController extends CustomFieldCatalogController {
   }
 }
 
+@ApiTags('Custom Fieldsets')
+@ApiBearerAuth()
 @Controller('fieldsets')
 export class CustomFieldsetsController extends CustomFieldCatalogController {
   constructor(@Inject(CustomFieldsService) service: CustomFieldsService) {
     super(service, 'fieldsets');
   }
 
+  @ApiZodBody(CustomFieldAssociationSchema)
   @Post(':id/fields')
   associate(
     @Param('id') id: string,
@@ -157,6 +170,7 @@ export class CustomFieldsetsController extends CustomFieldCatalogController {
     );
   }
 
+  @ApiZodBody(CustomFieldValuesSchema)
   @Post(':id/fields/:model')
   saveDefaults(
     @Param('id') id: string,

@@ -30,6 +30,7 @@ export interface OidcStatePayload extends JWTPayload {
   state: string;
   nonce: string;
   codeVerifier: string;
+  redirect?: string;
 }
 
 @Injectable()
@@ -92,12 +93,14 @@ export class JwtService {
     state: string;
     nonce: string;
     codeVerifier: string;
+    redirect?: string;
   }): Promise<string> {
     return new SignJWT({
       type: 'oidc_state',
       state: params.state,
       nonce: params.nonce,
       codeVerifier: params.codeVerifier,
+      ...(params.redirect ? { redirect: params.redirect } : {}),
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()

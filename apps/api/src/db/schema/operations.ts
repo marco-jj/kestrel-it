@@ -3,6 +3,7 @@ import type {
   CheckoutRequestState,
   DepreciationMethod,
   PolymorphicItemType,
+  StorageBucketCategory,
   TwoFactorPolicy,
   WebhookProvider,
 } from '@kestrel-it/shared';
@@ -15,6 +16,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -141,6 +143,9 @@ export const inventoryMailOutbox = pgTable(
     recipient: varchar('recipient', { length: 255 }).notNull(),
     subject: varchar('subject', { length: 255 }).notNull(),
     message: text('message').notNull(),
+    channel: varchar('channel', { length: 32 }).notNull().default('email'),
+    companyId: integer('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+    event: varchar('event', { length: 64 }),
     attempts: integer('attempts').notNull().default(0),
     availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
@@ -205,7 +210,7 @@ export const calendarEvents = pgTable(
   'calendar_events',
   {
     id: identityId(),
-    sourceType: varchar('source_type', { length: 64 }).$type<PolymorphicItemType>().notNull(),
+    sourceType: varchar('source_type', { length: 64 }).$type<PolymorphicItemType | 'checkout_request'>().notNull(),
     sourceId: integer('source_id').notNull(),
     sourceField: varchar('source_field', { length: 64 }).notNull(),
     eventType: varchar('event_type', { length: 64 }).notNull(),
@@ -237,13 +242,52 @@ export const imports = pgTable('imports', {
   processingBy: integer('processing_by').references(() => users.id, { onDelete: 'set null' }),
   processingStartedAt: timestamp('processing_started_at', { withTimezone: true }),
   createdBy: integer('created_by'),
+  run: jsonb('run').$type<ImportRun>(),
   ...timestampsNoSoftDelete(),
 });
+
+export interface ImportRun {
+  state: 'queued' | 'running' | 'complete' | 'failed';
+  actorId: number;
+  worker?: string;
+  cursor: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errored: number;
+  updateExisting: boolean;
+  preserveBlanks: boolean;
+  sendWelcome: boolean;
+  error?: string;
+}
+
+export const importRowErrors = pgTable('import_row_errors', {
+  importId: integer('import_id').notNull().references(() => imports.id, { onDelete: 'cascade' }),
+  rowNumber: integer('row_number').notNull(),
+  message: text('message').notNull(),
+}, (table) => [primaryKey({ columns: [table.importId, table.rowNumber] })]);
+
+export const scheduledJobRuns = pgTable('scheduled_job_runs', {
+  job: varchar('job', { length: 64 }).notNull(),
+  period: varchar('period', { length: 32 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.job, table.period] })]);
+
+export const storageDeletionQueue = pgTable('storage_deletion_queue', {
+  category: varchar('category', { length: 32 }).$type<StorageBucketCategory>().notNull(),
+  objectKey: text('object_key').notNull(),
+  attempts: integer('attempts').default(0).notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.category, table.objectKey] }),
+  index('idx_storage_deletion_queue_available').on(table.availableAt),
+]);
 
 export const reportTemplates = pgTable('report_templates', {
   id: identityId(),
   name: varchar('name', { length: 255 }).notNull(),
   options: jsonb('options').$type<Record<string, unknown>>().notNull().default({}),
+  isShared: boolean('is_shared').notNull().default(false),
   createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
   ...timestamps(),
 });

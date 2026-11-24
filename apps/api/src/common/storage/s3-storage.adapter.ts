@@ -125,7 +125,7 @@ export class S3StorageAdapter implements StorageProvider {
       payloadHash: EMPTY_PAYLOAD_HASH,
     });
 
-    const response = await fetch(url, { method: 'DELETE', headers });
+    const response = await fetch(url, { method: 'DELETE', headers, signal: AbortSignal.timeout(15_000) });
     if (!response.ok && response.status !== 404) {
       throw new BadGatewayException(`S3 DELETE failed with status ${response.status}`);
     }

@@ -152,6 +152,7 @@ export type BetterAuthMode = (typeof BETTER_AUTH_MODES)[number];
 
 export const AuthProvidersStatusResponseSchema = z.object({
   local: z.boolean(),
+  loginNote: z.string().nullable().optional(),
   twoFactorPolicy: z.number().int(),
   sso: z.object({
     enabled: z.boolean(),

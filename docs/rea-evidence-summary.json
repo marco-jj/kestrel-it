@@ -1,1 +1,241 @@
-{"evidence_id":"ev_20ef51e470a5d7e916e4704f3f8af1b6930ef2ff0e18462fa83cfad1bb9392fd","evidence_format":2,"subject":{"identity":{"kind":"file","sha256":"56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846","selection":null,"format":"directory","architecture":null},"name":"js","local_path":"/Users/thor/development/snipe-it/resources/assets/js"},"provider":{"id":"rea-analysis-view","name":"REA analysis view projection","version":"1"},"analysis_profile":null,"predicate_type":"rea.analysis-view","operation":"inspect_analysis_view","parameters":{"parent_evidence_id":"ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed","view":{"kind":"summary"}},"raw_result":null,"normalized_result":{"kind":"summary","view":{"kind":"summary"},"parent_evidence_id":"ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed","parent_operation":"analyze_javascript_application","parent_digest":"120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed","view_digest":"83cbe16250250f3db6a7fa12445e47d521e90dbf150bb0f4c4b3ca3a38901551","artifact":{"path":"/Users/thor/development/snipe-it/resources/assets/js","sha256":"56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846"},"coverage":{"status":"complete-within-view","examined":99,"total":99,"next_offset":null,"exhausted":true},"limitations":["Alias selection expansion was conservatively bounded (maximum 512 additional selector states); selected paths remain unknown. Semantic alias-selections budget reached: semantic_precision.alias_selections=512 additional selector states (default 512). Increase semantic_precision.alias_selections on the next analysis call (analyze_javascript_application or analyze_web_bundle); no REA restart is required. Worker memory, transfer and graph-retention limits remain independent. Cyclic or unsupported evaluations remain unknown regardless of budget.","Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.","Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.","CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.","Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.","Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.","Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.","Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.","JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.","Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.","Primitive string-byte budget exceeded (maximum 1048576 estimated JSON bytes). Semantic primitive-bytes budget reached: semantic_precision.primitive_bytes=1048576 estimated JSON bytes (default 1048576). Increase semantic_precision.primitive_bytes on the next analysis call (analyze_javascript_application or analyze_web_bundle); no REA restart is required. Worker memory, transfer and graph-retention limits remain independent. Cyclic or unsupported evaluations remain unknown regardless of budget.","Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.","Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.","Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.","Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.","Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.","The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.","Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.","Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code."],"unknowns":["12319 semantic graph unknowns remain in the parent Evidence.","Alias selection expansion was conservatively bounded (maximum 512 additional selector states); selected paths remain unknown. Semantic alias-selections budget reached: semantic_precision.alias_selections=512 additional selector states (default 512). Increase semantic_precision.alias_selections on the next analysis call (analyze_javascript_application or analyze_web_bundle); no REA restart is required. Worker memory, transfer and graph-retention limits remain independent. Cyclic or unsupported evaluations remain unknown regardless of budget.","Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.","Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.","CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.","Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.","Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.","Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.","Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.","JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.","Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.","Primitive string-byte budget exceeded (maximum 1048576 estimated JSON bytes). Semantic primitive-bytes budget reached: semantic_precision.primitive_bytes=1048576 estimated JSON bytes (default 1048576). Increase semantic_precision.primitive_bytes on the next analysis call (analyze_javascript_application or analyze_web_bundle); no REA restart is required. Worker memory, transfer and graph-retention limits remain independent. Cyclic or unsupported evaluations remain unknown regardless of budget.","Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.","Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.","Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.","Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.","Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.","The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.","Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.","Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code.","graph.coverage.status is partial","semantic_graph.coverage.status is unknown"],"summary":{"input_path":"/Users/thor/development/snipe-it/resources/assets/js","format":"directory","root_artifact_sha256":"56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846","statistics":{"relevant_files":11,"nested_asar_containers":0,"text_bytes_read":2254935,"invalid_utf8_files":0,"parsed_javascript_files":11,"skipped_javascript_files":0,"visited_ast_nodes":28654,"findings":88,"modules":0,"parse_failures":0},"electron":{"browser_windows":0,"explicit_web_preferences":0,"preload_entrypoints":0,"context_bridge_apis":0,"exposed_api_members":0,"ipc":{"operations":0,"literal_channels":0,"dynamic_channel_operations":0,"renderer_transmissions":0,"renderer_listeners":0,"main_handlers":0,"paired_renderer_transmissions":0,"ambiguous_renderer_transmissions":0,"unpaired_literal_renderer_transmissions":0},"sender_validation_observations":0,"utility_processes":0,"resolved_utility_entrypoints":0,"native_addon_bindings":0,"resolved_native_addon_bindings":0,"protocol_registrations":0,"v8_cached_data_compilations":0},"coverage":{"static_sources":{"sources":11,"unmeasured_sources":0,"syntax":{"complete":11,"recovered":0,"failed":0,"not-examined":0},"semantics":{"unknown_sources":4,"unexamined_sources":0},"examination":{"complete":10,"limited":1,"not-examined":0},"electron_applicability":{"observed":0,"unknown":11}},"application":{"status":"partial","truncated":false,"omitted_count":null,"limits":[{"name":"javascript_semantic_alias_selections","value":512,"unit":"items"},{"name":"javascript_semantic_primitive_bytes","value":1048576,"unit":"bytes"}]},"semantic":{"status":"unknown","truncated":false,"omitted_nodes":0,"omitted_relations":0,"limits":[],"controls":[{"control_kind":"parameter","parameter":"semantic_precision.alias_selections","effective_value":512,"unit":"count","minimum":1,"maximum":9007199254740991,"default_value":512,"applies_at":"next_call"},{"control_kind":"parameter","parameter":"semantic_precision.primitive_bytes","effective_value":1048576,"unit":"bytes","minimum":1,"maximum":9007199254740991,"default_value":1048576,"applies_at":"next_call"}],"families":[{"family":"boundary","status":"partial","retained_relations":56,"omitted_relations":0,"unknown_count":14},{"family":"call-flow","status":"partial","retained_relations":1368,"omitted_relations":0,"unknown_count":2420},{"family":"child-process","status":"partial","retained_relations":0,"omitted_relations":0,"unknown_count":0},{"family":"closure","status":"partial","retained_relations":1066,"omitted_relations":0,"unknown_count":0},{"family":"configuration","status":"partial","retained_relations":1,"omitted_relations":0,"unknown_count":1},{"family":"data-flow","status":"partial","retained_relations":13889,"omitted_relations":0,"unknown_count":6947},{"family":"event","status":"partial","retained_relations":42,"omitted_relations":0,"unknown_count":27},{"family":"object-flow","status":"partial","retained_relations":1564,"omitted_relations":0,"unknown_count":2900},{"family":"promise-ownership","status":"partial","retained_relations":6,"omitted_relations":0,"unknown_count":1},{"family":"request","status":"partial","retained_relations":4,"omitted_relations":0,"unknown_count":1},{"family":"resource-lifecycle","status":"partial","retained_relations":0,"omitted_relations":0,"unknown_count":0},{"family":"timer","status":"partial","retained_relations":14,"omitted_relations":0,"unknown_count":8}]},"application_unknowns":0,"semantic_unknowns":12319},"limitation_count":19}},"confidence":"derived","authority":"shipped-artifact","environment":null,"limitations":["Alias selection expansion was conservatively bounded (maximum 512 additional selector states); selected paths remain unknown. Semantic alias-selections budget reached: semantic_precision.alias_selections=512 additional selector states (default 512). Increase semantic_precision.alias_selections on the next analysis call (analyze_javascript_application or analyze_web_bundle); no REA restart is required. Worker memory, transfer and graph-retention limits remain independent. Cyclic or unsupported evaluations remain unknown regardless of budget.","Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.","Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.","CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.","Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.","Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.","Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.","Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.","JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.","Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.","Primitive string-byte budget exceeded (maximum 1048576 estimated JSON bytes). Semantic primitive-bytes budget reached: semantic_precision.primitive_bytes=1048576 estimated JSON bytes (default 1048576). Increase semantic_precision.primitive_bytes on the next analysis call (analyze_javascript_application or analyze_web_bundle); no REA restart is required. Worker memory, transfer and graph-retention limits remain independent. Cyclic or unsupported evaluations remain unknown regardless of budget.","Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.","Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.","Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.","Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.","Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.","The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.","Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.","Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code."],"relationship_coverage":null,"locations":[{"kind":"artifact-path","path":"/Users/thor/development/snipe-it/resources/assets/js"}],"evidence_links":["ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed"]}
+{
+  "schema_version": 3,
+  "generated_at_utc": "2026-11-24T01:18:13Z",
+  "phase": "Piano 3.5 — Verifica Formale di Parità con REA",
+  "api_contract": {
+    "artifact_path": "docs/openapi.json",
+    "artifact_sha256": "18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+    "contract_id": "api_contract_18a80c475ba6de08edd152c3db43628f035859e05da8932474562b8c4d4bc3ca",
+    "inspect_evidence_id": "ev_4f40323ff41771ae95e051faae0dd27cfaa859713ea7752bfe0c07a2b76b9019",
+    "summary_view_evidence_id": "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6",
+    "openapi_version": "3.0.0",
+    "paths": 299,
+    "operations": 435,
+    "diagnostics": 0,
+    "unknown": 0,
+    "unresolved_path_items": 0
+  },
+  "legacy_js_static_analysis": {
+    "artifact_path": "../snipe-it/resources/assets/js",
+    "directory_sha256": "56d06e70e267fd9588420950bb50af29783217104afacc7ef1e704500ee3d846",
+    "full_parent_evidence_id": "ev_120d59f71811392c05389de53fd2a62bd534eb469cab9c496078f5cd2233aeed",
+    "subset_parent_evidence_id": "ev_a4d27357f2780d310dd042b4b4ea40aee308201bbe0395062c4b736cfb53137e",
+    "subset_summary_evidence_id": "ev_95045c3076342242105a426899f074703dbd59c29eca5e63831849d33c9cfafd",
+    "web_dist_bundle_sha256": "1b010faa52368bcd55729fd819a6c52a201aff67d605186ee2487adae30d3c09",
+    "web_dist_summary_evidence_id": "ev_7338224cd84186eb5078df06fd0223ddb74220779322c826a2bdbb4c1b8a4ec0",
+    "kestrel_web_dist_at_revision": "50478f2"
+  },
+  "obligation_ledger": {
+    "manifest_path": "docs/rea-obligation-manifest.json",
+    "evidence_id": "ev_cdf9fa956bb744276953bca9bd0ae5becdc4551abcd3863fecc95ca63b8ef617",
+    "ledger_id": "rol_890a99c96bd2d8947ebe67cd780e167e4db0f1ff61dcff2323e757291da56da0",
+    "closure_digest": "8b93c290e49057af49be28343e0f66bc6feefe5b0d34a9350c54a29d0da46f04",
+    "coverage_status": "complete",
+    "ledger_status": "open",
+    "total_obligations": 7,
+    "required_obligations": 7,
+    "implemented": 7,
+    "verified": 0,
+    "missing_owners": 0,
+    "missing_verifiers": 0,
+    "contradictions": 0,
+    "residual_unknowns": 0,
+    "diagnostics_note": "All 7 Snipe-IT JS modules are uniquely bound to SHA-256-pinned Kestrel-IT owners and Zod schemas. Ledger status stays open only because the inline-bounded inspect_analysis_view / capture_browser_scenario evidence emits unrecognized-proof and static-only diagnostics under REA verifier rules.",
+    "owner_digests_matching_worktree": 7
+  },
+  "boundary_coverage": {
+    "manifest_path": "docs/rea-coverage-manifest.json",
+    "package_proof_evidence_id": "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8",
+    "verifier_evidence_id": "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6",
+    "ready_boundaries": 2,
+    "total_boundaries": 7,
+    "external_dispositions": [
+      {
+        "boundary_id": "boundary.api.rest",
+        "surface_id": "surf.api.backups.external",
+        "location": "/api/v1/settings/backups",
+        "disposition": "external",
+        "rationale": "Backup and restore delegated to external infrastructure operations (PostgreSQL pg_dump/WAL + Object Storage snapshot policies)."
+      },
+      {
+        "boundary_id": "boundary.ops.jobs",
+        "surface_id": "surf.ops.external.backups_idp",
+        "location": "deploy/backups-and-idp-broker",
+        "disposition": "external",
+        "rationale": "DB/object backups and legacy SAML/LDAP directory federation delegated to external infrastructure / IdP broker."
+      }
+    ],
+    "boundaries": {
+      "boundary.db.schema": {
+        "status": "ready",
+        "required_surfaces": 5,
+        "required_claims": 1,
+        "reasons": [],
+        "contract_sha256": "cc2572421762a2962e05c4a5db54dbf7174029d13314d602e7a7636cf0a23469"
+      },
+      "boundary.custom_fields": {
+        "status": "ready",
+        "required_surfaces": 4,
+        "required_claims": 1,
+        "reasons": [],
+        "contract_sha256": "62cd0c870ec61c65c6dd5c01c58a2dd9b0ee6b363cd75d5a553117ff6e4e32e6"
+      },
+      "boundary.rbac.fmcs": {
+        "status": "unknown",
+        "required_surfaces": 4,
+        "required_claims": 1,
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.rbac.fmcs",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
+        "contract_sha256": "30b801fce06553c3952b8514f8bb8f3a514856d528fdbf970c63bb486e97d376"
+      },
+      "boundary.workflows": {
+        "status": "unknown",
+        "required_surfaces": 6,
+        "required_claims": 1,
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.workflows",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
+        "contract_sha256": "e15eb7b1b74fd142791d1a0d275f718fabb779ab2966e8bb2679e1b709e80c01"
+      },
+      "boundary.api.rest": {
+        "status": "unknown",
+        "required_surfaces": 5,
+        "required_claims": 1,
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.api",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
+        "contract_sha256": "41cdd36ca05dcc047e8e45d003415142e19e7fcec56732b6db2a0059e5c21df0"
+      },
+      "boundary.ops.jobs": {
+        "status": "unknown",
+        "required_surfaces": 9,
+        "required_claims": 1,
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.ops.jobs",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
+        "contract_sha256": "b5bfca80aff1c05de7f1fc7bddccb0a3fb1a19afdc3311549bafe25f77dbb829"
+      },
+      "boundary.web.spa": {
+        "status": "unknown",
+        "required_surfaces": 8,
+        "required_claims": 1,
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.web.spa",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
+        "contract_sha256": "68e044daf7c1efedb2de55d6d5a86420677183828a67ba1c928ce29adf25c695"
+      }
+    },
+    "coverage_manifest_sha256": "7d8792355d8f1269bd8f08eb48f3f6a410d7a6dae318e87edf58788669836455",
+    "unknown_boundaries": 5,
+    "verifier_note": "Owner SHA-256 pins reflect current files. The manifest retains the verifier receipts from 50478f2 with their original input digests. Five receipts are incompatible with the refreshed owner pins."
+  },
+  "runtime_and_visual_verification": {
+    "route": "/login",
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
+    "chromium_version": "159.0.8154.6",
+    "before": {
+      "application": "Snipe-IT",
+      "revision": "576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8",
+      "artifact_path": "docs/rea-screenshots/snipe-it-login.png",
+      "evidence_id": "ev_eea4be27ffeb649a0feeb9fece2b45f0bb3328ff757e0d3b538cd4d6ca9a48e0",
+      "sha256": "2ec03502624a2f1a515028cac42697b9e6f974783f2d36fd11aca70d4490c8dc",
+      "bytes": 27178
+    },
+    "after": {
+      "application": "Kestrel-IT",
+      "base_revision": "b4f5790ffeeb36bc44a57083e72b82ddd7090fba",
+      "source": "working tree",
+      "artifact_path": "docs/rea-screenshots/kestrel-it-login.png",
+      "evidence_id": "ev_c54e88a8ac7fc9ba858f0b668ae3025ca1c294277e0213a60388f3835a441ed2",
+      "sha256": "74bfd2f56a4eefa48f4dd61b49eca3a1d3b7bd4e1c86786471af777b8b6e2f27",
+      "bytes": 54316
+    },
+    "comparison": {
+      "evidence_id": "ev_63b5dc08926f1126f9c8dccf63f9a54be2bbc15aa17c3c2b7e46ae371c6c8e4d",
+      "status": "different",
+      "compared_pixels": 1024000,
+      "changed_pixels": 982129,
+      "changed_ratio": 0.9591103515625,
+      "channel_threshold": 0
+    },
+    "verify_reconstruction": {
+      "evidence_id": "ev_7796256f1a0d93a918047dc82f122ea89263b2ea69ff4f000c0e226d84b0b2b1",
+      "status": "fail",
+      "observed_status": "changed"
+    },
+    "scope": "Pixel equivalence of two independently served sign-in pages at the recorded viewport."
+  },
+  "current_worktree_verification": {
+    "base_revision": "b4f5790ffeeb36bc44a57083e72b82ddd7090fba",
+    "build": {
+      "status": "pass",
+      "evidence_id": "ev_3aa8c416d23d949f0e9c957b0477c84ee6ffffe8afabfd2cc4e3537206bd2fde"
+    },
+    "typecheck": {
+      "status": "pass"
+    },
+    "tests": {
+      "shared_passed": 12,
+      "api_passed": 103,
+      "postgres_inventory_passed": 55,
+      "web_passed": 16
+    },
+    "chromium_e2e": {
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    "openapi_regeneration": {
+      "byte_identical": true
+    },
+    "frontend_build_analysis": {
+      "artifact_sha256": "c8818f069425c59537281229a6c1b4b779e254913203a7173fede3e75f711066",
+      "evidence_id": "ev_50100aebd181aa8eefd37782dd4829c502c75409fc73a092f137bc8f0631cac7",
+      "parent_evidence_id": "ev_b3e67a7d39ebd6415610dbc58e992b7a1afdc627b816b22c260c64f1a7eb9b8f",
+      "analyzed_sources": [
+        "main.js",
+        "chunk-HE6H27GX.js"
+      ]
+    },
+    "depreciation_selective_numeric_search": {
+      "scoped_assets": 50000,
+      "matches": 1,
+      "expected_book_value": "600.00",
+      "warm_median_ms": 99,
+      "warm_min_ms": 98,
+      "warm_max_ms": 101,
+      "warm_requests": 5
+    },
+    "source_sha256": {
+      "apps/api/src/modules/inventory/directory.service.ts": "10c8e9a6f0d817b4cf6fff97b5582e8a3c0440114da50498192127711fdfadea",
+      "apps/api/src/modules/inventory/reports.controller.ts": "f49260790332ea7fa6a390cd3733aa5c22a78b0ba46eb9f071ce5c878e71504d",
+      "apps/api/src/__tests__/inventory-postgres-e2e.spec.ts": "3bd925e3338b5b615e8c26a32fdb4b95575f9889ae7f02354a5c429e9d6db583",
+      "apps/web/src/app/features/inventory/checkout-requests-page.component.ts": "840979e365759792469684a9c4604434dc1260aa6e11bf8089c794163d7317a3",
+      "apps/web/e2e/phase-2.mjs": "073be2ecb96492dbb127dc0dbe402d0035a5a4ac5c28372720e2e62d558a1533"
+    }
+  }
+}

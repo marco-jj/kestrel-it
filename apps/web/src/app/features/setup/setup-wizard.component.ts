@@ -8,6 +8,7 @@ import {
   type CompleteSetupRequest,
   type LoginResponse,
   type PreflightStatusResponse,
+  type StandardApiResponse,
 } from '@kestrel-it/shared';
 import { firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth.store.js';
@@ -567,8 +568,15 @@ export class SetupWizardComponent implements OnInit {
     this.errorMessage.set(null);
     try {
       const response = await firstValueFrom(
-        this.http.post<LoginResponse>('/api/v1/setup/complete', payload),
+        this.http.post<StandardApiResponse<LoginResponse> | LoginResponse>(
+          '/api/v1/setup/complete',
+          payload,
+        ),
       );
+      const session = 'payload' in response ? response.payload : response;
+      if (!session) {
+        throw new Error('Missing setup session payload');
+      }
       const currentStatus = this.preflight();
       if (currentStatus) {
         this.authStore.setSetupStatus({ ...currentStatus, setupCompleted: true });
@@ -583,7 +591,7 @@ export class SetupWizardComponent implements OnInit {
           },
         });
       }
-      this.authStore.applyLoginResponse(response);
+      this.authStore.applyLoginResponse(session);
       await this.router?.navigateByUrl('/dashboard');
     } catch {
       this.errorMessage.set('Failed to complete initial setup.');

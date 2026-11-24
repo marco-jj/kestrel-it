@@ -12,6 +12,7 @@ import {
 } from '@kestrel-it/shared';
 import { firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { sanitizeRedirectPath } from '../../core/guards/auth.guard.js';
 import { ThemeStore } from '../../core/theme/theme.store.js';
 
 @Component({
@@ -79,6 +80,9 @@ import { ThemeStore } from '../../core/theme/theme.store.js';
           }
 
           @if (step() === 'credentials') {
+            @if (authStore.providersStatus()?.loginNote; as notice) {
+              <p class="panel-sub" style="white-space: pre-wrap;">{{ notice }}</p>
+            }
             <form class="form-stack" [formGroup]="loginForm" (ngSubmit)="submitCredentials()">
               <label class="k-label">
                 <span>Username</span>
@@ -324,9 +328,13 @@ export class LoginComponent implements OnInit {
   readonly totpEnrollment = signal<TwoFactorEnrollResponse | null>(null);
 
   readonly ssoEnabled = computed(() => this.authStore.providersStatus()?.sso.enabled ?? false);
-  readonly ssoLoginPath = computed(
-    () => this.authStore.providersStatus()?.sso.loginPath ?? '/api/v1/auth/oidc/login',
-  );
+  readonly ssoLoginPath = computed(() => {
+    const base = this.authStore.providersStatus()?.sso.loginPath ?? '/api/v1/auth/oidc/login';
+    const destination = this.postLoginRedirect();
+    return destination !== '/dashboard' && destination !== '/'
+      ? `${base}?redirect=${encodeURIComponent(destination)}`
+      : base;
+  });
   readonly ssoLabel = computed(() => {
     const protocol = this.authStore.providersStatus()?.sso.protocol ?? 'oidc';
     return protocol === 'oidc' ? 'OpenID Connect (OIDC)' : `OAuth (${protocol.toUpperCase()})`;
@@ -415,6 +423,10 @@ export class LoginComponent implements OnInit {
     }
   }
 
+  private postLoginRedirect(): string {
+    return sanitizeRedirectPath(this.route?.snapshot.queryParamMap.get('redirect'));
+  }
+
   async handleLoginResponse(response: LoginResponse): Promise<void> {
     this.authStore.applyLoginResponse(response);
     if (response.status === '2fa_required') {
@@ -430,7 +442,7 @@ export class LoginComponent implements OnInit {
       return;
     }
 
-    await this.router?.navigateByUrl('/dashboard');
+    await this.router?.navigateByUrl(this.postLoginRedirect());
   }
 
   async submitTwoFactor(): Promise<void> {
@@ -455,7 +467,7 @@ export class LoginComponent implements OnInit {
       );
       this.authStore.applyLoginResponse(response);
       if (response.status === 'authenticated') {
-        await this.router?.navigateByUrl('/dashboard');
+        await this.router?.navigateByUrl(this.postLoginRedirect());
       }
     } catch {
       this.errorMessage.set('Invalid two-factor verification code.');

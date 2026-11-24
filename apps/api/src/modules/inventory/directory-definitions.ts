@@ -6,6 +6,7 @@ import {
 } from '@kestrel-it/shared';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { z, type ZodRawShape } from 'zod';
+import { webhookUrl } from './webhook-delivery.js';
 import {
   categories,
   companies,
@@ -54,7 +55,9 @@ export const companyWebhookFields = {
     .trim()
     .url()
     .max(500)
-    .refine((value) => /^https?:\/\//i.test(value), 'Enter an HTTP or HTTPS URL')
+    .refine((value) => {
+      try { webhookUrl(value); return true; } catch { return false; }
+    }, 'Enter a public HTTPS webhook URL')
     .nullable()
     .optional(),
   webhook_channel: text(),
@@ -92,6 +95,8 @@ export const directoryDefinitions: Record<CoreInventoryResource, DirectoryDefini
       email: z.string().trim().email().max(255).nullable().optional(),
       employee_num: text(),
       jobtitle: text(),
+      start_date: z.string().date().nullable().optional(),
+      end_date: z.string().date().nullable().optional(),
       phone: text(50),
       mobile: text(50),
       notes: text(10_000),
@@ -104,6 +109,7 @@ export const directoryDefinitions: Record<CoreInventoryResource, DirectoryDefini
       company_ids: ids,
       group_ids: ids,
       password: z.string().min(10).max(255).optional(),
+      send_welcome: z.boolean().optional(),
     },
     references: { manager_id: 'users', location_id: 'locations', department_id: 'departments' },
   },

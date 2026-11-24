@@ -248,3 +248,492 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
     await returnLocations;
   });
 });
+
+test(
+  'Phase 3 inventory and operations through Angular and Chromium',
+  { timeout: 150_000 },
+  async (t) => {
+    const browser = await chromium.launch({ executablePath });
+    t.after(() => browser.close());
+    const page = await signIn(browser, username, password);
+    const marker = randomUUID().slice(0, 8);
+    const create = (path, data) => api(page, 'POST', path, data);
+    const read = (path) => api(page, 'GET', path);
+    const receiverName = 'phase3-' + marker;
+    const receiver = await create('/users', {
+      username: receiverName,
+      first_name: 'Receiver',
+      last_name: marker,
+      activated: true,
+      password: randomUUID(),
+    });
+    const stock = await create('/accessories', { name: 'Browser accessory ' + marker, qty: 2 });
+    const kit = await create('/kits', { name: 'Browser kit ' + marker });
+    await create(`/kits/${kit.id}/accessories`, { item_id: stock.id, quantity: 1 });
+    const category = await create('/categories', {
+      name: 'Browser audit category ' + marker,
+      category_type: 'asset',
+    });
+    const model = await create('/models', {
+      name: 'Browser audit model ' + marker,
+      category_id: category.id,
+    });
+    const [status] = (await read('/statuslabels/selectlist?statusType=deployable')).results;
+    const asset = await create('/hardware', {
+      model_id: model.id,
+      status_id: status.id,
+      asset_tag: 'AUDIT-' + marker,
+    });
+    const dialog = page.getByRole('dialog');
+
+    await t.test('checks out a kit and records its replenishment order', async () => {
+      await page.goto('/kits?detail=' + kit.id);
+      await dialog.getByRole('button', { name: 'Check out', exact: true }).click();
+      await pick(page, 'User', 'Receiver ' + marker);
+      await dialog.getByRole('button', { name: 'Check out', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Change saved.' }).waitFor();
+      const assignments = await read(`/accessories/${stock.id}/checkedout`);
+      assert.equal(assignments.rows[0].target_id, receiver.id);
+
+      await page.goto('/accessories?detail=' + stock.id);
+      await dialog.getByRole('button', { name: 'Adjust quantity', exact: true }).click();
+      await dialog.getByLabel('Quantity adjustment', { exact: true }).fill('3');
+      await dialog.getByLabel('Order number', { exact: true }).fill('PO-' + marker);
+      await dialog.getByLabel('Unit cost', { exact: true }).fill('8.50');
+      await dialog.getByLabel('Currency', { exact: true }).fill('EUR');
+      await dialog.getByRole('button', { name: 'Adjust quantity', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Change saved.' }).waitFor();
+      await dialog.getByRole('button', { name: 'Orders', exact: true }).click();
+      await dialog
+        .getByRole('row')
+        .filter({ hasText: 'PO-' + marker })
+        .waitFor();
+      assert.equal((await read('/accessories/' + stock.id)).remaining, 4);
+    });
+
+    await t.test('records an audit photo and shows the audit in the calendar', async () => {
+      const date = new Date().toISOString().slice(0, 10);
+      await page.goto('/hardware');
+      await page.getByLabel('Search table records').fill(asset.asset_tag);
+      await page
+        .getByRole('row')
+        .filter({ hasText: asset.asset_tag })
+        .getByRole('button', { name: 'audit', exact: true })
+        .click();
+      await dialog.getByLabel('Next audit date', { exact: true }).fill(date);
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACklEQVR4AWPAAAAAEgABKPhxBgAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      await dialog
+        .getByLabel('Audit photo')
+        .setInputFiles({ name: 'audit.png', mimeType: 'image/png', buffer: png });
+      await dialog.getByRole('button', { name: 'Record audit' }).click();
+      await page.getByRole('status').filter({ hasText: 'Audit recorded.' }).waitFor();
+      await page
+        .getByRole('row')
+        .filter({ hasText: asset.asset_tag })
+        .getByRole('button', { name: 'view', exact: true })
+        .click();
+      const download = page.waitForEvent('download');
+      await dialog.getByRole('button', { name: 'Download photo' }).click();
+      assert.match((await download).suggestedFilename(), /^audit-\d+\.png$/);
+      await page.goto('/calendar');
+      await page.getByLabel('Event type').selectOption('asset.audit_due');
+      await page
+        .getByRole('link', { name: 'Audit due · ' + asset.asset_tag, exact: true })
+        .filter({ visible: true })
+        .click();
+      await page.waitForURL('**/hardware?detail=' + asset.id);
+    });
+
+    await t.test('completes maintenance and writes its history', async () => {
+      const types = await read('/maintenance-types/selectlist');
+      const maintenance = await create('/maintenances', {
+        name: 'Browser inspection ' + marker,
+        asset_id: asset.id,
+        maintenance_type_id: types.results[0].id,
+        start_date: new Date().toISOString().slice(0, 10),
+      });
+      await page.goto('/maintenances?detail=' + maintenance.id);
+      await dialog.getByRole('button', { name: 'Complete maintenance' }).click();
+      await dialog.getByLabel('Completion note').fill('Inspection finished in Chromium');
+      await dialog.getByRole('button', { name: 'Complete maintenance' }).click();
+      await page.getByRole('status').filter({ hasText: 'Change saved.' }).waitFor();
+      await dialog.getByRole('button', { name: 'History', exact: true }).click();
+      await dialog.getByText(/Inspection finished in Chromium/).waitFor();
+      assert((await read('/maintenances/' + maintenance.id)).completed_at);
+    });
+  },
+);
+
+test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { timeout: 90_000 }, async (t) => {
+  const browser = await chromium.launch({ executablePath });
+  t.after(() => browser.close());
+  const page = await signIn(browser, username, password);
+  const marker = randomUUID().slice(0, 8);
+  const create = (path, data) => api(page, 'POST', path, data);
+  const read = (path) => api(page, 'GET', path);
+  const category = await create('/categories', { name: 'Operational category ' + marker,
+    category_type: 'asset', require_acceptance: true, alert_on_response: true });
+  const model = await create('/models', { name: 'Operational model ' + marker, category_id: category.id });
+  const [status] = (await read('/statuslabels/selectlist?statusType=deployable')).results;
+  const asset = await create('/hardware', { name: 'Operational asset ' + marker, model_id: model.id,
+    status_id: status.id, asset_tag: 'OP-' + marker });
+  const receiver = await create('/users', { username: 'operations-' + marker,
+    email: 'operations-' + marker + '@example.test', activated: true, password: randomUUID() });
+
+  await t.test('uploads, downloads, and removes an asset attachment', async () => {
+    await page.goto('/hardware?detail=' + asset.id);
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Files', exact: true }).click();
+    await dialog.getByLabel('Attachments').setInputFiles({
+      name: 'asset-manual.txt', mimeType: 'text/plain', buffer: Buffer.from('Operational attachment'),
+    });
+    await dialog.getByLabel('Note', { exact: true }).fill('Browser attachment');
+    await dialog.getByRole('button', { name: 'Upload files' }).click();
+    await dialog.getByRole('status').filter({ hasText: 'Attachments uploaded' }).waitFor();
+    const download = page.waitForEvent('download');
+    await dialog.getByRole('button', { name: 'Download asset-manual.txt' }).click();
+    assert.equal((await download).suggestedFilename(), 'asset-manual.txt');
+    await dialog.getByRole('button', { name: 'Delete asset-manual.txt' }).click();
+    await dialog.getByRole('button', { name: 'Confirm delete' }).click();
+    await dialog.getByRole('status').filter({ hasText: 'Attachment deleted' }).waitFor();
+    assert.equal((await read('/hardware/' + asset.id + '/files')).total, 0);
+  });
+
+  await t.test('previews a custom label and prints a hardware label', async () => {
+    await page.goto('/admin/labels');
+    await page.getByLabel('Template name').fill('Browser label ' + marker);
+    await page.getByRole('button', { name: 'Save label template' }).click();
+    await page.getByRole('status').filter({ hasText: 'Label template saved' }).waitFor();
+    await page.getByRole('button', { name: 'Preview label' }).click();
+    await page.locator('iframe[title="Label preview"]').waitFor();
+    const preview = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download preview PDF' }).click();
+    assert.equal((await preview).suggestedFilename(), 'label-preview.pdf');
+    await page.goto('/hardware?detail=' + asset.id);
+    const download = page.waitForEvent('download');
+    await page.getByRole('dialog').getByRole('button', { name: 'Print label', exact: true }).click();
+    assert.equal((await download).suggestedFilename(), 'asset-labels.pdf');
+  });
+
+  await t.test('saves a custom report template and downloads CSV and Excel', async () => {
+    await page.goto('/reports/custom');
+    await page.getByRole('heading', { name: 'Custom Assets' }).waitFor();
+    await page.getByText('Columns and report templates', { exact: true }).click();
+    await page.getByLabel('Template name').fill('Browser report ' + marker);
+    await page.getByLabel('Share with report viewers').check();
+    await page.getByRole('button', { name: 'Save template' }).click();
+    await page.getByRole('status').filter({ hasText: 'Report template saved' }).waitFor();
+    for (const [label, extension] of [['Export CSV', 'csv'], ['Export Excel', 'xlsx']]) {
+      const download = page.waitForEvent('download');
+      await page.getByRole('button', { name: label, exact: true }).click();
+      assert.equal((await download).suggestedFilename(), 'custom.' + extension);
+    }
+  });
+
+  await t.test('persists the depreciation method and opens the complete audit queue', async () => {
+    await page.goto('/depreciations');
+    const method = page.getByLabel('Depreciation method', { exact: true });
+    await method.selectOption('half_2');
+    await page.getByRole('button', { name: 'Save method', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Depreciation method saved' }).waitFor();
+    assert.equal((await read('/depreciations/settings')).depreciation_method, 'half_2');
+    await page.reload();
+    assert.equal(await method.inputValue(), 'half_2');
+    await method.selectOption('default');
+    await page.getByRole('button', { name: 'Save method', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Depreciation method saved' }).waitFor();
+    await page.goto('/hardware/audit/due-or-overdue');
+    await page.getByRole('heading', { name: 'Due and overdue audits', exact: true }).waitFor();
+    await page.getByRole('link', { name: 'Overdue audits', exact: true }).click();
+    await page.getByRole('heading', { name: 'Overdue audits', exact: true }).waitFor();
+
+    const fresh = await browser.newContext({ baseURL });
+    const freshPage = await fresh.newPage();
+    freshPage.setDefaultTimeout(10_000);
+    await freshPage.goto('/hardware/audit/due-or-overdue');
+    await freshPage.waitForURL('**/login?redirect=*');
+    await freshPage.getByLabel('Username', { exact: true }).fill(username);
+    await freshPage.getByLabel('Password', { exact: true }).fill(password);
+    await freshPage.locator('button[type=submit]').click();
+    await freshPage.waitForURL('**/hardware/audit/due-or-overdue');
+    await freshPage.getByRole('heading', { name: 'Due and overdue audits', exact: true }).waitFor();
+    await fresh.close();
+  });
+
+  await t.test('processes a CSV with one rejected row and keeps the successful row', async () => {
+    await page.goto('/import');
+    await page.getByLabel('CSV files', { exact: true }).setInputFiles({
+      name: 'mixed-stock.csv', mimeType: 'text/csv',
+      buffer: Buffer.from('Name,Quantity\nBrowser import ' + marker + ',3\nBroken import ' + marker + ',a'),
+    });
+    await page.getByRole('button', { name: 'Upload CSV files' }).click();
+    await page.getByLabel('Import type').selectOption({ label: 'Accessories' });
+    await page.getByLabel('Map Quantity').locator('option').filter({ hasText: 'qty' }).waitFor({ state: 'attached' });
+    await page.getByRole('button', { name: 'Process CSV' }).click();
+    await page.getByText(/complete · 2 processed · 1 created/).waitFor();
+    await page.getByText(/Row 3:/).waitFor();
+    assert.equal((await read('/accessories?search=' + encodeURIComponent('Browser import ' + marker))).total, 1);
+  });
+
+  await t.test('queues a scoped acceptance reminder and saves notification settings', async () => {
+    await create('/hardware/' + asset.id + '/checkout', { target_type: 'user', target_id: receiver.id });
+    await page.goto('/reports/unaccepted-assets');
+    await page.getByLabel(asset.asset_tag, { exact: true }).check();
+    await page.getByRole('button', { name: 'Send reminders' }).click();
+    await page.getByRole('status').filter({ hasText: '1 reminder(s) queued.' }).waitFor();
+    await page.goto('/admin/notifications');
+    await page.getByLabel('Low-stock buffer').fill('7');
+    await page.getByRole('button', { name: 'Save notification settings' }).click();
+    await page.getByRole('status').filter({ hasText: 'Notification settings saved' }).waitFor();
+    assert.equal((await read('/settings/notifications')).alert_threshold, 7);
+    await page.getByLabel('Test recipient').fill('phase34@example.test');
+    await page.getByRole('button', { name: 'Send test email' }).click();
+    await page.getByRole('status').filter({ hasText: 'Test email queued' }).waitFor();
+  });
+
+  await t.test(
+    'covers live dashboard telemetry, hardware detail subtabs, secondary requestables, self-service account, and admin settings',
+    async () => {
+      const reqAccessory = await create('/accessories', {
+        name: 'Req Dock ' + marker,
+        qty: 4,
+        requestable: true,
+      });
+
+      await page.goto('/dashboard');
+      await page.getByRole('heading', { name: 'IT Asset Operations Cockpit' }).waitFor();
+      assert.equal(await page.getByText('Phase 2.3').count(), 0);
+      await page.getByText('HARDWARE ASSETS', { exact: true }).waitFor();
+
+      await page.goto('/hardware/' + asset.id);
+      await page.getByRole('button', { name: 'Components', exact: true }).click();
+      await page.getByRole('button', { name: 'Accessories', exact: true }).click();
+      await page.getByRole('button', { name: 'Maintenances', exact: true }).click();
+      await page.getByRole('button', { name: 'Licenses', exact: true }).click();
+
+      await page.goto('/account/requestable');
+      await page.getByRole('button', { name: 'Accessories', exact: true }).click();
+      const accRow = page.getByRole('row').filter({ hasText: reqAccessory.name });
+      await accRow.waitFor();
+      await accRow.getByRole('button', { name: 'request', exact: true }).click();
+      await page.getByLabel('Quantity').fill('2');
+      await page.getByRole('button', { name: 'Submit request', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Request submitted.' }).waitFor();
+
+      await page.goto('/requests');
+      const queueRow = page.getByRole('row').filter({ hasText: reqAccessory.name });
+      await queueRow.getByRole('button', { name: 'checkout', exact: true }).click();
+      await page.getByRole('button', { name: 'Fulfill request', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Request fulfilled.' }).waitFor();
+
+      await page.goto('/account/profile');
+      await page.getByRole('heading', { name: 'My Profile' }).waitFor();
+      await page.getByLabel('Phone', { exact: true }).fill('+39 02 998877');
+      await page.getByRole('button', { name: 'Save Profile', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Profile details updated' }).waitFor();
+
+      await page.goto('/account/view-assets');
+      await page.getByRole('heading', { name: 'My Assigned Inventory' }).waitFor();
+
+      await page.goto('/account/api');
+      await page.getByLabel('Token name', { exact: true }).fill('E2E Token ' + marker);
+      await page.getByRole('button', { name: 'Generate Token', exact: true }).click();
+      await page.getByText(/Copy your new token now/).waitFor();
+      await page.getByRole('button', { name: 'Revoke', exact: true }).first().click();
+
+      await page.goto('/admin/settings');
+      await page.getByRole('heading', { name: 'Administration Settings' }).waitFor();
+      await page.getByRole('button', { name: 'Save Settings', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Settings saved' }).waitFor();
+
+      await page.goto('/admin/branding');
+      await page.getByRole('heading', { name: 'Colors, Banners & Custom CSS' }).waitFor();
+      await page.goto('/admin/integrations');
+      await page.getByRole('heading', { name: 'OIDC / OAuth 2.1 Single Sign-On' }).waitFor();
+      await page.goto('/admin/login-attempts');
+      await page.getByRole('heading', { name: 'Login Attempts Audit' }).waitFor();
+    },
+  );
+
+  await t.test('shows scoped checkout navigation, all assigned pages, and branding notices', async () => {
+    const operatorName = 'component-operator-' + marker;
+    const operatorPassword = randomUUID();
+    const operator = await create('/users', {
+      username: operatorName,
+      activated: true,
+      password: operatorPassword,
+      permissions: { 'components.checkout': 1 },
+    });
+    const component = await create('/components', {
+      name: 'Requestable component ' + marker,
+      qty: 1,
+      requestable: true,
+    });
+    const request = await create('/account/request/components/' + component.id, {});
+    const patch = (body) => api(page, 'PATCH', '/settings', body);
+    const settings = await read('/settings');
+    const loginNote = 'Sign-in maintenance notice ' + marker;
+    const dashboardMessage = 'Dashboard maintenance notice ' + marker;
+    const noAcceptance = await create('/categories', {
+      name: 'Self-service category ' + marker,
+      category_type: 'asset',
+    });
+    const selfServiceModel = await create('/models', {
+      name: 'Self-service model ' + marker,
+      category_id: noAcceptance.id,
+    });
+    const tag = (index) => 'SELF-' + marker + '-' + String(index).padStart(2, '0');
+    for (let index = 1; index <= 51; index += 1) {
+      const assigned = await create('/hardware', {
+        name: 'Self-service asset ' + marker,
+        status_id: status.id,
+        model_id: selfServiceModel.id,
+        asset_tag: tag(index),
+      });
+      await create('/hardware/' + assigned.id + '/checkout', {
+        target_type: 'user',
+        target_id: operator.id,
+      });
+    }
+
+    await patch({ profile_edit: false, login_note: loginNote, dashboard_message: dashboardMessage });
+    let operatorPage;
+    let fulfilled = false;
+    try {
+      operatorPage = await signIn(browser, operatorName, operatorPassword);
+      await operatorPage.getByText(dashboardMessage, { exact: true }).waitFor();
+      const queue = await api(operatorPage, 'GET', '/requests');
+      assert(queue.rows.some(({ id }) => id === request.id));
+      await operatorPage.getByRole('link', { name: queue.total + ' pending requests', exact: true }).waitFor();
+      await operatorPage.getByRole('link', { name: 'Checkout Requests', exact: true }).waitFor();
+      await operatorPage.keyboard.press('Control+k');
+      const palette = operatorPage.getByRole('dialog', { name: 'Global Command Palette' });
+      await palette.getByRole('textbox', { name: 'Command search' }).fill('Checkout Requests');
+      await palette.getByRole('option').filter({ hasText: 'Checkout Requests' }).click();
+      const requestRow = operatorPage.getByRole('row').filter({ hasText: component.name });
+      await requestRow.waitFor();
+      await requestRow.getByRole('button', { name: 'checkout', exact: true }).click();
+      const hostSelect = operatorPage.locator('kestrel-async-select').filter({
+        has: operatorPage.getByText('Select target host asset', { exact: true }),
+      });
+      await hostSelect.getByRole('combobox').fill(tag(1));
+      await hostSelect.getByRole('option').filter({ hasText: tag(1) }).first().click();
+      await operatorPage.getByRole('button', { name: 'Fulfill request', exact: true }).click();
+      await operatorPage.getByRole('status').filter({ hasText: 'Request fulfilled.' }).waitFor();
+      fulfilled = true;
+
+      await operatorPage.goto('/account/view-assets');
+      await operatorPage.getByRole('heading', { name: 'Hardware Assets (51)', exact: true }).waitFor();
+      const pagination = operatorPage.getByRole('navigation', { name: 'Assigned inventory pages' });
+      await pagination.getByText('Page 1 of 2', { exact: true }).waitFor();
+      assert.equal(await operatorPage.getByText(tag(51), { exact: true }).count(), 0);
+      await pagination.getByRole('button', { name: 'Next' }).click();
+      await pagination.getByText('Page 2 of 2', { exact: true }).waitFor();
+      await operatorPage.getByText(tag(51), { exact: true }).waitFor();
+      assert.equal(await pagination.getByRole('button', { name: 'Next' }).isDisabled(), true);
+      await pagination.getByRole('button', { name: 'Previous' }).click();
+      await pagination.getByText('Page 1 of 2', { exact: true }).waitFor();
+      await operatorPage.getByText(tag(1), { exact: true }).waitFor();
+
+      const [lastAsset] = (await read('/hardware?search=' + tag(51))).rows;
+      assert.equal(lastAsset.asset_tag, tag(51));
+      await create('/hardware/' + lastAsset.id + '/checkin', {});
+      await pagination.getByRole('button', { name: 'Next' }).click();
+      await operatorPage.getByRole('heading', { name: 'Hardware Assets (50)', exact: true }).waitFor();
+      await pagination.waitFor({ state: 'hidden' });
+      await operatorPage.getByText(tag(1), { exact: true }).waitFor();
+
+      await operatorPage.goto('/account/profile');
+      await operatorPage.getByText('Self-service profile and password changes are disabled.').waitFor();
+      assert.equal(await operatorPage.getByRole('button', { name: 'Update Password' }).count(), 0);
+      await patch({ profile_edit: true });
+      await operatorPage.reload();
+      await operatorPage.getByRole('button', { name: 'Update Password' }).waitFor();
+
+      const visitor = await browser.newContext({ baseURL });
+      try {
+        const login = await visitor.newPage();
+        await login.goto('/login');
+        await login.getByText(loginNote, { exact: true }).waitFor();
+        assert.equal(await login.getByText(dashboardMessage, { exact: true }).count(), 0);
+      } finally {
+        await visitor.close();
+      }
+    } finally {
+      await operatorPage?.context().close();
+      await patch({
+        profile_edit: settings.profile_edit,
+        login_note: settings.login_note,
+        dashboard_message: settings.dashboard_message,
+      });
+      if (!fulfilled) {
+        await create('/account/requests/' + request.id + '/cancel', {});
+      }
+    }
+  });
+
+  await t.test('validates settings edits and omits untouched legacy URLs', async () => {
+    const original = await read('/settings');
+    const settingsUrl = '**/api/v1/settings';
+    const legacyPrivacy = 'ftp://legacy.example.test/privacy';
+    const legacyIssuer = 'file:///legacy-issuer';
+    await page.route(settingsUrl, async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      await route.fulfill({
+        response,
+        json: {
+          ...data,
+          payload: { ...data.payload, privacy_policy_link: legacyPrivacy, oidc_issuer_url: legacyIssuer },
+        },
+      });
+    }, { times: 1 });
+
+    const save = page.getByRole('button', { name: 'Save Settings', exact: true });
+    const submission = () => page.waitForResponse(
+      (response) => response.url().endsWith('/api/v1/settings') && response.request().method() === 'PATCH',
+    );
+    try {
+      await page.goto('/admin/settings');
+      const pageSize = page.getByLabel('Rows per page', { exact: true });
+      const passwordLength = page.getByLabel('Minimum password length', { exact: true });
+      await pageSize.fill('4');
+      assert.equal(await save.isDisabled(), true);
+      await pageSize.fill('5');
+      await passwordLength.fill('7');
+      assert.equal(await save.isDisabled(), true);
+      await passwordLength.fill('8');
+      const preserving = submission();
+      await save.click();
+      const saved = await preserving;
+      assert.equal(saved.status(), 200);
+      const body = saved.request().postDataJSON();
+      assert.equal(Object.hasOwn(body, 'privacy_policy_link'), false);
+      assert.equal(Object.hasOwn(body, 'oidc_issuer_url'), false);
+      assert.equal((await read('/settings')).per_page, 5);
+
+      await page.goto('/admin/integrations');
+      const issuer = page.getByLabel('Issuer URL', { exact: true });
+      await issuer.fill('ftp://files.example.test');
+      const invalid = submission();
+      await save.click();
+      assert.equal((await invalid).status(), 422);
+      await page.getByRole('alert').filter({ hasText: 'Use an HTTP or HTTPS URL' }).waitFor();
+
+      await issuer.fill('http://localhost:4100');
+      const valid = submission();
+      await save.click();
+      assert.equal((await valid).status(), 200);
+      assert.equal((await read('/settings')).oidc_issuer_url, 'http://localhost:4100');
+    } finally {
+      await api(page, 'PATCH', '/settings', {
+        per_page: original.per_page,
+        pwd_secure_min: original.pwd_secure_min,
+        oidc_issuer_url: original.oidc_issuer_url,
+      });
+    }
+  });
+});
