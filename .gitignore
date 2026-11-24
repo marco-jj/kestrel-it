@@ -18,3 +18,4 @@ coverage/
 
 # Large local REA full AST dump (summary is tracked in docs/rea-evidence-summary.json)
 docs/rea-evidence-bundle.json
+/garage.toml

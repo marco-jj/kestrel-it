@@ -40,3 +40,10 @@ ENV KESTREL_API_ORIGIN=http://kestrel-it-api:3000
 COPY deploy/images/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist/kestrel-web/browser/ /usr/share/nginx/html/
 EXPOSE 80
+
+FROM dxflrs/garage:v2.2.0 AS garage-binary
+
+FROM alpine:3.24.4 AS garage-init
+COPY --from=garage-binary /garage /garage
+COPY deploy/garage/init.sh /init.sh
+ENTRYPOINT ["/bin/sh", "/init.sh"]

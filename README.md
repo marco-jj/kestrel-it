@@ -60,6 +60,47 @@ kestrel-it/
 
 The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstream behavior to Kestrel-IT equivalents, parity evidence, and open decisions.
 
+## Run locally with Docker Compose
+
+Create a `garage.toml` file in the repository root with this single-node configuration. The example RPC secret and the default Compose credentials are for local development. Keep your local configuration out of version control.
+
+```toml
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+replication_factor = 1
+rpc_bind_addr = "0.0.0.0:3901"
+rpc_public_addr = "garage:3901"
+rpc_secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "0.0.0.0:3900"
+```
+
+```sh
+chmod 600 garage.toml
+docker compose up -d
+```
+
+Compose builds the API and web targets from `deploy/images/Dockerfile`. It starts PostgreSQL, initializes the Garage layout, bucket, and access key, then starts the API and web app. Open [http://localhost:4200/setup](http://localhost:4200/setup) and complete the setup wizard. If startup is still in progress, check `docker compose ps -a`. A successful `garage-init` run exits with code 0.
+
+The browser uses `http://localhost:4200/api/v1`. Nginx forwards those requests to the API container, which also listens directly at `http://localhost:3000/api/v1`. Garage's S3 endpoint is `http://garage:3900` inside Compose and `http://localhost:3900` from the host. Garage and PostgreSQL data persist in named volumes. You can use an optional root `.env` for API settings. If you have an older MinIO configuration, replace the S3 credentials and region with the Garage values in [.env.example](.env.example). Keep `S3_REGION` aligned with `s3_region` in `garage.toml`.
+
+### Use Angular's local dev server
+
+To develop the frontend with live reload, start just its backend services and run Angular on the host.
+
+```sh
+docker compose stop web
+docker compose up -d api
+pnpm install
+pnpm build:shared
+pnpm --filter @kestrel-it/web exec ng serve
+```
+
+The Angular serve target reads [proxy.conf.json](apps/web/proxy.conf.json) and forwards `/api/v1/**` to `http://127.0.0.1:3000` so the browser retains a single origin. The backend serves `/api/v1` directly. The Compose web container provides its own proxy through Nginx.
+
 ## Install the beta
 
 Kestrel-IT is distributed as a single OCI Helm chart. For the install command, cluster values, and use as a Helm dependency, see the [chart guide](deploy/helm/kestrel-it/README.md). See the [changelog](CHANGELOG.md) for the beta scope and [release process](RELEASE.md) for publication.

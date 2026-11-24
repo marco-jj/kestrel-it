@@ -26,7 +26,8 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "buildTarget": "kestrel-web:build"
+            "buildTarget": "kestrel-web:build",
+            "proxyConfig": "proxy.conf.json"
           }
         }
       }
