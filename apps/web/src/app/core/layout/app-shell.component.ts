@@ -73,10 +73,19 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
   { label: 'Manufacturers', route: '/manufacturers', section: 'inventory', requiredPermission: 'manufacturers.view' },
   { label: 'Suppliers', route: '/suppliers', section: 'inventory', requiredPermission: 'suppliers.view' },
   { label: 'Status Labels', route: '/statuslabels', section: 'inventory', requiredPermission: 'statuslabels.view' },
+  { label: 'My Profile', route: '/account/profile', section: 'operations' },
+  { label: 'My Assigned Items', route: '/account/view-assets', section: 'operations' },
   { label: 'Checkout Acceptances', route: '/account/accept', section: 'operations' },
   { label: 'Requestable Inventory', route: '/account/requestable', section: 'operations',
     requiredPermission: 'assets.view.requestable', directPermission: true },
   { label: 'My Requests', route: '/account/requests', section: 'operations' },
+  {
+    label: 'API Tokens',
+    route: '/account/api',
+    section: 'operations',
+    requiredPermission: 'self.api',
+    directPermission: true,
+  },
   { label: 'Checkout Requests', route: '/requests', section: 'operations',
     requiredPermission: 'assets.checkout', directPermission: true },
   { label: 'Imports', route: '/import', section: 'operations', requiredPermission: 'import', directPermission: true },
@@ -88,12 +97,11 @@ export const NAVIGATION_ITEMS: readonly NavItem[] = [
     directPermission: true,
   },
   { label: 'Labels', route: '/admin/labels', section: 'admin', requiredPermission: 'superuser' },
-  {
-    label: 'Settings',
-    route: '/admin/settings',
-    section: 'admin',
-    requiredPermission: 'superuser',
-  },
+  { label: 'Settings', route: '/admin/settings', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Notifications', route: '/admin/notifications', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Branding', route: '/admin/branding', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'SSO / OIDC', route: '/admin/integrations', section: 'admin', requiredPermission: 'superuser' },
+  { label: 'Login Attempts', route: '/admin/login-attempts', section: 'admin', requiredPermission: 'superuser' },
 ];
 
 export function filterNavigationItems(store: AuthStore): NavItem[] {

@@ -42,6 +42,7 @@ const categoryFields = [
   reference('company_id', 'Company', 'companies'),
   reference('manufacturer_id', 'Manufacturer', 'manufacturers'),
   field('min_amt', 'Minimum stock', 'number'),
+  field('requestable', 'Requestable', 'boolean'),
   field('notes', 'Notes', 'textarea'),
 ];
 const stockFields = [

@@ -57,12 +57,51 @@ export const appRoutes: Routes = [
         path,
         loadComponent: () => import('./features/inventory/reports-page.component.js').then((module) => module.ReportsPageComponent),
       })),
+      ...['account/profile', 'account/view-assets', 'account/api'].map((path) => ({
+        path,
+        loadComponent: () =>
+          import('./features/inventory/account-self-service.components.js').then((module) =>
+            path === 'account/profile'
+              ? module.AccountProfileComponent
+              : path === 'account/view-assets'
+                ? module.AccountAssetsComponent
+                : module.AccountTokensComponent,
+          ),
+      })),
       { path: 'import', loadComponent: () => import('./features/inventory/import-page.component.js').then((module) => module.ImportPageComponent) },
       { path: 'admin/labels', loadComponent: () => import('./features/inventory/labels-settings.component.js').then((module) => module.LabelsSettingsComponent) },
-      ...['admin/settings', 'admin/notifications', 'admin/integrations'].map((path) => ({
-        path,
-        loadComponent: () => import('./features/inventory/notification-settings.component.js').then((module) => module.NotificationSettingsComponent),
+      { path: 'admin/notifications', loadComponent: () => import('./features/inventory/notification-settings.component.js').then((module) => module.NotificationSettingsComponent) },
+      ...(['general', 'branding', 'integrations'] as const).map((section) => ({
+        path: section === 'general' ? 'admin/settings' : `admin/${section}`,
+        data: { section },
+        loadComponent: () =>
+          import('./features/inventory/admin-settings.components.js').then(
+            (module) => module.AdminSettingsComponent,
+          ),
       })),
+      {
+        path: 'admin/login-attempts',
+        loadComponent: () =>
+          import('./features/inventory/admin-settings.components.js').then(
+            (module) => module.LoginAttemptsComponent,
+          ),
+      },
+      {
+        path: 'hardware/create',
+        data: { routeAction: 'create' },
+        loadComponent: () =>
+          import('./features/inventory/hardware-page.component.js').then(
+            (module) => module.HardwarePageComponent,
+          ),
+      },
+      {
+        path: 'hardware/bulk-checkout',
+        data: { routeAction: 'bulk-checkout' },
+        loadComponent: () =>
+          import('./features/inventory/hardware-page.component.js').then(
+            (module) => module.HardwarePageComponent,
+          ),
+      },
       ...['hardware', 'hardware/bytag/:tag', 'hardware/:id', 'models'].map((path) => ({
         path,
         loadComponent: () =>

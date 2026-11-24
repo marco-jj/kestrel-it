@@ -230,10 +230,16 @@ type AssetFormRecord = DataGridRow & {
         @switch (mode()) {
           @case ('view') {
             <div class="toolbar">
-              <button type="button" class="k-btn k-btn-secondary" (click)="detailTab.set('overview')">Overview</button>
-              <button type="button" class="k-btn k-btn-secondary" (click)="detailTab.set('orders')">Orders</button>
+              <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('overview')">Overview</button>
+              <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('orders')">Orders</button>
+              @if (isHardware) {
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('licenses')">Licenses</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('components')">Components</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('accessories')">Accessories</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('maintenances')">Maintenances</button>
+              }
               @if (canReadFiles()) {
-                <button type="button" class="k-btn k-btn-secondary" (click)="detailTab.set('files')">Files</button>
+                <button type="button" class="k-btn k-btn-secondary" (click)="selectDetailTab('files')">Files</button>
               }
               @if (isHardware && detailTag()) {
                 <button type="button" class="k-btn k-btn-secondary" (click)="printTags([detailTag()])">Print label</button>
@@ -243,6 +249,33 @@ type AssetFormRecord = DataGridRow & {
               <kestrel-inventory-files [resource]="isHardware ? 'hardware' : 'models'" [itemId]="recordId()!" [canWrite]="canWriteFiles()" />
             } @else if (detailTab() === 'orders' && recordId()) {
               <kestrel-order-items [itemId]="recordId()!" [itemType]="isHardware ? 'asset' : 'model'" />
+            } @else if (detailTab() === 'licenses' || detailTab() === 'components' || detailTab() === 'accessories' || detailTab() === 'maintenances') {
+              @if (detailSubLoading()) {
+                <p role="status">Loading {{ detailTab() }}…</p>
+              } @else if (detailSubRows().length) {
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name / Title</th>
+                        <th>Key / Type / Qty</th>
+                        <th>Date / Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (sub of detailSubRows(); track $index) {
+                        <tr>
+                          <td>{{ subCell(sub, ['name', 'title']) }}</td>
+                          <td class="k-mono">{{ subCell(sub, ['serial', 'model_number', 'maintenance_type', 'assigned_qty', 'seat_id']) }}</td>
+                          <td>{{ subCell(sub, ['start_date', 'assigned_at', 'note', 'notes']) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <p>No {{ detailTab() }} linked to this asset.</p>
+              }
             } @else {
             <dl>
               @for (item of details(); track item.label) {
@@ -436,7 +469,9 @@ export class HardwarePageComponent implements OnInit {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly drawer = signal(false);
-  readonly detailTab = signal<'overview'|'orders'|'files'>('overview');
+  readonly detailTab = signal<'overview'|'orders'|'files'|'licenses'|'components'|'accessories'|'maintenances'>('overview');
+  readonly detailSubRows = signal<DataGridRow[]>([]);
+  readonly detailSubLoading = signal(false);
   readonly detailTag = signal('');
   readonly audit = signal<{ asset?: DataGridRow; ids: number[] } | null>(null);
   readonly mode = signal<DrawerMode>('view');
@@ -499,12 +534,54 @@ export class HardwarePageComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    const routeAction = this.route.snapshot.data['routeAction'];
+    if (routeAction === 'bulk-checkout') {
+      this.applied = { status: 'deployable' };
+      this.message.set('Showing deployable assets. Select Check out on an asset row.');
+    }
     void this.load();
     if (this.isHardware) void this.loadSearches();
     const tag = this.route.snapshot.paramMap.get('tag');
     const detail = Number(this.route.snapshot.paramMap.get('id') ?? this.route.snapshot.queryParamMap.get('detail'));
+    if (routeAction === 'create') void this.open('edit');
     if (tag) void this.openTag(tag);
     if (detail > 0) void this.open('view', detail);
+  }
+
+  async selectDetailTab(
+    tab: 'overview'|'orders'|'files'|'licenses'|'components'|'accessories'|'maintenances',
+  ) {
+    this.detailTab.set(tab);
+    const id = this.recordId();
+    if (!id || tab === 'overview' || tab === 'orders' || tab === 'files') return;
+    this.detailSubRows.set([]);
+    this.detailSubLoading.set(true);
+    try {
+      const path =
+        tab === 'licenses'
+          ? `/hardware/${id}/licenses`
+          : tab === 'components'
+            ? `/hardware/${id}/assigned/components`
+            : tab === 'accessories'
+              ? `/hardware/${id}/assigned/accessories`
+              : '/maintenances';
+      const query: Record<string, string | number> =
+        tab === 'maintenances' ? { asset_id: id, limit: 50 } : { limit: 50 };
+      const result = await this.api.records(path, query);
+      this.detailSubRows.set(result.rows ?? []);
+    } catch (error) {
+      this.error.set(inventoryError(error));
+    } finally {
+      this.detailSubLoading.set(false);
+    }
+  }
+
+  subCell(row: DataGridRow, keys: string[]): string {
+    for (const key of keys) {
+      const val = row[key];
+      if (val !== null && val !== undefined && val !== '') return String(val);
+    }
+    return '—';
   }
 
   can(action: 'create' | 'edit' | 'delete'): boolean {
@@ -651,6 +728,7 @@ export class HardwarePageComponent implements OnInit {
     this.message.set('');
     this.mode.set(mode);
     this.detailTab.set('overview');
+    this.detailSubRows.set([]);
     this.detailTag.set('');
     this.recordId.set(id ?? null);
     this.customFields.set([]);

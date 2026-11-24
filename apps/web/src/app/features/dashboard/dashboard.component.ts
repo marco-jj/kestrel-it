@@ -1,29 +1,48 @@
 import { RecentActivityComponent } from './recent-activity.component.js';
 import { CommonModule } from '@angular/common';
-import { Component, Inject, computed, signal } from '@angular/core';
+import { Component, Inject, OnInit, Optional, computed, signal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
+import type { StandardApiResponse } from '@kestrel-it/shared';
 import { LowStockComponent } from './low-stock.component.js';
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { InventoryApi } from '../inventory/inventory-api.js';
 import {
-  KestrelAsyncSelectComponent,
   KestrelDataGridComponent,
-  KestrelSlideDrawerComponent,
   KestrelStatusBadgeComponent,
-  type AsyncSelectOption,
   type DataGridColumn,
   type DataGridRow,
 } from '../../shared/ui/index.js';
+
+interface DashboardSummaryPayload {
+  assets_total: number;
+  status_breakdown: Record<string, number>;
+  licenses_total: number;
+  accessories_total: number;
+  consumables_total: number;
+  components_total: number;
+  my_pending_acceptances: number;
+  my_pending_requests: number;
+  pending_checkout_requests: number;
+  overdue_audits: number;
+  active_maintenances: number;
+}
+
+interface DashboardCategoryRow {
+  id: number;
+  name: string;
+  count: number;
+}
 
 @Component({
   selector: 'kestrel-dashboard',
   standalone: true,
   imports: [
     CommonModule,
+    RouterLink,
     LowStockComponent,
     RecentActivityComponent,
     KestrelDataGridComponent,
     KestrelStatusBadgeComponent,
-    KestrelSlideDrawerComponent,
-    KestrelAsyncSelectComponent,
   ],
   template: `
     <section class="dashboard">
@@ -31,97 +50,93 @@ import {
         <div>
           <h1>IT Asset Operations Cockpit</h1>
           <p class="subtitle">
-            Precision Enterprise overview with real-time RBAC scoping and multi-company telemetry.
+            Live RBAC- and FMCS-scoped telemetry across hardware, licenses, requests, and compliance.
           </p>
         </div>
         <div class="header-actions">
           <span class="role-chip k-mono">
             {{ authStore.isSuperUser() ? 'SUPERUSER' : authStore.isAdmin() ? 'ADMIN' : 'USER' }}
           </span>
-          <button type="button" class="k-btn k-btn-primary" (click)="openQuickDrawer()">
-            Quick Checkout
-          </button>
+          <a class="k-btn k-btn-secondary" routerLink="/account/requestable">Request Equipment</a>
+          @if (authStore.can('assets.create') || authStore.isAdmin()) {
+            <a class="k-btn k-btn-primary" routerLink="/hardware/create">New Asset</a>
+          }
         </div>
       </div>
 
       <div class="kpi-grid">
         <article class="k-card kpi-card">
-          <span class="kpi-label k-mono">HARDWARE INVENTORY</span>
-          <strong class="kpi-value k-mono">Phase 2.3</strong>
+          <span class="kpi-label k-mono">HARDWARE ASSETS</span>
+          <strong class="kpi-value k-mono">{{ summary()?.assets_total ?? 0 }}</strong>
           <div class="kpi-foot">
-            <kestrel-status-badge statusMeta="deployable" label="API Contract Ready" />
+            <kestrel-status-badge statusMeta="deployable" [label]="statusSummaryLine()" />
           </div>
         </article>
         <article class="k-card kpi-card">
-          <span class="kpi-label k-mono">SOFTWARE LICENSES</span>
-          <strong class="kpi-value k-mono">Phase 3.1</strong>
-          <div class="kpi-foot">
-            <kestrel-status-badge statusMeta="deployed" label="Seat Propagation Spec" />
-          </div>
+          <span class="kpi-label k-mono">LICENSES &amp; STOCK</span>
+          <strong class="kpi-value k-mono">{{ secondaryTotal() }}</strong>
+          <p class="kpi-note">
+            {{ summary()?.licenses_total ?? 0 }} licenses ·
+            {{ summary()?.accessories_total ?? 0 }} accessories ·
+            {{ summary()?.consumables_total ?? 0 }} consumables ·
+            {{ summary()?.components_total ?? 0 }} components
+          </p>
         </article>
         <article class="k-card kpi-card">
-          <span class="kpi-label k-mono">AUDIT &amp; COMPLIANCE</span>
-          <strong class="kpi-value k-mono">Phase 3.2</strong>
-          <div class="kpi-foot">
-            <kestrel-status-badge statusMeta="pending" label="JSONB GIN Indexed" />
-          </div>
+          <span class="kpi-label k-mono">OPERATIONS QUEUE</span>
+          <strong class="kpi-value k-mono">{{ operationsAttentionCount() }}</strong>
+          <p class="kpi-note">
+            <a routerLink="/requests">{{ summary()?.pending_checkout_requests ?? 0 }} pending requests</a> ·
+            <a routerLink="/hardware/audit/overdue">{{ summary()?.overdue_audits ?? 0 }} overdue audits</a> ·
+            <a routerLink="/maintenances">{{ summary()?.active_maintenances ?? 0 }} maintenances</a>
+          </p>
         </article>
         <article class="k-card kpi-card">
-          <span class="kpi-label k-mono">FMCS ACTIVE SCOPE</span>
+          <span class="kpi-label k-mono">MY SELF-SERVICE &amp; FMCS</span>
           <strong class="kpi-value k-mono">{{ activeCompanyCount() }}</strong>
-          <p class="kpi-note">{{ companyScopeSummary() }}</p>
+          <p class="kpi-note">
+            {{ companyScopeSummary() }} ·
+            <a routerLink="/account/accept">{{ summary()?.my_pending_acceptances ?? 0 }} acceptances</a> ·
+            <a routerLink="/account/requests">{{ summary()?.my_pending_requests ?? 0 }} requests</a>
+          </p>
         </article>
       </div>
+
+      @if (categories().length) {
+        <div class="k-card kpi-card">
+          <div class="section-header">
+            <h2>Assets by Category</h2>
+            <span class="k-mono section-meta">FMCS live distribution</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.5rem;">
+            @for (cat of categories(); track cat.id) {
+              <span class="role-chip k-mono">{{ cat.name }}: {{ cat.count }}</span>
+            }
+          </div>
+        </div>
+      }
 
       <kestrel-low-stock />
       <kestrel-recent-activity />
 
-      <div class="grid-section">
-        <div class="section-header">
-          <h2>Shared DataGrid &amp; Action Capability Blueprint</h2>
-          <span class="k-mono section-meta">Server-side contract preview</span>
-        </div>
+      @if (authStore.can('assets.view') || authStore.isAdmin()) {
+        <div class="grid-section">
+          <div class="section-header">
+            <h2>Recent Hardware Inventory</h2>
+            <span class="k-mono section-meta">Live API feed · {{ recentAssetsTotal() }} total in scope</span>
+          </div>
 
-        <kestrel-data-grid
-          [serverSide]="false"
-          [columns]="previewColumns"
-          [rows]="previewRows"
-          [total]="previewRows.length"
-          createLabel="Quick Checkout"
-          (createClicked)="openQuickDrawer()"
-          (rowAction)="onPreviewRowAction($event)"
-        />
-      </div>
-
-      <kestrel-slide-drawer
-        [open]="drawerOpen()"
-        title="Quick Asset Checkout Preview"
-        subtitle="Company-scoped FMCS selector preserves active table context."
-        (closed)="drawerOpen.set(false)"
-      >
-        <div class="drawer-form">
-          <kestrel-async-select
-            label="Target Location (FMCS Scoped)"
-            placeholder="Search locations within company scope..."
-            [options]="sampleLocations"
-            [companyId]="authStore.selectedCompanyId()"
-            (quickCreate)="quickCreateMessage.set('Inline location creation triggered for: ' + ($event.query || 'New Location'))"
+          <kestrel-data-grid
+            [serverSide]="false"
+            [columns]="assetColumns"
+            [rows]="recentAssets()"
+            [total]="recentAssetsTotal()"
+            [loading]="loading()"
+            [creatable]="false"
+            (rowAction)="onAssetRowAction($event)"
           />
-
-          @if (quickCreateMessage()) {
-            <div class="info-note k-mono">{{ quickCreateMessage() }}</div>
-          }
         </div>
-
-        <div drawer-footer>
-          <button type="button" class="k-btn k-btn-secondary" (click)="drawerOpen.set(false)">
-            Close
-          </button>
-          <button type="button" class="k-btn k-btn-primary" (click)="drawerOpen.set(false)">
-            Confirm Preview
-          </button>
-        </div>
-      </kestrel-slide-drawer>
+      }
     </section>
   `,
   styles: [
@@ -223,56 +238,38 @@ import {
     `,
   ],
 })
-export class DashboardComponent {
-  readonly drawerOpen = signal<boolean>(false);
-  readonly quickCreateMessage = signal<string | null>(null);
+export class DashboardComponent implements OnInit {
+  readonly summary = signal<DashboardSummaryPayload | null>(null);
+  readonly categories = signal<DashboardCategoryRow[]>([]);
+  readonly recentAssets = signal<DataGridRow[]>([]);
+  readonly recentAssetsTotal = signal(0);
+  readonly loading = signal(false);
 
-  readonly previewColumns: readonly DataGridColumn[] = [
+  readonly assetColumns: readonly DataGridColumn[] = [
     { key: 'asset_tag', label: 'Asset Tag', type: 'mono' },
     { key: 'name', label: 'Device Name', type: 'text' },
     { key: 'serial', label: 'Serial', type: 'mono' },
     { key: 'status', label: 'Status', type: 'status' },
-    { key: 'purchase_cost', label: 'Book Value', type: 'currency', align: 'right' },
+    { key: 'purchase_cost', label: 'Cost', type: 'currency', align: 'right' },
   ];
 
-  readonly previewRows: readonly DataGridRow[] = [
-    {
-      id: 1,
-      asset_tag: 'KST-00104',
-      name: 'MacBook Pro 16" M4',
-      serial: 'C02YM498LVDQ',
-      status: 'deployable',
-      status_label: 'Ready to Deploy',
-      purchase_cost: '$2,899.00',
-      available_actions: { checkout: true, update: true, clone: true },
-    },
-    {
-      id: 2,
-      asset_tag: 'KST-00105',
-      name: 'Dell PowerEdge R760',
-      serial: '9HX2R760SRV',
-      status: 'deployed',
-      status_label: 'Deployed — Rack B4',
-      purchase_cost: '$6,450.00',
-      available_actions: { checkin: true, update: true },
-    },
-    {
-      id: 3,
-      asset_tag: 'KST-00106',
-      name: 'ThinkPad X1 Carbon Gen 12',
-      serial: 'PF4X1GEN1288',
-      status: 'pending',
-      status_label: 'Pending RMA',
-      purchase_cost: '$1,940.00',
-      available_actions: { update: true, delete: false },
-    },
-  ];
+  readonly secondaryTotal = computed(() => {
+    const s = this.summary();
+    if (!s) return 0;
+    return s.licenses_total + s.accessories_total + s.consumables_total + s.components_total;
+  });
 
-  readonly sampleLocations: readonly AsyncSelectOption[] = [
-    { id: 1, text: 'Milan HQ — Rack Room 1', companyId: 10 },
-    { id: 2, text: 'Rome Ops Hub', companyId: 20 },
-    { id: 3, text: 'Global Remote Pool', companyId: null },
-  ];
+  readonly operationsAttentionCount = computed(() => {
+    const s = this.summary();
+    if (!s) return 0;
+    return s.pending_checkout_requests + s.overdue_audits + s.active_maintenances;
+  });
+
+  readonly statusSummaryLine = computed(() => {
+    const breakdown = this.summary()?.status_breakdown;
+    if (!breakdown) return 'Live telemetry';
+    return `${breakdown['deployed'] ?? 0} deployed · ${breakdown['deployable'] ?? 0} ready · ${breakdown['pending'] ?? 0} pending`;
+  });
 
   readonly activeCompanyCount = computed(() => {
     if (this.authStore.isSuperUser()) {
@@ -289,20 +286,50 @@ export class DashboardComponent {
     return ids.length > 0 ? `${ids.length} assigned company scope(s)` : 'Floater / Global items';
   });
 
-  constructor(@Inject(AuthStore) readonly authStore: AuthStore) {}
+  constructor(
+    @Inject(AuthStore) readonly authStore: AuthStore,
+    @Inject(InventoryApi) @Optional() private readonly api?: InventoryApi,
+    @Inject(Router) @Optional() private readonly router?: Router,
+  ) {}
 
-  openQuickDrawer(): void {
-    this.quickCreateMessage.set(null);
-    this.drawerOpen.set(true);
+  ngOnInit(): void {
+    void this.loadDashboard();
   }
 
-  onPreviewRowAction(event: { action: string; row: DataGridRow }): void {
-    const assetTag = event.row['asset_tag'];
-    const record =
-      typeof assetTag === 'string' || typeof assetTag === 'number'
-        ? assetTag
-        : (event.row.id ?? 'this record');
-    this.quickCreateMessage.set(`Triggered "${event.action}" for ${record}`);
-    this.drawerOpen.set(true);
+  async loadDashboard(): Promise<void> {
+    if (!this.api || !this.authStore.isAuthenticated()) return;
+    this.loading.set(true);
+    try {
+      const tasks: [
+        Promise<StandardApiResponse<DashboardSummaryPayload>>,
+        Promise<StandardApiResponse<DashboardCategoryRow[]>>,
+        Promise<{ rows?: DataGridRow[]; total?: number }> | null,
+      ] = [
+        this.api.read<StandardApiResponse<DashboardSummaryPayload>>('/dashboard/summary'),
+        this.api.read<StandardApiResponse<DashboardCategoryRow[]>>('/dashboard/categories'),
+        this.authStore.can('assets.view') || this.authStore.isAdmin()
+          ? this.api.records('/hardware', { limit: 10, sort: 'updated_at', order: 'desc' })
+          : null,
+      ];
+      const [summaryRes, catRes, hwRes] = await Promise.allSettled(tasks);
+      if (summaryRes.status === 'fulfilled' && summaryRes.value.payload) {
+        this.summary.set(summaryRes.value.payload);
+      }
+      if (catRes.status === 'fulfilled' && Array.isArray(catRes.value.payload)) {
+        this.categories.set(catRes.value.payload);
+      }
+      if (hwRes.status === 'fulfilled' && hwRes.value) {
+        this.recentAssets.set(hwRes.value.rows ?? []);
+        this.recentAssetsTotal.set(hwRes.value.total ?? 0);
+      }
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  onAssetRowAction(event: { action: string; row: DataGridRow }): void {
+    if (event.row.id !== undefined) {
+      void this.router?.navigate(['/hardware', event.row.id]);
+    }
   }
 }
