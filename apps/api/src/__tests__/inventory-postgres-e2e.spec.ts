@@ -19,10 +19,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CryptoService } from '../common/crypto/crypto.service.js';
 import { JwtService } from '../common/crypto/jwt.util.js';
 import { STORAGE_PROVIDER, type StorageProvider } from '../common/storage/storage.interface.js';
-import type { DrizzleDb } from '../db/database.tokens.js';
+import { DRIZZLE_DB, type DrizzleDb } from '../db/database.tokens.js';
 import * as tables from '../db/schema/index.js';
+import { OidcUserProvisioningService } from '../modules/auth/oidc-provisioning.service.js';
 import { depreciationValue } from '../modules/inventory/depreciation.js';
-import { REPORT_TYPES, IMPORT_TYPES } from '@kestrel-it/shared';
+import { REPORT_TYPES, IMPORT_TYPES, type PermissionMap } from '@kestrel-it/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
 import ExcelJS from 'exceljs';
 import { ImportsController } from '../modules/inventory/imports.controller.js';
@@ -37,7 +38,10 @@ import { StorageDeletionService } from '../modules/inventory/storage-deletion.se
 const clusterUrl = process.env.INVENTORY_TEST_DATABASE_URL;
 const migrations = fileURLToPath(new URL('../../drizzle/', import.meta.url));
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
-type Token = 'root' | 'west' | 'east' | 'admin' | 'westPat' | 'componentOperator' | 'linkedUser';
+type Token =
+  | 'root' | 'west' | 'east' | 'admin' | 'westPat'
+  | 'componentOperator' | 'linkedUser' | 'limitedReader' | 'statusReader' | 'noAssetReader'
+  | 'firstEmailWriter' | 'secondEmailWriter';
 
 describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () => {
   const databaseName = `kestrel_inventory_test_${randomBytes(6).toString('hex')}`;
@@ -2889,6 +2893,274 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       await ok('PATCH', '/settings', 'root', {
         profile_edit: true, dashboard_message: null, login_note: null, oidc_client_secret: null,
       });
+    }
+  });
+
+  async function fixtureActor(actor: Token, permissions: PermissionMap, companyId = westCompany) {
+    const [row] = await db.insert(tables.users).values({
+      username: actor,
+      activated: true,
+      permissions,
+    }).returning({ id: tables.users.id });
+    await db.insert(tables.companyUser).values({ userId: row!.id, companyId });
+    tokens.set(actor, await app.get(JwtService).signAccessToken({
+      userId: row!.id,
+      username: actor,
+      twoFactorVerified: true,
+    }));
+    return row!.id;
+  }
+
+  it('uses the assigned fieldset for asset subresources even when its ID matches a different model', async () => {
+    const [original] = await db.select({ categoryId: tables.models.categoryId })
+      .from(tables.models).where(eq(tables.models.id, model));
+    const expectedFieldset = 100_001;
+    const expectedModel = 100_002;
+    await db.insert(tables.customFieldsets).values({ id: expectedFieldset, name: 'Subresource fields' });
+    const joins = await db.select().from(tables.customFieldCustomFieldset)
+      .where(eq(tables.customFieldCustomFieldset.customFieldsetId, fieldset));
+    await db.insert(tables.customFieldCustomFieldset).values(joins.map((join) => ({
+      customFieldsetId: expectedFieldset,
+      customFieldId: join.customFieldId,
+      order: join.order,
+      required: join.required,
+    })));
+    await db.insert(tables.models).values([
+      { id: expectedModel, name: 'Subresource model', fieldsetId: expectedFieldset, categoryId: original!.categoryId },
+      { id: expectedFieldset, name: 'Collision model without fields' },
+    ]);
+
+    const asset = (await ok('POST', '/hardware', 'root', {
+      ...body('SUBRESOURCE-CUSTOM'),
+      model_id: expectedModel,
+    })).payload;
+    await db.update(tables.assets)
+      .set({ assignedTo: west, assignedType: 'user', locationId: westLocation })
+      .where(eq(tables.assets.id, asset.id));
+    const match = (item: { id: number }) => item.id === asset.id;
+    const detail = await ok('GET', `/hardware/${asset.id}`, 'west');
+    expect(detail.custom_fields['Confidential ID'].value).toBe('ENCRYPTED');
+    expect(Object.values(detail.custom_fields)).toContainEqual(expect.objectContaining({ value: 'Blue' }));
+
+    const assigned = (await ok('GET', `/users/${west}/assets?limit=500`, 'west')).rows.find(match);
+    const account = (await ok('GET', '/account/assets?limit=500', 'west')).payload.assets.find(match);
+    const location = (await ok('GET', `/locations/${westLocation}/assets?limit=500`, 'west')).rows.find(match);
+    for (const row of [assigned, account, location]) {
+      expect(row?.custom_fields).toEqual(detail.custom_fields);
+    }
+    const rootLocation = (await ok('GET', `/locations/${westLocation}/assets?limit=500`, 'root')).rows.find(match);
+    expect(rootLocation.custom_fields['Confidential ID'].value).toBe('key-SUBRESOURCE-CUSTOM');
+  });
+
+  it('applies record permissions and company scope to history and assignment references', async () => {
+    const reader = await fixtureActor('limitedReader', {
+      'locations.view': 1,
+      'users.view': 1,
+      'components.view': 1,
+      'licenses.view': 1,
+    });
+    const host = await create('HISTORY-WEST');
+    const eastHost = await create('HISTORY-EAST', eastCompany);
+    const [component] = await db.insert(tables.components).values({
+      name: 'Visibility fixture', companyId: westCompany, qty: 1,
+    }).returning({ id: tables.components.id });
+    await db.insert(tables.componentsAssets).values({ componentId: component!.id, assetId: host.id });
+    const path = `/locations/${westLocation}/assigned/components?limit=500`;
+    const findComponent = ({ id }: { id: number }) => id === component!.id;
+    const limited = (await ok('GET', path, 'limitedReader')).rows.find(findComponent);
+    expect(limited).toMatchObject({ asset_id: null, asset_tag: null, assigned_qty: 1 });
+    const allowed = (await ok('GET', path, 'root')).rows.find(findComponent);
+    expect(allowed).toMatchObject({ asset_id: host.id, asset_tag: host.asset_tag });
+
+    const [license] = await db.insert(tables.licenses).values({
+      name: 'West visibility license', companyId: westCompany, seats: 3,
+    }).returning({ id: tables.licenses.id });
+    const [otherLicense] = await db.insert(tables.licenses).values({
+      name: 'East visibility license', companyId: eastCompany, seats: 1,
+    }).returning({ id: tables.licenses.id });
+    const [deleted] = await db.insert(tables.users).values({
+      username: 'deleted-seat-assignee', deletedAt: new Date(),
+    }).returning({ id: tables.users.id });
+    const [localSeat, crossCompanySeat, deletedSeat, otherSeat] = await db.insert(tables.licenseSeats)
+      .values([
+        { licenseId: license!.id, assetId: host.id, assignedTo: reader },
+        { licenseId: license!.id, assetId: host.id, assignedTo: east },
+        { licenseId: license!.id, assetId: host.id, assignedTo: deleted!.id },
+        { licenseId: otherLicense!.id },
+      ]).returning({ id: tables.licenseSeats.id });
+    const seatsPath = `/hardware/${host.id}/licenses`;
+    const seats = (await ok('GET', seatsPath, 'west')).rows;
+    expect(seats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ seat_id: localSeat!.id, assigned_to: reader }),
+      expect.objectContaining({ seat_id: crossCompanySeat!.id, assigned_to: null }),
+      expect.objectContaining({ seat_id: deletedSeat!.id, assigned_to: null }),
+    ]));
+    const rootSeats = (await ok('GET', seatsPath, 'root')).rows;
+    expect(rootSeats).toContainEqual(expect.objectContaining({ seat_id: crossCompanySeat!.id, assigned_to: east }));
+
+    const [westRepair, eastRepair] = await db.insert(tables.assetMaintenances).values([
+      { itemId: host.id, name: 'West repair', startDate: '2030-01-01', assetMaintenanceType: 'Repair' },
+      { itemId: eastHost.id, name: 'East repair', startDate: '2030-01-01', assetMaintenanceType: 'Repair' },
+    ]).returning({ id: tables.assetMaintenances.id });
+    await db.insert(tables.actionLogs).values([
+      { itemType: 'user', itemId: reader, note: 'user', targetType: 'asset', targetId: eastHost.id },
+      { itemType: 'asset', itemId: host.id, note: 'asset' },
+      { itemType: 'asset', itemId: eastHost.id, note: 'other asset' },
+      { itemType: 'maintenance', itemId: westRepair!.id, note: 'maintenance' },
+      { itemType: 'maintenance', itemId: eastRepair!.id, note: 'other maintenance' },
+      { itemType: 'license_seat', itemId: localSeat!.id, note: 'seat' },
+      { itemType: 'license_seat', itemId: otherSeat!.id, note: 'other seat' },
+      { itemType: 'setting', itemId: 1, note: 'setting' },
+    ].map((entry) => ({
+      ...entry, createdBy: reader, actionType: 'update', companyId: westCompany,
+    })));
+    const historyPath = `/users/${reader}/history`;
+    const notes = (rows: { note: string }[]) => rows.map(({ note }) => note).sort();
+    const restricted = await ok('GET', historyPath, 'limitedReader');
+    expect(restricted.total).toBe(2);
+    expect(notes(restricted.rows)).toEqual(['seat', 'user']);
+    expect(restricted.rows.find(({ note }: { note: string }) => note === 'user').target_id).toBeNull();
+    const firstPage = await ok('GET', historyPath + '?limit=1', 'limitedReader');
+    expect(firstPage).toMatchObject({ total: 2, total_pages: 2 });
+    expect(firstPage.rows).toHaveLength(1);
+    const scoped = await ok('GET', historyPath, 'west');
+    expect(notes(scoped.rows)).toEqual(['asset', 'maintenance', 'seat', 'user']);
+    expect((await ok('GET', historyPath, 'root')).total).toBe(8);
+  });
+
+  it('aggregates both status endpoints with identical classification and company scope', async () => {
+    await fixtureActor('statusReader', { 'assets.view': 1, 'statuslabels.view': 1 });
+    const empty = { deployable: 0, deployed: 0, archived: 0, pending: 0, undeployable: 0 };
+    const dashboard = async (actor: Token) => (await ok('GET', '/dashboard/summary', actor)).payload;
+    const beforeWest = await dashboard('statusReader');
+    const beforeRoot = await dashboard('root');
+    const [ready, pending, archived, undeployable, removed] = await db.insert(tables.statusLabels).values([
+      { name: 'Aggregate ready', deployable: true },
+      { name: 'Aggregate pending', deployable: true, pending: true },
+      { name: 'Aggregate archived', deployable: true, pending: true, archived: true },
+      { name: 'Aggregate undeployable' },
+      { name: 'Aggregate deleted', deployable: true, deletedAt: new Date() },
+    ]).returning({ id: tables.statusLabels.id });
+    const rows: (typeof tables.assets.$inferInsert)[] = [
+      { assetTag: 'COUNT-READY', statusId: ready!.id },
+      { assetTag: 'COUNT-DEPLOYED', statusId: ready!.id, assignedTo: west, assignedType: 'user' },
+      { assetTag: 'COUNT-PENDING', statusId: pending!.id, assignedTo: west, assignedType: 'user' },
+      { assetTag: 'COUNT-ARCHIVED-LABEL', statusId: archived!.id },
+      { assetTag: 'COUNT-ARCHIVED-ASSET', statusId: pending!.id, archived: true },
+      { assetTag: 'COUNT-UNDEPLOYABLE', statusId: undeployable!.id },
+      { assetTag: 'COUNT-DELETED-LABEL', statusId: removed!.id },
+      { assetTag: 'COUNT-MISSING-LABEL' },
+      { assetTag: 'COUNT-DELETED-ASSET', statusId: ready!.id, deletedAt: new Date() },
+    ];
+    await db.insert(tables.assets).values([
+      ...rows.map((row) => ({ ...row, companyId: westCompany, customFields: { unused: 'fixture' } })),
+      { assetTag: 'COUNT-OTHER-COMPANY', companyId: eastCompany, statusId: ready!.id },
+    ]);
+
+    const afterWest = await dashboard('statusReader');
+    const afterRoot = await dashboard('root');
+    const delta = (before: Record<string, number>, after: Record<string, number>) =>
+      Object.fromEntries(Object.keys(empty).map((key) => [key, after[key]! - before[key]!]));
+    const expected = { deployable: 1, deployed: 1, archived: 2, pending: 1, undeployable: 3 };
+    expect(delta(beforeWest.status_breakdown, afterWest.status_breakdown)).toEqual(expected);
+    expect(delta(beforeRoot.status_breakdown, afterRoot.status_breakdown)).toEqual({ ...expected, deployable: 2 });
+    expect(afterWest.assets_total - beforeWest.assets_total).toBe(8);
+    expect(afterRoot.assets_total - beforeRoot.assets_total).toBe(9);
+    await fixtureActor('noAssetReader', {});
+    expect((await dashboard('noAssetReader')).status_breakdown).toEqual(empty);
+
+    const selections = vi.spyOn(app.get<DrizzleDb>(DRIZZLE_DB), 'select');
+    try {
+      const counts = (await ok('GET', '/statuslabels/assets/type', 'statusReader')).payload;
+      expect(counts).toEqual(afterWest.status_breakdown);
+      expect(selections.mock.calls.map(([fields]) => Object.keys(fields ?? {})))
+        .toContainEqual(['archived', 'assigned', 'status', 'total']);
+      expect(selections.mock.calls.some(([fields]) => fields && 'asset' in fields)).toBe(false);
+    } finally {
+      selections.mockRestore();
+    }
+  });
+
+  it('allows one concurrent email update and refuses ambiguous federated links on historical duplicates', async () => {
+    const first = await fixtureActor('firstEmailWriter', {});
+    const second = await fixtureActor('secondEmailWriter', {});
+    const email = 'shared-followup@example.test';
+    const results = await Promise.all([
+      http('PATCH', '/account/profile', 'firstEmailWriter', { email }),
+      http('PATCH', '/account/profile', 'secondEmailWriter', { email: email.toUpperCase() }),
+    ]);
+    expect(results.map(({ statusCode }) => statusCode).sort()).toEqual([200, 409]);
+    const winner = results.find(({ statusCode }) => statusCode === 200)!.json().payload;
+    const loserId = winner.id === first ? second : first;
+    const loser = winner.id === first ? 'secondEmailWriter' : 'firstEmailWriter';
+    expect(results.find(({ statusCode }) => statusCode === 409)!.json().messages)
+      .toHaveProperty('email');
+
+    const [config] = await db.select().from(tables.settings).orderBy(tables.settings.id).limit(1);
+    await db.update(tables.settings)
+      .set({ oidcLinkExistingUsers: true, oidcAutoProvisionUsers: true, oidcSyncOnLogin: false })
+      .where(eq(tables.settings.id, config!.id));
+    try {
+      const provisioning = app.get(OidcUserProvisioningService);
+      const claims = {
+        iss: 'https://phase35-idp.example.test',
+        sub: 'unique-email-subject',
+        preferred_username: 'unused-federated-username',
+        email: winner.email,
+        email_verified: true,
+      };
+      expect((await provisioning.resolveOrProvisionUser(claims)).id).toBe(winner.id);
+
+      await db.update(tables.users).set({ email: winner.email }).where(eq(tables.users.id, loserId));
+      expect((await ok('PATCH', '/account/profile', loser, {
+        email: winner.email, phone: '+39 555 0142',
+      })).payload).toMatchObject({ email: winner.email, phone: '+39 555 0142' });
+      await expect(provisioning.resolveOrProvisionUser({ ...claims, sub: 'ambiguous-email-subject' }))
+        .rejects.toThrow('OIDC email matches more than one account');
+      expect(await db.select({ id: tables.users.id }).from(tables.users)
+        .where(eq(tables.users.oidcSubject, 'ambiguous-email-subject'))).toEqual([]);
+      expect((await provisioning.resolveOrProvisionUser(claims)).id).toBe(winner.id);
+      expect((await ok('PATCH', '/account/profile', loser, { email: null })).payload.email).toBeNull();
+    } finally {
+      await db.update(tables.settings).set({
+        oidcLinkExistingUsers: config!.oidcLinkExistingUsers,
+        oidcAutoProvisionUsers: config!.oidcAutoProvisionUsers,
+        oidcSyncOnLogin: config!.oidcSyncOnLogin,
+      }).where(eq(tables.settings.id, config!.id));
+    }
+  });
+
+  it('validates settings URLs on write and accepts unrelated edits with legacy URLs stored', async () => {
+    const [config] = await db.select().from(tables.settings).orderBy(tables.settings.id).limit(1);
+    const legacyUrl = 'ftp://legacy.example.test/privacy';
+    await db.update(tables.settings).set({ privacyPolicyLink: legacyUrl })
+      .where(eq(tables.settings.id, config!.id));
+    try {
+      const update = await ok('PATCH', '/settings', 'root', { site_name: 'Settings upgrade fixture' });
+      expect(update.payload.privacy_policy_link).toBe(legacyUrl);
+      const invalid = await http('PATCH', '/settings', 'root', {
+        privacy_policy_link: 'ftp://files.example.test/privacy',
+        oidc_issuer_url: 'file:///issuer',
+      });
+      expect(invalid.statusCode).toBe(422);
+      expect(invalid.json().messages).toMatchObject({
+        privacy_policy_link: ['Use an HTTP or HTTPS URL'],
+        oidc_issuer_url: ['Use an HTTP or HTTPS URL'],
+      });
+      const valid = await ok('PATCH', '/settings', 'root', {
+        privacy_policy_link: 'https://example.test/privacy',
+        oidc_issuer_url: 'http://localhost:4100',
+      });
+      expect(valid.payload).toMatchObject({
+        privacy_policy_link: 'https://example.test/privacy',
+        oidc_issuer_url: 'http://localhost:4100',
+      });
+    } finally {
+      await db.update(tables.settings).set({
+        siteName: config!.siteName,
+        privacyPolicyLink: config!.privacyPolicyLink,
+        oidcIssuerUrl: config!.oidcIssuerUrl,
+      }).where(eq(tables.settings.id, config!.id));
     }
   });
 });

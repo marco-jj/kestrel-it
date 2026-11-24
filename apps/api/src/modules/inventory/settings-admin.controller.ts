@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -17,11 +18,12 @@ import {
   GeneralSettingsUpdateSchema,
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
-import { and, count, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, ne, or } from 'drizzle-orm';
 import { CryptoService } from '../../common/crypto/crypto.service.js';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import { actionLogs, loginAttempts, settings, users } from '../../db/schema/index.js';
+import { userEmailMatches } from '../../db/user-email.js';
 import { contains, datatable, inventoryWrite, pageOffset, parse, success } from './inventory-queries.js';
 import { currentSettings } from './phase-three-queries.js';
 
@@ -289,6 +291,24 @@ export class SettingsAdminController {
       }
       const [row] = await tx.select().from(users).where(andUser(actor.id)).limit(1).for('update');
       if (!row) throw new NotFoundException('User not found');
+      if (dto.email && dto.email !== row.email) {
+        const [duplicate] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(and(
+            ne(users.id, actor.id),
+            isNull(users.deletedAt),
+            userEmailMatches(users.email, dto.email),
+          ))
+          .limit(1);
+        if (duplicate) {
+          throw new ConflictException({
+            status: 'error',
+            messages: { email: ['Email is already in use'] },
+            payload: null,
+          });
+        }
+      }
       let nextPasswordHash: string | undefined;
       if (dto.new_password) {
         if (!row.password) {

@@ -182,7 +182,7 @@ const ADMIN_STYLES = `
     }
 
     @if (model; as cfg) {
-      <form (ngSubmit)="save()">
+      <form #form="ngForm" (ngSubmit)="form.valid && save()">
         @if (section() === 'general') {
           <div class="k-card section-card">
             <h2>Instance & Tagging</h2>
@@ -193,7 +193,7 @@ const ADMIN_STYLES = `
               </label>
               <label class="field">
                 <span class="k-label">Rows per page</span>
-                <input class="k-input" name="per_page" type="number" min="1" max="500" [(ngModel)]="cfg.per_page" />
+                <input class="k-input" name="per_page" type="number" min="5" max="500" required [(ngModel)]="cfg.per_page" />
               </label>
               <label class="field">
                 <span class="k-label">Default locale</span>
@@ -252,7 +252,7 @@ const ADMIN_STYLES = `
               </label>
               <label class="field">
                 <span class="k-label">Minimum password length</span>
-                <input class="k-input" name="pwd_secure_min" type="number" min="6" max="128" [(ngModel)]="cfg.pwd_secure_min" />
+                <input class="k-input" name="pwd_secure_min" type="number" min="8" max="128" required [(ngModel)]="cfg.pwd_secure_min" />
               </label>
               <label class="check-row" style="align-self: end;">
                 <input type="checkbox" name="profile_edit" [(ngModel)]="cfg.profile_edit" /> Allow user self-service profile editing
@@ -358,7 +358,7 @@ const ADMIN_STYLES = `
           </div>
         }
 
-        <button type="submit" class="k-btn k-btn-primary" [disabled]="busy()">Save Settings</button>
+        <button type="submit" class="k-btn k-btn-primary" [disabled]="busy() || form.invalid">Save Settings</button>
       </form>
     }
   `,
@@ -374,6 +374,8 @@ export class AdminSettingsComponent implements OnInit {
   readonly message = signal('');
 
   model?: AdminSettingsModel;
+  private savedPrivacyUrl: string | null = null;
+  private savedIssuerUrl: string | null = null;
   newOidcSecret = '';
   clearOidcSecret = false;
 
@@ -389,10 +391,16 @@ export class AdminSettingsComponent implements OnInit {
     this.error.set('');
     try {
       const response = await this.api.read<StandardApiResponse<AdminSettingsModel>>('/settings');
-      this.model = response.payload ?? undefined;
+      this.applySettings(response.payload);
     } catch (error) {
       this.error.set(inventoryError(error));
     }
+  }
+
+  private applySettings(settings: AdminSettingsModel | null): void {
+    this.model = settings ?? undefined;
+    this.savedPrivacyUrl = settings?.privacy_policy_link?.trim() || null;
+    this.savedIssuerUrl = settings?.oidc_issuer_url?.trim() || null;
   }
 
   async save(): Promise<void> {
@@ -401,11 +409,19 @@ export class AdminSettingsComponent implements OnInit {
     this.error.set('');
     this.message.set('');
     try {
-      const { oidc_client_secret_configured: _cfg, next_auto_tag_base: _base, ...rest } = this.model;
+      const {
+        oidc_client_secret_configured: _cfg,
+        next_auto_tag_base: _base,
+        privacy_policy_link,
+        oidc_issuer_url,
+        ...rest
+      } = this.model;
       const nullableTrim = (value: string | null | undefined) => {
         const trimmed = value?.trim();
         return trimmed ? trimmed : null;
       };
+      const privacyUrl = nullableTrim(privacy_policy_link);
+      const issuerUrl = nullableTrim(oidc_issuer_url);
       const body = {
         ...rest,
         per_page: Number(rest.per_page),
@@ -417,8 +433,8 @@ export class AdminSettingsComponent implements OnInit {
         nav_link_color: nullableTrim(rest.nav_link_color),
         link_light_color: nullableTrim(rest.link_light_color),
         link_dark_color: nullableTrim(rest.link_dark_color),
-        privacy_policy_link: nullableTrim(rest.privacy_policy_link),
-        oidc_issuer_url: nullableTrim(rest.oidc_issuer_url),
+        ...(privacyUrl !== this.savedPrivacyUrl ? { privacy_policy_link: privacyUrl } : {}),
+        ...(issuerUrl !== this.savedIssuerUrl ? { oidc_issuer_url: issuerUrl } : {}),
         oidc_client_id: nullableTrim(rest.oidc_client_id),
         oidc_scopes: rest.oidc_scopes?.trim() || 'openid profile email',
         oidc_username_claim: nullableTrim(rest.oidc_username_claim),
@@ -430,7 +446,7 @@ export class AdminSettingsComponent implements OnInit {
             : {}),
       };
       const result = await this.api.write<AdminSettingsModel>('PATCH', '/settings', body);
-      this.model = result.payload ?? undefined;
+      this.applySettings(result.payload);
       this.newOidcSecret = '';
       this.clearOidcSecret = false;
       this.message.set('Settings saved');

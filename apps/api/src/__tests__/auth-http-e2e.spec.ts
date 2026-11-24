@@ -177,6 +177,18 @@ function createInMemoryDrizzleHarness() {
         return actual === expected;
       }
 
+      const emailMatch = normalized.match(
+        /^lower\(btrim\("([^"]+)"\."([^"]+)"\)\)\s*=\s*lower\(\$(\d+)\)$/i,
+      );
+      if (emailMatch) {
+        const resolved = resolveColumnProp(primaryTable, emailMatch[1], emailMatch[2]!, extraTables);
+        if (!resolved) return false;
+        const actual = rowByTable.get(resolved.targetTableName)?.[resolved.prop];
+        const expected = params[Number(emailMatch[3]) - 1];
+        return typeof actual === 'string' && typeof expected === 'string' &&
+          actual.trim().toLowerCase() === expected.toLowerCase();
+      }
+
       const eqColMatch = normalized.match(
         /^(?:"([^"]+)"\.)?"([^"]+)"\s*=\s*(?:"([^"]+)"\.)?"([^"]+)"$/i,
       );

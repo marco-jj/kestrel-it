@@ -88,6 +88,11 @@ const hexColorSchema = z
   .trim()
   .regex(/^#[0-9a-fA-F]{3,8}$/, 'Use a hex color code such as #0D9488');
 
+const httpUrlSchema = z.string().trim().url().max(500).refine(
+  (value) => /^https?:\/\//i.test(value),
+  'Use an HTTP or HTTPS URL',
+);
+
 export const GeneralSettingsUpdateSchema = z
   .object({
     site_name: z.string().trim().min(1).max(255).optional(),
@@ -120,11 +125,11 @@ export const GeneralSettingsUpdateSchema = z
     link_dark_color: hexColorSchema.nullable().optional(),
     custom_css: z.string().max(50_000).nullable().optional(),
     footer_text: z.string().max(10_000).nullable().optional(),
-    privacy_policy_link: z.string().trim().url().max(500).nullable().optional(),
+    privacy_policy_link: httpUrlSchema.nullable().optional(),
     dashboard_message: z.string().max(10_000).nullable().optional(),
     login_note: z.string().max(10_000).nullable().optional(),
     oidc_enabled: z.boolean().optional(),
-    oidc_issuer_url: z.string().trim().url().max(500).nullable().optional(),
+    oidc_issuer_url: httpUrlSchema.nullable().optional(),
     oidc_client_id: z.string().trim().max(255).nullable().optional(),
     oidc_client_secret: z.string().max(500).nullable().optional(),
     oidc_scopes: z.string().trim().max(255).nullable().optional(),

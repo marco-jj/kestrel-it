@@ -54,14 +54,12 @@ import {
   components,
   consumables,
   customFields,
-  departments,
   depreciations,
   licenses,
   locations,
   models,
   reportTemplates,
   settings,
-  statusLabels,
   suppliers,
   users,
 } from '../../db/schema/index.js';
@@ -69,8 +67,9 @@ import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
 import { CheckoutRequestsService } from './checkout-requests.service.js';
 import { depreciationValue, moneyInCents } from './depreciation.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
-import { HardwareService, assetStatus } from './hardware.service.js';
+import { HardwareService, emptyAssetStatusCounts } from './hardware.service.js';
 import { datatable, pageOffset, parse, success } from './inventory-queries.js';
+import { visibleActivityItems } from './inventory-visibility.js';
 import { attachmentResponse } from './operational-files.controller.js';
 import { currentSettings, requireInventoryPermission } from './phase-three-queries.js';
 import { usedStock } from './secondary-catalog.service.js';
@@ -193,31 +192,6 @@ export class ReportsController {
     query: ReportQuery,
   ): ReportSource {
     const date = sql`coalesce(${actionLogs.actionDate}, ${actionLogs.createdAt})`;
-    const sources: [string, PgTable, string, PermissionKey][] = [
-      ['asset', assets, 'hardware', 'assets.view'],
-      ['model', models, 'models', 'models.view'],
-      ['license', licenses, 'licenses', 'licenses.view'],
-      ['accessory', accessories, 'accessories', 'accessories.view'],
-      ['consumable', consumables, 'consumables', 'consumables.view'],
-      ['component', components, 'components', 'components.view'],
-      ['user', users, 'users', 'users.view'],
-      ['company', companies, 'companies', 'companies.view'],
-      ['department', departments, 'departments', 'departments.view'],
-      ['location', locations, 'locations', 'locations.view'],
-      ['supplier', suppliers, 'suppliers', 'suppliers.view'],
-      ['maintenance', assetMaintenances, 'maintenances', 'assets.view'],
-    ];
-    const visible = sources
-      .filter(([, , , permission]) => !narrow || permitsEntity(user, permission))
-      .map(([type, table, name]) => {
-        const { id } = getTableColumns(table);
-        const sourceScope =
-          type === 'maintenance'
-            ? sql`exists (select 1 from ${assets} where ${assets.id} = ${assetMaintenances.itemId} and ${this.scope(scope, assets, 'hardware')})`
-            : this.scope(scope, table, name);
-        return sql`(${actionLogs.itemType} = ${type} and exists (select 1 from ${table}
-        where ${id} = ${actionLogs.itemId} and ${sourceScope}))`;
-      });
     const findUser = (column: typeof actionLogs.createdBy | typeof actionLogs.targetId) =>
       permitsEntity(user, 'users.view')
         ? sql`(select ${users.id} from ${users}
@@ -243,7 +217,9 @@ export class ReportsController {
         and(
           isNull(actionLogs.deletedAt),
           this.scope(scope, actionLogs, 'history'),
-          scope.enabled || narrow ? (or(...visible) ?? sql`false`) : undefined,
+          scope.enabled || narrow
+            ? visibleActivityItems(this.fmcs, scope, { actor: narrow ? user : undefined })
+            : undefined,
           query.item_type ? eq(actionLogs.itemType, query.item_type) : undefined,
           query.action_type ? eq(actionLogs.actionType, query.action_type) : undefined,
           query.company_id ? eq(actionLogs.companyId, query.company_id) : undefined,
@@ -526,22 +502,8 @@ export class ReportsController {
     const canAccessories = permitsEntity(user, 'accessories.view');
     const canConsumables = permitsEntity(user, 'consumables.view');
     const canComponents = permitsEntity(user, 'components.view');
-    const assetRows = canAssets
-      ? await this.db
-          .select({ asset: assets, status: statusLabels })
-          .from(assets)
-          .leftJoin(
-            statusLabels,
-            and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
-          )
-          .where(this.hardware.visible(scope))
-      : [];
-    const statusBuckets = { deployable: 0, deployed: 0, pending: 0, archived: 0, undeployable: 0 };
-    for (const row of assetRows) {
-      const bucket = assetStatus(row.asset, row.status);
-      statusBuckets[bucket] = (statusBuckets[bucket] ?? 0) + 1;
-    }
     const [
+      statusBuckets,
       [licenseTotals],
       [accessoryTotals],
       [consumableTotals],
@@ -554,6 +516,7 @@ export class ReportsController {
       [branding],
     ] =
       await Promise.all([
+        canAssets ? this.hardware.statusCounts(scope) : emptyAssetStatusCounts(),
         canLicenses
           ? this.db.execute<{ total: number }>(
               sql`select count(*)::int as total from ${licenses} where deleted_at is null and ${this.scope(scope, licenses, 'licenses')}`,
@@ -604,7 +567,7 @@ export class ReportsController {
       ]);
     return success({
       dashboard_message: branding?.dashboardMessage ?? null,
-      assets_total: assetRows.length,
+      assets_total: Object.values(statusBuckets).reduce((total, count) => total + count, 0),
       status_breakdown: statusBuckets,
       licenses_total: licenseTotals?.total ?? 0,
       accessories_total: accessoryTotals?.total ?? 0,

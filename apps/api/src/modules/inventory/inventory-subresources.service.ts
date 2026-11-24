@@ -25,8 +25,9 @@ import {
 } from '../../db/schema/index.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
-import { HardwareService, assetStatus } from './hardware.service.js';
+import { HardwareService } from './hardware.service.js';
 import { datatable, pageOffset, success } from './inventory-queries.js';
+import { scopedAssignmentTarget, visibleActivityItems } from './inventory-visibility.js';
 import { SecondaryCatalogService } from './secondary-catalog.service.js';
 
 @Injectable()
@@ -94,20 +95,7 @@ export class InventorySubresourcesService {
         .limit(query.limit)
         .offset(pageOffset(query)),
     ]);
-    const sets = [...new Set(rows.map(({ fieldsetId }) => fieldsetId))];
-    const fields = new Map(
-      await Promise.all(
-        sets.map(async (setId) => [setId, await this.hardware.assetFields(this.db, setId)] as const),
-      ),
-    );
-    return datatable(
-      total!.value,
-      rows.map(({ asset, status, fieldsetId }) =>
-        this.hardware.serialize(asset, status, fields.get(fieldsetId) ?? [], actor),
-      ),
-      query,
-      url,
-    );
+    return datatable(total!.value, await this.hardware.serializeAssetRows(rows, actor), query, url);
   }
 
   async userAccessories(
@@ -318,11 +306,27 @@ export class InventorySubresourcesService {
         eq(actionLogs.createdBy, userId),
       ),
       this.fmcs.predicate(scope, 'history', actionLogs.id, actionLogs.companyId),
+      actor.isSuperUser ? undefined : visibleActivityItems(this.fmcs, scope, { actor, includeLicenseSeats: true }),
     );
+    const targetId = actor.isSuperUser ? actionLogs.targetId : sql<number | null>`case
+      when ${actionLogs.targetType} = 'user' then ${scopedAssignmentTarget(this.fmcs, scope, actor, 'user', actionLogs.targetId)}
+      when ${actionLogs.targetType} = 'asset' then ${scopedAssignmentTarget(this.fmcs, scope, actor, 'asset', actionLogs.targetId)}
+      when ${actionLogs.targetType} = 'location' then ${scopedAssignmentTarget(this.fmcs, scope, actor, 'location', actionLogs.targetId)}
+    end`;
     const [[total], rows] = await Promise.all([
       this.db.select({ value: count() }).from(actionLogs).where(filters),
       this.db
-        .select()
+        .select({
+          id: actionLogs.id,
+          actionType: actionLogs.actionType,
+          itemType: actionLogs.itemType,
+          itemId: actionLogs.itemId,
+          targetType: actionLogs.targetType,
+          targetId,
+          actionDate: actionLogs.actionDate,
+          createdAt: actionLogs.createdAt,
+          note: actionLogs.note,
+        })
         .from(actionLogs)
         .where(filters)
         .orderBy(desc(actionLogs.actionDate), desc(actionLogs.id))
@@ -404,20 +408,7 @@ export class InventorySubresourcesService {
         .limit(query.limit)
         .offset(pageOffset(query)),
     ]);
-    const sets = [...new Set(rows.map(({ fieldsetId }) => fieldsetId))];
-    const fields = new Map(
-      await Promise.all(
-        sets.map(async (setId) => [setId, await this.hardware.assetFields(this.db, setId)] as const),
-      ),
-    );
-    return datatable(
-      total!.value,
-      rows.map(({ asset, status, fieldsetId }) =>
-        this.hardware.serialize(asset, status, fields.get(fieldsetId) ?? [], actor),
-      ),
-      query,
-      url,
-    );
+    return datatable(total!.value, await this.hardware.serializeAssetRows(rows, actor), query, url);
   }
 
   async locationAccessories(
@@ -479,6 +470,7 @@ export class InventorySubresourcesService {
     const scope = await this.fmcs.resolve(actor);
     await this.ensureLocation(scope, locationId);
     if (!permitsEntity(actor, 'components.view')) return datatable(0, [], query, url);
+    const canViewAsset = permitsEntity(actor, 'assets.view');
     const filters = and(
       isNull(components.deletedAt),
       this.secondaryCatalog.visible('components', scope),
@@ -497,8 +489,8 @@ export class InventorySubresourcesService {
           assignmentId: componentsAssets.id,
           componentId: components.id,
           name: components.name,
-          assetId: assets.id,
-          assetTag: assets.assetTag,
+          assetId: canViewAsset ? assets.id : sql<number | null>`null`,
+          assetTag: canViewAsset ? assets.assetTag : sql<string | null>`null`,
           assignedQty: componentsAssets.assignedQty,
         })
         .from(componentsAssets)
@@ -546,29 +538,7 @@ export class InventorySubresourcesService {
 
   async statusCountsByType(actor: AuthenticatedUserContext) {
     const scope = await this.fmcs.resolve(actor);
-    const rows = await this.db
-      .select({
-        asset: assets,
-        status: statusLabels,
-      })
-      .from(assets)
-      .leftJoin(
-        statusLabels,
-        and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
-      )
-      .where(this.hardware.visible(scope));
-    const buckets: Record<string, number> = {
-      deployable: 0,
-      deployed: 0,
-      pending: 0,
-      archived: 0,
-      undeployable: 0,
-    };
-    for (const row of rows) {
-      const key = assetStatus(row.asset, row.status);
-      buckets[key] = (buckets[key] ?? 0) + 1;
-    }
-    return success(buckets);
+    return success(await this.hardware.statusCounts(scope));
   }
 
   async statusDeployable(id: number) {

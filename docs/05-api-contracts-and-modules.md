@@ -111,7 +111,7 @@ I percorsi sono relativi a `/api/v1`. La [mappa di progetto](#blueprint-di-parit
 | Checkout e check-in | `GET /hardware/targets/:type`, `POST /hardware/:id/checkout` e `/hardware/bytag/:tag/checkout`, `POST /hardware/:id/checkin`, `/hardware/bytag/:tag/checkin` e `/hardware/checkinbytag` | Chiavi `assets.checkout` e `assets.checkin` secondo l'operazione. Entrambe consentono il selettore `/hardware/targets/location`. I selettori ricevono `companyId` per restringere le opzioni compatibili con FMCS. Il valore `0` rappresenta un asset senza azienda. |
 | Accettazione ed EULA | `GET /account/accept`, `GET/POST /account/accept/:id`, `GET /account/eulas`, `GET /account/accept/:id/eula` (PDF) e `/account/accept/:id/signature` (PNG) | Assegnatario o accesso autorizzato, con verifica FMCS. L'operatore che ha avviato la firma in presenza può raccogliere la risposta con `assets.checkout`. |
 | Richieste personali | `GET /account/requestable/:type` (`hardware`, `models`, `accessories`, `consumables`, `components`, `licenses`), `GET /account/requests`, `POST /account/request/:id`, `POST /account/request/:type/:id`, `POST /account/requests/:id/cancel` e varianti `:item/cancel` per articolo | Permesso `assets.view.requestable` per catalogo e creazione, proprietà della richiesta per elenco e annullamento. |
-| Coda operatore | `GET /requests`, `POST /requests/:id/fulfill`, `POST /requests/:id/cancel` | Chiave `assets.checkout` e visibilità FMCS. |
+| Coda operatore | `GET /requests`, `POST /requests/:id/fulfill`, `POST /requests/:id/cancel` | Chiave del tipo richiesto (`assets.checkout`, `licenses.checkout`, `accessories.checkout`, `consumables.checkout` o `components.checkout`) e visibilità FMCS. |
 
 ### Rotte disponibili dalla Fase 3.1 e 3.2
 

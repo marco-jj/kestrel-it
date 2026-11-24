@@ -58,6 +58,8 @@ import {
   type InventoryTransaction,
 } from './inventory-queries.js';
 
+import { scopedAssignmentTarget } from './inventory-visibility.js';
+
 export type Hardware = typeof assets.$inferSelect;
 type StatusLabel = typeof statusLabels.$inferSelect;
 type HardwareInput = Partial<z.output<typeof AssetInputSchema>>;
@@ -77,11 +79,27 @@ const allowedSorts = {
   checkin_counter: assets.checkinCounter,
 } as const;
 
-export function assetStatus(asset: Hardware, status: StatusLabel | null) {
-  if (asset.archived || status?.archived) return 'archived';
+export const emptyAssetStatusCounts = () => ({
+  deployable: 0,
+  deployed: 0,
+  pending: 0,
+  archived: 0,
+  undeployable: 0,
+});
+
+function classifyAssetStatus(
+  archived: boolean,
+  assigned: boolean,
+  status: Pick<StatusLabel, 'archived' | 'pending' | 'deployable'> | null,
+) {
+  if (archived || status?.archived) return 'archived';
   if (status?.pending) return 'pending';
   if (!status?.deployable) return 'undeployable';
-  return asset.assignedTo === null ? 'deployable' : 'deployed';
+  return assigned ? 'deployed' : 'deployable';
+}
+
+export function assetStatus(asset: Hardware, status: StatusLabel | null) {
+  return classifyAssetStatus(asset.archived, asset.assignedTo !== null, status);
 }
 
 function formattedDate(raw: Date | string | null) {
@@ -107,6 +125,33 @@ export class HardwareService {
       deleted ? isNotNull(assets.deletedAt) : isNull(assets.deletedAt),
       this.fmcs.predicate(scope, 'hardware', assets.id, assets.companyId),
     );
+  }
+
+  async statusCounts(scope: FmcsScope) {
+    const assigned = sql<boolean>`${assets.assignedTo} is not null`;
+    const groups = await this.db
+      .select({
+        archived: assets.archived,
+        assigned,
+        status: {
+          archived: statusLabels.archived,
+          pending: statusLabels.pending,
+          deployable: statusLabels.deployable,
+        },
+        total: count(),
+      })
+      .from(assets)
+      .leftJoin(
+        statusLabels,
+        and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
+      )
+      .where(this.visible(scope))
+      .groupBy(assets.archived, assigned, statusLabels.archived, statusLabels.pending, statusLabels.deployable);
+    const counts = emptyAssetStatusCounts();
+    for (const group of groups) {
+      counts[classifyAssetStatus(group.archived, group.assigned, group.status)] += group.total;
+    }
+    return counts;
   }
 
   async find(
@@ -776,17 +821,19 @@ export class HardwareService {
         .limit(query.limit)
         .offset(pageOffset(query)),
     ]);
+    return datatable(total!.value, await this.serializeAssetRows(rows, user), query, url);
+  }
+
+  async serializeAssetRows(
+    rows: { asset: Hardware; status: StatusLabel | null; fieldsetId: number | null }[],
+    user: AuthenticatedUserContext,
+  ) {
     const sets = [...new Set(rows.map(({ fieldsetId }) => fieldsetId))];
-    const fields = new Map(
-      await Promise.all(sets.map(async (setId) => [setId, await this.validation.fields(this.db, setId)] as const)),
-    );
-    return datatable(
-      total!.value,
-      rows.map(({ asset, status, fieldsetId }) =>
-        this.serialize(asset, status, fields.get(fieldsetId) ?? [], user),
-      ),
-      query,
-      url,
+    const fields = new Map(await Promise.all(
+      sets.map(async (setId) => [setId, await this.validation.fields(this.db, setId)] as const),
+    ));
+    return rows.map(({ asset, status, fieldsetId }) =>
+      this.serialize(asset, status, fields.get(fieldsetId) ?? [], user),
     );
   }
 
@@ -813,7 +860,7 @@ export class HardwareService {
           licenseId: licenses.id,
           name: licenses.name,
           serial: licenses.serial,
-          assignedTo: licenseSeats.assignedTo,
+          assignedTo: scopedAssignmentTarget(this.fmcs, scope, user, 'user', licenseSeats.assignedTo),
           unreassignableSeat: licenseSeats.unreassignableSeat,
           notes: licenseSeats.notes,
         })
@@ -825,7 +872,6 @@ export class HardwareService {
         .offset(pageOffset(query)),
     ]);
     const canKeys = permitsKey(user, 'licenses.keys');
-    const canUsers = permitsEntity(user, 'users.view');
     return datatable(
       total!.value,
       rows.map((row) => ({
@@ -833,7 +879,7 @@ export class HardwareService {
         seat_id: row.seatId,
         name: row.name,
         serial: row.serial === null ? null : canKeys ? row.serial : '***************',
-        assigned_to: canUsers ? row.assignedTo : null,
+        assigned_to: row.assignedTo,
         unreassignable_seat: row.unreassignableSeat,
         notes: row.notes,
       })),

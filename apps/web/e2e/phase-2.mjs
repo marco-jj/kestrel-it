@@ -661,4 +661,66 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
       await create('/account/requests/' + request.id + '/cancel', {});
     }
   });
+
+  await t.test('validates settings edits and omits untouched legacy URLs', async () => {
+    const original = await read('/settings');
+    const settingsUrl = '**/api/v1/settings';
+    const legacyPrivacy = 'ftp://legacy.example.test/privacy';
+    const legacyIssuer = 'file:///legacy-issuer';
+    await page.route(settingsUrl, async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      await route.fulfill({
+        response,
+        json: {
+          ...data,
+          payload: { ...data.payload, privacy_policy_link: legacyPrivacy, oidc_issuer_url: legacyIssuer },
+        },
+      });
+    }, { times: 1 });
+
+    const save = page.getByRole('button', { name: 'Save Settings', exact: true });
+    const submission = () => page.waitForResponse(
+      (response) => response.url().endsWith('/api/v1/settings') && response.request().method() === 'PATCH',
+    );
+    try {
+      await page.goto('/admin/settings');
+      const pageSize = page.getByLabel('Rows per page', { exact: true });
+      const passwordLength = page.getByLabel('Minimum password length', { exact: true });
+      await pageSize.fill('4');
+      assert.equal(await save.isDisabled(), true);
+      await pageSize.fill('5');
+      await passwordLength.fill('7');
+      assert.equal(await save.isDisabled(), true);
+      await passwordLength.fill('8');
+      const preserving = submission();
+      await save.click();
+      const saved = await preserving;
+      assert.equal(saved.status(), 200);
+      const body = saved.request().postDataJSON();
+      assert.equal(Object.hasOwn(body, 'privacy_policy_link'), false);
+      assert.equal(Object.hasOwn(body, 'oidc_issuer_url'), false);
+      assert.equal((await read('/settings')).per_page, 5);
+
+      await page.goto('/admin/integrations');
+      const issuer = page.getByLabel('Issuer URL', { exact: true });
+      await issuer.fill('ftp://files.example.test');
+      const invalid = submission();
+      await save.click();
+      assert.equal((await invalid).status(), 422);
+      await page.getByRole('alert').filter({ hasText: 'Use an HTTP or HTTPS URL' }).waitFor();
+
+      await issuer.fill('http://localhost:4100');
+      const valid = submission();
+      await save.click();
+      assert.equal((await valid).status(), 200);
+      assert.equal((await read('/settings')).oidc_issuer_url, 'http://localhost:4100');
+    } finally {
+      await api(page, 'PATCH', '/settings', {
+        per_page: original.per_page,
+        pwd_secure_min: original.pwd_secure_min,
+        oidc_issuer_url: original.oidc_issuer_url,
+      });
+    }
+  });
 });

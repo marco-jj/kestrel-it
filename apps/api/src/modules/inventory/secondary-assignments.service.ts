@@ -12,7 +12,7 @@ import {
   type DatatableQuery,
   type SecondaryResource,
 } from '@kestrel-it/shared';
-import { and, asc, eq, inArray, isNull, or, sql, type SQLWrapper } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { permitsEntity } from '../../common/guards/permissions.guard.js';
 import type { EnvConfig } from '../../config/env.schema.js';
@@ -34,6 +34,7 @@ import {
 import { recordAcquisition } from './acquisitions.js';
 import { fieldIssue } from './custom-fields-validation.service.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
+import { scopedAssignmentTarget } from './inventory-visibility.js';
 import { InventoryMailService } from './inventory-mail.service.js';
 import {
   inventoryWrite,
@@ -84,30 +85,6 @@ export class SecondaryAssignmentsService {
     @Inject(ConfigService) private readonly env: ConfigService<EnvConfig, true>,
   ) {}
 
-  private scopedTarget(
-    user: AuthenticatedUserContext,
-    scope: FmcsScope,
-    kind: CheckoutTargetType,
-    field: SQLWrapper,
-  ) {
-    const resource = kind === 'user' ? 'users' : kind === 'asset' ? 'assets' : 'locations';
-    if (!permitsEntity(user, `${resource}.view`)) return sql<number | null>`null`;
-    const table = kind === 'user' ? users : kind === 'asset' ? assets : locations;
-    const allowed = and(
-      sql`${table.id} = ${field}`,
-      isNull(table.deletedAt),
-      this.fmcs.predicate(
-        scope,
-        resource,
-        table.id,
-        'companyId' in table ? table.companyId : undefined,
-      ),
-    );
-    return sql<
-      number | null
-    >`case when exists (select 1 from ${table} where ${allowed}) then ${field} end`;
-  }
-
   async assignments(
     resource: SecondaryResource,
     id: number,
@@ -124,8 +101,8 @@ export class SecondaryAssignmentsService {
         licenseSeats,
         {
           id: licenseSeats.id,
-          assigned_to: this.scopedTarget(user, scope, 'user', licenseSeats.assignedTo),
-          asset_id: this.scopedTarget(user, scope, 'asset', licenseSeats.assetId),
+          assigned_to: scopedAssignmentTarget(this.fmcs, scope, user, 'user', licenseSeats.assignedTo),
+          asset_id: scopedAssignmentTarget(this.fmcs, scope, user, 'asset', licenseSeats.assetId),
           occupied: sql<boolean>`(${licenseSeats.assignedTo} is not null or ${licenseSeats.assetId} is not null)`,
           unreassignable_seat: licenseSeats.unreassignableSeat,
           note: licenseSeats.notes,
@@ -144,9 +121,9 @@ export class SecondaryAssignmentsService {
           id: accessoriesCheckout.id,
           target_type: accessoriesCheckout.assignedType,
           target_id: sql<number | null>`case
-          when ${accessoriesCheckout.assignedType} = 'user' then ${this.scopedTarget(user, scope, 'user', accessoriesCheckout.assignedTo)}
-          when ${accessoriesCheckout.assignedType} = 'asset' then ${this.scopedTarget(user, scope, 'asset', accessoriesCheckout.assignedTo)}
-          when ${accessoriesCheckout.assignedType} = 'location' then ${this.scopedTarget(user, scope, 'location', accessoriesCheckout.assignedTo)}
+          when ${accessoriesCheckout.assignedType} = 'user' then ${scopedAssignmentTarget(this.fmcs, scope, user, 'user', accessoriesCheckout.assignedTo)}
+          when ${accessoriesCheckout.assignedType} = 'asset' then ${scopedAssignmentTarget(this.fmcs, scope, user, 'asset', accessoriesCheckout.assignedTo)}
+          when ${accessoriesCheckout.assignedType} = 'location' then ${scopedAssignmentTarget(this.fmcs, scope, user, 'location', accessoriesCheckout.assignedTo)}
           end`,
           note: accessoriesCheckout.note,
         },
@@ -162,7 +139,7 @@ export class SecondaryAssignmentsService {
         consumablesUsers,
         {
           id: consumablesUsers.id,
-          assigned_to: this.scopedTarget(user, scope, 'user', consumablesUsers.assignedTo),
+          assigned_to: scopedAssignmentTarget(this.fmcs, scope, user, 'user', consumablesUsers.assignedTo),
           consumed_at: consumablesUsers.consumedAt,
           note: consumablesUsers.note,
         },
@@ -177,7 +154,7 @@ export class SecondaryAssignmentsService {
       componentsAssets,
       {
         id: componentsAssets.id,
-        asset_id: this.scopedTarget(user, scope, 'asset', componentsAssets.assetId),
+        asset_id: scopedAssignmentTarget(this.fmcs, scope, user, 'asset', componentsAssets.assetId),
         quantity: componentsAssets.assignedQty,
         note: componentsAssets.note,
       },
@@ -195,8 +172,8 @@ export class SecondaryAssignmentsService {
     const [seat] = await this.db
       .select({
         id: licenseSeats.id,
-        assignedTo: this.scopedTarget(user, scope, 'user', licenseSeats.assignedTo),
-        assetId: this.scopedTarget(user, scope, 'asset', licenseSeats.assetId),
+        assignedTo: scopedAssignmentTarget(this.fmcs, scope, user, 'user', licenseSeats.assignedTo),
+        assetId: scopedAssignmentTarget(this.fmcs, scope, user, 'asset', licenseSeats.assetId),
         occupied: sql<boolean>`(${licenseSeats.assignedTo} is not null or ${licenseSeats.assetId} is not null)`,
         unreassignableSeat: licenseSeats.unreassignableSeat,
         notes: licenseSeats.notes,

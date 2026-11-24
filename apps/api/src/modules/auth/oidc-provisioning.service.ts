@@ -1,6 +1,7 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, notExists } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { EnvConfig } from '../../config/env.schema.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import {
@@ -11,6 +12,10 @@ import {
   users,
   usersGroups,
 } from '../../db/schema/index.js';
+import { userEmailMatches } from '../../db/user-email.js';
+
+type LinkCandidate = { user: typeof users.$inferSelect; matchedEmail?: string };
+const otherUser = alias(users, 'other_user');
 
 function extractClaimValue(claims: Record<string, unknown>, path: string): unknown {
   if (!path) {
@@ -175,10 +180,9 @@ export class OidcUserProvisioningService {
     const claimUsername = asNonEmptyString(extractClaimValue(claims, usernameClaim));
     const claimEmail = claims['email_verified'] === true ? asNonEmptyString(claims['email']) : null;
 
-    const candidate = await this.findLinkCandidate(claimUsername, claimEmail);
-    if (!candidate) {
-      return null;
-    }
+    const match = await this.findLinkCandidate(claimUsername, claimEmail);
+    if (!match) return null;
+    const { user: candidate, matchedEmail } = match;
 
     if (!candidate.activated) {
       throw new UnauthorizedException('User account is deactivated');
@@ -204,6 +208,13 @@ export class OidcUserProvisioningService {
           isNull(users.deletedAt),
           eq(users.username, candidate.username),
           candidate.email === null ? isNull(users.email) : eq(users.email, candidate.email),
+          matchedEmail
+            ? notExists(this.db.select({ id: otherUser.id }).from(otherUser).where(and(
+                ne(otherUser.id, candidate.id),
+                isNull(otherUser.deletedAt),
+                userEmailMatches(otherUser.email, matchedEmail),
+              )))
+            : undefined,
           candidate.oidcIssuer == null
             ? isNull(users.oidcIssuer)
             : eq(users.oidcIssuer, candidate.oidcIssuer),
@@ -223,7 +234,7 @@ export class OidcUserProvisioningService {
   private async findLinkCandidate(
     claimUsername: string | null,
     claimEmail: string | null,
-  ): Promise<typeof users.$inferSelect | undefined> {
+  ): Promise<LinkCandidate | undefined> {
     if (claimUsername) {
       const [byUsername] = await this.db
         .select()
@@ -231,17 +242,22 @@ export class OidcUserProvisioningService {
         .where(and(eq(users.username, claimUsername), isNull(users.deletedAt)))
         .limit(1);
       if (byUsername) {
-        return byUsername;
+        return { user: byUsername };
       }
     }
 
     if (claimEmail) {
-      const [byEmail] = await this.db
+      const [byEmail, duplicate] = await this.db
         .select()
         .from(users)
-        .where(and(eq(users.email, claimEmail), isNull(users.deletedAt)))
-        .limit(1);
-      return byEmail;
+        .where(and(userEmailMatches(users.email, claimEmail), isNull(users.deletedAt)))
+        .limit(2);
+      if (duplicate) {
+        throw new UnauthorizedException('OIDC email matches more than one account');
+      }
+      if (byEmail?.email === claimEmail) {
+        return { user: byEmail, matchedEmail: claimEmail };
+      }
     }
 
     return undefined;
