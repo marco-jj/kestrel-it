@@ -60,6 +60,10 @@ kestrel-it/
 
 The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstream behavior to Kestrel-IT equivalents, parity evidence, and open decisions.
 
+## Install the beta
+
+Kestrel-IT is distributed as a single OCI Helm chart. For the install command, cluster values, and use as a Helm dependency, see the [chart guide](deploy/helm/kestrel-it/README.md). See the [changelog](CHANGELOG.md) for the beta scope and [release process](RELEASE.md) for publication.
+
 ## Database startup and Helm configuration
 
 The API applies the checked-in Drizzle migrations before first-run setup. Replicas serialize migration and headless bootstrap through a PostgreSQL advisory lock. The Helm chart probes `/health` for liveness and `/ready` for database and schema readiness.
@@ -108,4 +112,4 @@ Enabling Better Auth requires a dedicated `BETTER_AUTH_SECRET` of at least 32 ch
 ## Attribution & License
 
 Kestrel-IT is inspired by and forked from the functional design of [**Snipe-IT**](https://github.com/grokability/snipe-it) (licensed under `AGPL-3.0-or-later`).
-License details for Kestrel-IT will be finalized in `LICENSE` prior to public release.
+Kestrel-IT is distributed under [AGPL-3.0-or-later](LICENSE.md).

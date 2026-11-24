@@ -1,0 +1,169 @@
+name: Publish Helm release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      commit: ${{ steps.tag.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate version and main ancestry
+        id: tag
+        run: |
+          set -euo pipefail
+          number='(0|[1-9][0-9]*)'
+          identifier='(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v${number}\.${number}\.${number}(-${identifier}(\.${identifier})*)?$ ]] || (( ${#GITHUB_REF_NAME} > 129 )); then
+            echo "::error::Use a v-prefixed SemVer tag without build metadata"
+            exit 1
+          fi
+          git fetch --no-tags origin refs/heads/main
+          commit="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$commit" FETCH_HEAD; then
+            echo "::error::The tagged commit must be reachable from main"
+            exit 1
+          fi
+          printf 'version=%s\ncommit=%s\n' "${GITHUB_REF_NAME#v}" "$commit" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.validate-tag.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate-tag.outputs.commit }}
+      GH_TOKEN: ${{ github.token }}
+      INVENTORY_TEST_DATABASE_URL: postgres://postgres:release_test@127.0.0.1:5432/postgres
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: release_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-tag.outputs.commit }}
+          persist-credentials: false
+      - name: Check public source and release availability
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)" == public ]] || {
+            echo "::error::Make the source repository public before publishing. See RELEASE.md."
+            exit 1
+          }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::This GitHub Release already exists. Use a new version."
+            exit 1
+          fi
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          printf 'IMAGE_PREFIX=ghcr.io/%s/kestrel-it\nCHART_REGISTRY=oci://ghcr.io/%s/charts\n' "$owner" "$owner" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Verify application and REST contract
+        run: |
+          npm install --global "pnpm@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm typecheck
+          pnpm test
+          pnpm --filter @kestrel-it/api openapi:check
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Package and verify the chart
+        run: |
+          set -euo pipefail
+          chart=deploy/helm/kestrel-it
+          sed -i "s#ghcr.io/marco-jj/kestrel-it-#$IMAGE_PREFIX-#g" "$chart/values.yaml"
+          values=(
+            --set-string postgresql.auth.password=helm-test
+            --set-string "config.secrets.jwtSecret=$(openssl rand -hex 32)"
+            --set-string "config.secrets.appEncryptionKey=$(openssl rand -hex 32)"
+          )
+          cp LICENSE.md "$chart/LICENSE.md"
+          helm lint "$chart" "${values[@]}"
+          helm package "$chart" --destination release --version "$VERSION" --app-version "$VERSION"
+          helm template kestrel-it "release/kestrel-it-$VERSION.tgz" "${values[@]}" > /tmp/kestrel-release.yaml
+          grep -F "image: \"$IMAGE_PREFIX-api:$VERSION\"" /tmp/kestrel-release.yaml
+          grep -F "image: \"$IMAGE_PREFIX-web:$VERSION\"" /tmp/kestrel-release.yaml
+          (cd release && sha256sum "kestrel-it-$VERSION.tgz" > "kestrel-it-$VERSION.tgz.sha256")
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and smoke-test release images
+        run: |
+          set -euo pipefail
+          node_version="$(<.nvmrc)"
+          for component in api web; do
+            docker buildx build --load --target "$component" --file deploy/images/Dockerfile \
+              --build-arg "NODE_VERSION=${node_version#v}" --tag "kestrel-release-$component:$VERSION" .
+          done
+          bash deploy/images/smoke-test.sh "kestrel-release-api:$VERSION" "kestrel-release-web:$VERSION"
+      - name: Push images and the OCI chart
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          node_version="$(<.nvmrc)"
+          for component in api web; do
+            docker buildx build --push --platform linux/amd64,linux/arm64 \
+              --target "$component" --file deploy/images/Dockerfile \
+              --build-arg "NODE_VERSION=${node_version#v}" \
+              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --label "org.opencontainers.image.revision=$RELEASE_COMMIT" \
+              --label "org.opencontainers.image.version=$VERSION" \
+              --tag "$IMAGE_PREFIX-$component:$VERSION" .
+          done
+          helm push "release/kestrel-it-$VERSION.tgz" "$CHART_REGISTRY"
+      - name: Verify anonymous access
+        run: |
+          set -euo pipefail
+          anonymous="$(mktemp -d)"
+          trap 'rm -rf "$anonymous"' EXIT
+          export DOCKER_CONFIG="$anonymous"
+          export HELM_REGISTRY_CONFIG="$anonymous/helm.json"
+          for component in api web; do
+            docker manifest inspect "$IMAGE_PREFIX-$component:$VERSION" > /dev/null || {
+              echo "::error::Make the $component GHCR package public, then rerun. See RELEASE.md."
+              exit 1
+            }
+          done
+          helm pull "$CHART_REGISTRY/kestrel-it" --version "$VERSION" --destination "$anonymous" || {
+            echo "::error::Make the GHCR chart package public, then rerun. See RELEASE.md."
+            exit 1
+          }
+          cmp "release/kestrel-it-$VERSION.tgz" "$anonymous/kestrel-it-$VERSION.tgz"
+      - name: Publish GitHub Release
+        run: |
+          set -euo pipefail
+          notes=(--generate-notes)
+          if [[ "$VERSION" == 0.0.1-beta ]]; then notes=(--notes-file CHANGELOG.md); fi
+          flags=()
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Kestrel-IT $GITHUB_REF_NAME" \
+            "${notes[@]}" "${flags[@]}" release/*.tgz release/*.sha256

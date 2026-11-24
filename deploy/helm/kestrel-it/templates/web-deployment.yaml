@@ -20,8 +20,11 @@ spec:
       serviceAccountName: {{ include "kestrel-it.serviceAccountName" . }}
       containers:
         - name: web
-          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+          env:
+            - name: KESTREL_API_ORIGIN
+              value: {{ printf "http://%s-api:%d" (include "kestrel-it.fullname" .) (int .Values.api.service.port) | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.web.service.port }}
