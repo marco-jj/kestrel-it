@@ -25,7 +25,7 @@ import { OidcUserProvisioningService } from '../modules/auth/oidc-provisioning.s
 import { depreciationValue } from '../modules/inventory/depreciation.js';
 import { REPORT_TYPES, IMPORT_TYPES, type PermissionMap } from '@kestrel-it/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
-import ExcelJS from 'exceljs';
+import { readSheet } from 'read-excel-file/node';
 import { ImportsController } from '../modules/inventory/imports.controller.js';
 import { NotificationsController } from '../modules/inventory/notifications.controller.js';
 import {
@@ -1734,9 +1734,11 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       const csv = await http('GET', selection + '&format=csv&order=asc', 'west');
       expect(parseCsv(csv.body, { columns: true })).toEqual([{ book_value: '80.00' }, { book_value: '640.00' }]);
       const xlsx = await http('GET', selection + '&format=xlsx&order=desc', 'west');
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(new Uint8Array(xlsx.rawPayload).buffer);
-      expect(workbook.getWorksheet(1)?.getColumn(1).values).toEqual([, 'book_value', '640.00', '80.00']);
+      expect(await readSheet(xlsx.rawPayload, 'Report')).toEqual([
+        ['book_value'],
+        ['640.00'],
+        ['80.00'],
+      ]);
     } finally {
       await db.update(tables.users)
         .set({ permissions: sql`${tables.users.permissions} - 'reports.view'` })
@@ -1762,9 +1764,9 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       expect(records.length - 1).toBe(preview.total);
       const xlsx = await http('GET', `/reports/${type}?format=xlsx`, 'root');
       expect(xlsx.statusCode, `XLSX ${type}`).toBe(200);
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(new Uint8Array(xlsx.rawPayload).buffer);
-      expect(workbook.worksheets[0]!.getRow(1).values).toEqual([, ...preview.columns]);
+      const rows = await readSheet(xlsx.rawPayload, 'Report');
+      expect(rows[0]).toEqual(preview.columns);
+      expect(rows.length - 1).toBe(preview.total);
     }
     const csv = await http(
       'GET',
@@ -1774,6 +1776,16 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     expect(parseCsv(csv.body)).toContainEqual([
       westAsset.asset_tag,
       "'=Formula-like asset",
+      'Line one\nLine two',
+    ]);
+    const xlsx = await http(
+      'GET',
+      '/reports/custom?format=xlsx&columns=asset_tag,name,notes',
+      'root',
+    );
+    expect(await readSheet(xlsx.rawPayload, 'Report')).toContainEqual([
+      westAsset.asset_tag,
+      '=Formula-like asset',
       'Line one\nLine two',
     ]);
     const scoped = await ok(

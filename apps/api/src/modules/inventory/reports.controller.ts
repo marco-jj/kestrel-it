@@ -35,9 +35,9 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import ExcelJS from 'exceljs';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { PassThrough, Readable } from 'node:stream';
+import { Readable } from 'node:stream';
+import XlsxStreamWriter from 'xlsx-stream-writer';
 import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard.js';
@@ -763,25 +763,32 @@ export class ReportsController {
         );
         return attachmentResponse(reply, `${type}.csv`, 'text/csv; charset=utf-8').send(stream);
       }
-      const stream = new PassThrough();
-      const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream });
-      const sheet = workbook.addWorksheet('Report');
-      sheet.addRow(columns).commit();
-      void (async () => {
-        for await (const row of rows()) {
-          sheet
-            .addRow(
-              columns.map((column) => {
-                const value = row[column];
-                return value && typeof value === 'object' && !(value instanceof Date)
-                  ? JSON.stringify(value)
-                  : value;
-              }),
-            )
-            .commit();
-        }
-        await workbook.commit();
-      })().catch((error: Error) => stream.destroy(error));
+      const workbook = new XlsxStreamWriter({
+        inlineStrings: true,
+        styles: [{ format: 'mm-dd-yy' }],
+        styleIdFunc: (value) => (value instanceof Date ? 1 : 0),
+      });
+      // Preserve the worksheet name used by existing report consumers.
+      const workbookPart = 'xl/workbook.xml';
+      workbook.xlsx[workbookPart] = workbook.xlsx[workbookPart]!.replace(
+        '<sheet name="Data"',
+        '<sheet name="Report"',
+      );
+      workbook.addRows(
+        (async function* () {
+          yield columns;
+          for await (const row of rows()) {
+            yield columns.map((column) => {
+              const value = row[column];
+              if (value == null || value instanceof Date) return value;
+              if (typeof value === 'object') return JSON.stringify(value);
+              if (typeof value === 'number' || typeof value === 'boolean') return value;
+              return String(value);
+            });
+          }
+        })(),
+      );
+      const stream = Readable.fromWeb(workbook.getStream());
       return attachmentResponse(
         reply,
         `${type}.xlsx`,
