@@ -91,7 +91,7 @@ export interface StandardApiResponse<T = unknown> {
 export function createStandardApiResponseSchema<T extends z.ZodTypeAny>(payloadSchema: T) {
   return z.object({
     status: z.enum(['success', 'error']),
-    messages: z.union([z.string(), z.record(z.array(z.string()))]),
+    messages: z.union([z.string(), z.record(z.string(), z.array(z.string()))]),
     payload: payloadSchema.nullable(),
   });
 }

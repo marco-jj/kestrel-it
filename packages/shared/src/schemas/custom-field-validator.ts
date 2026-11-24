@@ -225,11 +225,11 @@ function buildFormatBaseSchema(format?: string | null): z.ZodTypeAny {
         .string()
         .regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, 'Must be a valid YYYY-MM-DD HH:mm:ss datetime');
     case 'IPV4':
-      return z.string().ip({ version: 'v4', message: 'Must be a valid IPv4 address' });
+      return z.ipv4({ message: 'Must be a valid IPv4 address' });
     case 'IPV6':
-      return z.string().ip({ version: 'v6', message: 'Must be a valid IPv6 address' });
+      return z.ipv6({ message: 'Must be a valid IPv6 address' });
     case 'IP':
-      return z.string().ip({ message: 'Must be a valid IP address' });
+      return z.union([z.ipv4(), z.ipv6()], { message: 'Must be a valid IP address' });
     case 'BOOLEAN':
       return z.union([z.boolean(), z.enum(['0', '1', 'true', 'false'])]);
     case 'PHONE':

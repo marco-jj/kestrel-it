@@ -17,38 +17,37 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^9.0.3",
-    "@fastify/static": "^8.3.0",
+    "@fastify/static": "^10.1.12",
     "@kestrel-it/shared": "workspace:*",
     "@nestjs/common": "^11.0.11",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.11",
     "@nestjs/platform-fastify": "^11.0.11",
     "@nestjs/schedule": "^6.0.0",
-    "@nestjs/swagger": "^11.0.5",
+    "@nestjs/swagger": "^11.4.8",
     "bcryptjs": "^2.4.3",
     "bwip-js": "^4.11.4",
     "csv-parse": "^7.0.3",
-    "drizzle-orm": "^0.40.0",
+    "drizzle-orm": "^0.45.4",
     "exceljs": "^4.4.0",
     "fastify": "5.12.8",
     "ipaddr.js": "^2.5.0",
     "jose": "^6.0.8",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^10.6.1",
     "pdfkit": "^0.17.2",
     "pngjs": "^7.0.0",
     "postgres": "^3.4.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^3.24.2",
-    "zod-to-json-schema": "3.25.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.11",
     "@types/bcryptjs": "^2.4.6",
-    "@types/nodemailer": "^7.0.12",
+    "@types/nodemailer": "^8.0.2",
     "@types/pdfkit": "^0.17.7",
     "@types/pngjs": "^6.0.5",
     "@zxing/library": "^0.23.0",
-    "drizzle-kit": "^0.30.5"
+    "drizzle-kit": "^0.31.11"
   }
 }
