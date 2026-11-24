@@ -819,7 +819,7 @@
         "disposition": "implemented",
         "owner_export": "ALL_PERMISSIONS",
         "owner_path": "packages/shared/src/rbac/permissions.ts",
-        "owner_sha256": "d604258f56e5ba9873a53005400f4436b8ac444b56a9a13a959e8d0e03894379",
+        "owner_sha256": "39e940abe092725745d430f340bdbf5f3fd1b8fb51655b1d61bf4cb158c87398",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -879,7 +879,7 @@
         "disposition": "implemented",
         "owner_export": "CheckoutRequestsService",
         "owner_path": "apps/api/src/modules/inventory/checkout-requests.service.ts",
-        "owner_sha256": "cab9e8a88bbcd4a93214bf2c42a0ba34e122d9c043361a6f4c2cf00af7516054",
+        "owner_sha256": "6f786857fff792101f22b2cbc4286f9e56c199731c4174cf8eb1a7b95f63c50c",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -975,7 +975,7 @@
         "disposition": "implemented",
         "owner_export": "SettingsAdminController",
         "owner_path": "apps/api/src/modules/inventory/settings-admin.controller.ts",
-        "owner_sha256": "2ae3200770776d071ebe3abb345647aae1cc5b820aa4389b609745e35453846f",
+        "owner_sha256": "95118c39ac37aef2b901711dfd5657f08eb57a4cd72c2669c39d577fe0e00fef",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -1066,7 +1066,7 @@
         "disposition": "implemented",
         "owner_export": "ReportsController",
         "owner_path": "apps/api/src/modules/inventory/reports.controller.ts",
-        "owner_sha256": "879344ef3044c27fd786bc5c452c2b4de4b1d435d61bb694ca28cb67b8e697b0",
+        "owner_sha256": "f49260790332ea7fa6a390cd3733aa5c22a78b0ba46eb9f071ce5c878e71504d",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -1109,7 +1109,7 @@
         "disposition": "implemented",
         "owner_export": "AppShellComponent",
         "owner_path": "apps/web/src/app/core/layout/app-shell.component.ts",
-        "owner_sha256": "53a5d26e8d183234c00e07dcbdf2c84deb4932afd256322a95e7280402d47e2b",
+        "owner_sha256": "b0f3c80fe36ab3538ec27506ea733f54dcad56c3540f78deed479855fbc926c5",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -1145,7 +1145,7 @@
         "disposition": "implemented",
         "owner_export": "CheckoutRequestsPageComponent",
         "owner_path": "apps/web/src/app/features/inventory/checkout-requests-page.component.ts",
-        "owner_sha256": "e292252d2ec604b6c41b42ab25849f9702989f873b15967ddddd2f2cda134ab8",
+        "owner_sha256": "840979e365759792469684a9c4604434dc1260aa6e11bf8089c794163d7317a3",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -1157,7 +1157,7 @@
         "disposition": "implemented",
         "owner_export": "AccountProfileComponent",
         "owner_path": "apps/web/src/app/features/inventory/account-self-service.components.ts",
-        "owner_sha256": "2691abcb1a7f43337af486b6d9ae699d0949fce6d86e9b92f037c183872de0b3",
+        "owner_sha256": "dcf5d345de2fe81cce6ce90dc4362bbdc38f3b1e8de2a7fdcf829397ba9040f6",
         "package_state": "distributed",
         "path_state": "present"
       },
@@ -1169,7 +1169,7 @@
         "disposition": "implemented",
         "owner_export": "AdminSettingsComponent",
         "owner_path": "apps/web/src/app/features/inventory/admin-settings.components.ts",
-        "owner_sha256": "b06c36c4ee874fd9d9135f85591d92f7ac99df48b9c23a7ad84ce24b2d549091",
+        "owner_sha256": "6d519622f8d498eac4ba8c760fa3f299d1f0bfc47be0171fe351c4241da06738",
         "package_state": "distributed",
         "path_state": "present"
       },

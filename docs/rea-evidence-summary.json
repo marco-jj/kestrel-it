@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "generated_at_utc": "2026-11-23T23:57:00Z",
+  "schema_version": 3,
+  "generated_at_utc": "2026-11-24T01:18:13Z",
   "phase": "Piano 3.5 — Verifica Formale di Parità con REA",
   "api_contract": {
     "artifact_path": "docs/openapi.json",
@@ -22,7 +22,8 @@
     "subset_parent_evidence_id": "ev_a4d27357f2780d310dd042b4b4ea40aee308201bbe0395062c4b736cfb53137e",
     "subset_summary_evidence_id": "ev_95045c3076342242105a426899f074703dbd59c29eca5e63831849d33c9cfafd",
     "web_dist_bundle_sha256": "1b010faa52368bcd55729fd819a6c52a201aff67d605186ee2487adae30d3c09",
-    "web_dist_summary_evidence_id": "ev_7338224cd84186eb5078df06fd0223ddb74220779322c826a2bdbb4c1b8a4ec0"
+    "web_dist_summary_evidence_id": "ev_7338224cd84186eb5078df06fd0223ddb74220779322c826a2bdbb4c1b8a4ec0",
+    "kestrel_web_dist_at_revision": "50478f2"
   },
   "obligation_ledger": {
     "manifest_path": "docs/rea-obligation-manifest.json",
@@ -39,13 +40,14 @@
     "missing_verifiers": 0,
     "contradictions": 0,
     "residual_unknowns": 0,
-    "diagnostics_note": "All 7 Snipe-IT JS modules are uniquely bound to SHA-256-pinned Kestrel-IT owners and Zod schemas. Ledger status stays open only because the inline-bounded inspect_analysis_view / capture_browser_scenario evidence emits unrecognized-proof and static-only diagnostics under REA verifier rules."
+    "diagnostics_note": "All 7 Snipe-IT JS modules are uniquely bound to SHA-256-pinned Kestrel-IT owners and Zod schemas. Ledger status stays open only because the inline-bounded inspect_analysis_view / capture_browser_scenario evidence emits unrecognized-proof and static-only diagnostics under REA verifier rules.",
+    "owner_digests_matching_worktree": 7
   },
   "boundary_coverage": {
     "manifest_path": "docs/rea-coverage-manifest.json",
     "package_proof_evidence_id": "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8",
     "verifier_evidence_id": "ev_bf9e2c7a0db4bfcb1a8759ee3186a3df1244a8652abc35ce8d2ebcd269aa5ef6",
-    "ready_boundaries": 7,
+    "ready_boundaries": 2,
     "total_boundaries": 7,
     "external_dispositions": [
       {
@@ -79,59 +81,161 @@
         "contract_sha256": "62cd0c870ec61c65c6dd5c01c58a2dd9b0ee6b363cd75d5a553117ff6e4e32e6"
       },
       "boundary.rbac.fmcs": {
-        "status": "ready",
+        "status": "unknown",
         "required_surfaces": 4,
         "required_claims": 1,
-        "reasons": [],
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.rbac.fmcs",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
         "contract_sha256": "30b801fce06553c3952b8514f8bb8f3a514856d528fdbf970c63bb486e97d376"
       },
       "boundary.workflows": {
-        "status": "ready",
+        "status": "unknown",
         "required_surfaces": 6,
         "required_claims": 1,
-        "reasons": [],
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.workflows",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
         "contract_sha256": "e15eb7b1b74fd142791d1a0d275f718fabb779ab2966e8bb2679e1b709e80c01"
       },
       "boundary.api.rest": {
-        "status": "ready",
+        "status": "unknown",
         "required_surfaces": 5,
         "required_claims": 1,
-        "reasons": [],
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.api",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
         "contract_sha256": "41cdd36ca05dcc047e8e45d003415142e19e7fcec56732b6db2a0059e5c21df0"
       },
       "boundary.ops.jobs": {
-        "status": "ready",
+        "status": "unknown",
         "required_surfaces": 9,
         "required_claims": 1,
-        "reasons": [],
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.ops.jobs",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
         "contract_sha256": "b5bfca80aff1c05de7f1fc7bddccb0a3fb1a19afdc3311549bafe25f77dbb829"
       },
       "boundary.web.spa": {
-        "status": "ready",
+        "status": "unknown",
         "required_surfaces": 8,
         "required_claims": 1,
-        "reasons": [],
+        "reasons": [
+          {
+            "code": "verifier-result-incompatible",
+            "subject_id": "claim.web.spa",
+            "detail": "Latest verifier result does not match current artifacts, owners, dimensions, authority, normalization, repeats, or contract."
+          }
+        ],
         "contract_sha256": "68e044daf7c1efedb2de55d6d5a86420677183828a67ba1c928ce29adf25c695"
       }
-    }
+    },
+    "coverage_manifest_sha256": "7d8792355d8f1269bd8f08eb48f3f6a410d7a6dae318e87edf58788669836455",
+    "unknown_boundaries": 5,
+    "verifier_note": "Owner SHA-256 pins reflect current files. The manifest retains the verifier receipts from 50478f2 with their original input digests. Five receipts are incompatible with the refreshed owner pins."
   },
   "runtime_and_visual_verification": {
-    "login_screenshot_evidence_id": "ev_cf72f49e68c45108444bd79ae2b7a9d26dc7f34e312646012ddb38a14a65e7b7",
-    "login_screenshot_sha256": "1ede708f4e8c2dc6e5f4cb118cfee79e9d480aee6d29e2761932279fcb19e700",
-    "login_screenshot_bytes": 300,
-    "login_screenshot_viewport": {
-      "width": 500,
-      "height": 23
+    "route": "/login",
+    "viewport": {
+      "width": 1280,
+      "height": 800
     },
-    "compare_web_screenshots_evidence_id": "ev_4deb227248edf6808bc09f51487321f474baddd98e468abf9f9963c361bfe759",
-    "compare_web_screenshots_status": "identical",
-    "compared_pixels": 11500,
-    "changed_pixels": 0,
-    "verify_reconstruction_visual_evidence_id": "ev_9c1eaa10e5fe678396eef5fbdf2e47fce469b4ad76d47b6f4e41d7a00ec05bea",
-    "verify_reconstruction_visual_observed_status": "unchanged",
-    "verify_reconstruction_visual_status": "unknown",
-    "verify_reconstruction_visual_note": "Pixel comparison is identical (0 changed pixels); verify_reconstruction reports unknown because only Kestrel-IT was captured live (no independent live Snipe-IT baseline instance in workspace).",
-    "browser_scenario_login_evidence_id": "ev_d7e8b900b55ba57046af5ca9409d2b7c3ba98e82e0d78ef9750569ba59e512d8",
-    "browser_scenario_journey_evidence_id": "ev_f7dc71f03359df3d65b6131c54828f8ddefccb7c5d0834a2a546e04b38786de9"
+    "chromium_version": "159.0.8154.6",
+    "before": {
+      "application": "Snipe-IT",
+      "revision": "576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8",
+      "artifact_path": "docs/rea-screenshots/snipe-it-login.png",
+      "evidence_id": "ev_eea4be27ffeb649a0feeb9fece2b45f0bb3328ff757e0d3b538cd4d6ca9a48e0",
+      "sha256": "2ec03502624a2f1a515028cac42697b9e6f974783f2d36fd11aca70d4490c8dc",
+      "bytes": 27178
+    },
+    "after": {
+      "application": "Kestrel-IT",
+      "base_revision": "b4f5790ffeeb36bc44a57083e72b82ddd7090fba",
+      "source": "working tree",
+      "artifact_path": "docs/rea-screenshots/kestrel-it-login.png",
+      "evidence_id": "ev_c54e88a8ac7fc9ba858f0b668ae3025ca1c294277e0213a60388f3835a441ed2",
+      "sha256": "74bfd2f56a4eefa48f4dd61b49eca3a1d3b7bd4e1c86786471af777b8b6e2f27",
+      "bytes": 54316
+    },
+    "comparison": {
+      "evidence_id": "ev_63b5dc08926f1126f9c8dccf63f9a54be2bbc15aa17c3c2b7e46ae371c6c8e4d",
+      "status": "different",
+      "compared_pixels": 1024000,
+      "changed_pixels": 982129,
+      "changed_ratio": 0.9591103515625,
+      "channel_threshold": 0
+    },
+    "verify_reconstruction": {
+      "evidence_id": "ev_7796256f1a0d93a918047dc82f122ea89263b2ea69ff4f000c0e226d84b0b2b1",
+      "status": "fail",
+      "observed_status": "changed"
+    },
+    "scope": "Pixel equivalence of two independently served sign-in pages at the recorded viewport."
+  },
+  "current_worktree_verification": {
+    "base_revision": "b4f5790ffeeb36bc44a57083e72b82ddd7090fba",
+    "build": {
+      "status": "pass",
+      "evidence_id": "ev_3aa8c416d23d949f0e9c957b0477c84ee6ffffe8afabfd2cc4e3537206bd2fde"
+    },
+    "typecheck": {
+      "status": "pass"
+    },
+    "tests": {
+      "shared_passed": 12,
+      "api_passed": 103,
+      "postgres_inventory_passed": 55,
+      "web_passed": 16
+    },
+    "chromium_e2e": {
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    "openapi_regeneration": {
+      "byte_identical": true
+    },
+    "frontend_build_analysis": {
+      "artifact_sha256": "c8818f069425c59537281229a6c1b4b779e254913203a7173fede3e75f711066",
+      "evidence_id": "ev_50100aebd181aa8eefd37782dd4829c502c75409fc73a092f137bc8f0631cac7",
+      "parent_evidence_id": "ev_b3e67a7d39ebd6415610dbc58e992b7a1afdc627b816b22c260c64f1a7eb9b8f",
+      "analyzed_sources": [
+        "main.js",
+        "chunk-HE6H27GX.js"
+      ]
+    },
+    "depreciation_selective_numeric_search": {
+      "scoped_assets": 50000,
+      "matches": 1,
+      "expected_book_value": "600.00",
+      "warm_median_ms": 99,
+      "warm_min_ms": 98,
+      "warm_max_ms": 101,
+      "warm_requests": 5
+    },
+    "source_sha256": {
+      "apps/api/src/modules/inventory/directory.service.ts": "10c8e9a6f0d817b4cf6fff97b5582e8a3c0440114da50498192127711fdfadea",
+      "apps/api/src/modules/inventory/reports.controller.ts": "f49260790332ea7fa6a390cd3733aa5c22a78b0ba46eb9f071ce5c878e71504d",
+      "apps/api/src/__tests__/inventory-postgres-e2e.spec.ts": "3bd925e3338b5b615e8c26a32fdb4b95575f9889ae7f02354a5c429e9d6db583",
+      "apps/web/src/app/features/inventory/checkout-requests-page.component.ts": "840979e365759792469684a9c4604434dc1260aa6e11bf8089c794163d7317a3",
+      "apps/web/e2e/phase-2.mjs": "073be2ecb96492dbb127dc0dbe402d0035a5a4ac5c28372720e2e62d558a1533"
+    }
   }
 }
