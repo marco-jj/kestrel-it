@@ -49,7 +49,10 @@ Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 
 | `/fields`, `/fieldsets` | Catalogo, composizione dei fieldset, obbligatorietà e riordino. |
 | `/companies`, `/groups`, `/users`, `/locations`, `/departments`, `/categories`, `/manufacturers`, `/suppliers`, `/statuslabels` | Directory, con azioni bulk offerte secondo il permesso dell'operatore. Per le risorse con soft-delete, il ripristino bulk è disponibile nella vista dei record eliminati. |
 | `/account/accept`, `/account/accept/:id`, `/account/eulas` | Accettazioni, firma su canvas quando richiesta e download di EULA e firma. |
-| `/account/requestable`, `/account/requests`, `/requests` | Catalogo hardware e modelli, richieste personali e coda per operatori con `assets.checkout`. `/account/requestable-assets` reindirizza al catalogo. |
+| `/account/requestable`, `/account/requests`, `/requests` | Catalogo self-service per tutti e 6 i tipi (`hardware`, `models`, `accessories`, `consumables`, `components`, `licenses`), richieste personali e coda per operatori. `/account/requestable-assets` reindirizza al catalogo. |
+| `/licenses`, `/accessories`, `/consumables`, `/components`, `/kits`, `/maintenances`, `/maintenance-types`, `/depreciations` | Gestione completa di inventario secondario, predefined kit, manutenzioni e piani di ammortamento (`PhaseThreePageComponent`). |
+| `/hardware/audit/:status`, `/calendar`, `/reports`, `/reports/:type`, `/unaccepted-acceptances`, `/import` | Liste audit (`due`, `overdue`, `due-or-overdue`), calendario unificato, 10 report + export CSV/XLSX + template salvabili, solleciti EULA e wizard CSV Importer (12 tipi). |
+| `/account/profile`, `/account/view-assets`, `/account/api`, `/admin/settings`, `/admin/branding`, `/admin/integrations`, `/admin/labels`, `/admin/notifications`, `/admin/login-attempts` | Profilo e 2FA, asset assegnati, PAT token e pannello di amministrazione completo (incluso Label Designer PDF/SVG, notifiche/webhook e registro accessi). |
 
 ### Struttura prevista per la parità
 
@@ -134,7 +137,7 @@ L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-i
 
 | Funzionalità Snipe-IT | Comportamento osservato | Kestrel-IT |
 | :--- | :--- | :--- |
-| Backup e ripristino | Elenco, creazione, caricamento, download, eliminazione e ripristino dei backup. [Rotte web](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L500-L529) | Definire la copertura nell'interfaccia, nell'API o negli strumenti operativi. |
+| Backup e ripristino | Elenco, creazione, caricamento, download, eliminazione e ripristino dei backup. [Rotte web](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L500-L529) | Responsabilità operativa esterna: backup e ripristino sono gestiti fuori dalla SPA e dall'API tramite snapshot PostgreSQL/WAL e storage oggetti (`disposition: "external"` in [rea-coverage-manifest.json](rea-coverage-manifest.json)). |
 | Sincronizzazione LDAP | Configurazione LDAP e avvio manuale del sync utenti dalla gestione utenti. [Configurazione](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php#L429-L443), [Sync utenti](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web/users.php#L9-L27) | Provisioning JIT al login e provisioning push di utenti e gruppi via SCIM 2.0 nel Piano 4.2. La directory resta gestita dall'IdP. [Piano 4.2](../PLAN.md) |
 
 ## 4. Architettura Reattiva in Angular (Signals + RBAC + FMCS)
