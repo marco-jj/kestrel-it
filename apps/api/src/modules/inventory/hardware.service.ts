@@ -22,12 +22,18 @@ import { z } from 'zod';
 import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import {
+  accessories,
+  accessoriesCheckout,
   actionLogs,
   assets,
   checkoutRequests,
+  components,
+  componentsAssets,
   customFieldDefaults,
   customFields,
   depreciations,
+  licenseSeats,
+  licenses,
   models,
   settings,
   statusLabels,
@@ -741,6 +747,200 @@ export class HardwareService {
           row.targetType !== 'user' || permitsEntity(user, 'users.view') ? row.targetId : null,
         note: row.note,
         has_photo: row.actionType === 'audit' && !!row.filename,
+      })),
+      query,
+      url,
+    );
+  }
+
+  async assignedAssets(id: number, query: HardwareQuery, user: AuthenticatedUserContext, url: string) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    const filters = and(
+      this.visible(scope),
+      eq(assets.assignedType, 'asset'),
+      eq(assets.assignedTo, id),
+    );
+    const [[total], rows] = await Promise.all([
+      this.db.select({ value: count() }).from(assets).where(filters),
+      this.db
+        .select({ asset: assets, status: statusLabels, fieldsetId: models.fieldsetId })
+        .from(assets)
+        .leftJoin(
+          statusLabels,
+          and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
+        )
+        .leftJoin(models, eq(models.id, assets.modelId))
+        .where(filters)
+        .orderBy(asc(assets.assetTag), asc(assets.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    const sets = [...new Set(rows.map(({ fieldsetId }) => fieldsetId))];
+    const fields = new Map(
+      await Promise.all(sets.map(async (setId) => [setId, await this.validation.fields(this.db, setId)] as const)),
+    );
+    return datatable(
+      total!.value,
+      rows.map(({ asset, status, fieldsetId }) =>
+        this.serialize(asset, status, fields.get(fieldsetId) ?? [], user),
+      ),
+      query,
+      url,
+    );
+  }
+
+  async assignedLicenses(id: number, query: HardwareQuery, user: AuthenticatedUserContext, url: string) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    if (!permitsEntity(user, 'licenses.view')) return datatable(0, [], query, url);
+    const licenseScope = this.fmcs.predicate(scope, 'licenses', licenses.id, licenses.companyId);
+    const filters = and(
+      eq(licenseSeats.assetId, id),
+      isNull(licenseSeats.deletedAt),
+      isNull(licenses.deletedAt),
+      licenseScope,
+    );
+    const [[total], rows] = await Promise.all([
+      this.db
+        .select({ value: count() })
+        .from(licenseSeats)
+        .innerJoin(licenses, eq(licenses.id, licenseSeats.licenseId))
+        .where(filters),
+      this.db
+        .select({
+          seatId: licenseSeats.id,
+          licenseId: licenses.id,
+          name: licenses.name,
+          serial: licenses.serial,
+          assignedTo: licenseSeats.assignedTo,
+          unreassignableSeat: licenseSeats.unreassignableSeat,
+          notes: licenseSeats.notes,
+        })
+        .from(licenseSeats)
+        .innerJoin(licenses, eq(licenses.id, licenseSeats.licenseId))
+        .where(filters)
+        .orderBy(asc(licenses.name), asc(licenseSeats.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    const canKeys = permitsKey(user, 'licenses.keys');
+    const canUsers = permitsEntity(user, 'users.view');
+    return datatable(
+      total!.value,
+      rows.map((row) => ({
+        id: row.licenseId,
+        seat_id: row.seatId,
+        name: row.name,
+        serial: row.serial === null ? null : canKeys ? row.serial : '***************',
+        assigned_to: canUsers ? row.assignedTo : null,
+        unreassignable_seat: row.unreassignableSeat,
+        notes: row.notes,
+      })),
+      query,
+      url,
+    );
+  }
+
+  async assignedAccessories(
+    id: number,
+    query: HardwareQuery,
+    user: AuthenticatedUserContext,
+    url: string,
+  ) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    if (!permitsEntity(user, 'accessories.view')) return datatable(0, [], query, url);
+    const filters = and(
+      eq(accessoriesCheckout.assignedType, 'asset'),
+      eq(accessoriesCheckout.assignedTo, id),
+      isNull(accessories.deletedAt),
+      this.fmcs.predicate(scope, 'accessories', accessories.id, accessories.companyId),
+    );
+    const [[total], rows] = await Promise.all([
+      this.db
+        .select({ value: count() })
+        .from(accessoriesCheckout)
+        .innerJoin(accessories, eq(accessories.id, accessoriesCheckout.accessoryId))
+        .where(filters),
+      this.db
+        .select({
+          assignmentId: accessoriesCheckout.id,
+          accessoryId: accessories.id,
+          name: accessories.name,
+          modelNumber: accessories.modelNumber,
+          companyId: accessories.companyId,
+          note: accessoriesCheckout.note,
+        })
+        .from(accessoriesCheckout)
+        .innerJoin(accessories, eq(accessories.id, accessoriesCheckout.accessoryId))
+        .where(filters)
+        .orderBy(asc(accessories.name), asc(accessoriesCheckout.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    return datatable(
+      total!.value,
+      rows.map((row) => ({
+        id: row.accessoryId,
+        assignment_id: row.assignmentId,
+        name: row.name,
+        model_number: row.modelNumber,
+        company_id: row.companyId,
+        note: row.note,
+      })),
+      query,
+      url,
+    );
+  }
+
+  async assignedComponents(
+    id: number,
+    query: HardwareQuery,
+    user: AuthenticatedUserContext,
+    url: string,
+  ) {
+    const scope = await this.fmcs.resolve(user);
+    await this.find(this.db, scope, id);
+    if (!permitsEntity(user, 'components.view')) return datatable(0, [], query, url);
+    const filters = and(
+      eq(componentsAssets.assetId, id),
+      isNull(components.deletedAt),
+      this.fmcs.predicate(scope, 'components', components.id, components.companyId),
+    );
+    const [[total], rows] = await Promise.all([
+      this.db
+        .select({ value: count() })
+        .from(componentsAssets)
+        .innerJoin(components, eq(components.id, componentsAssets.componentId))
+        .where(filters),
+      this.db
+        .select({
+          assignmentId: componentsAssets.id,
+          componentId: components.id,
+          name: components.name,
+          serial: components.serial,
+          assignedQty: componentsAssets.assignedQty,
+          companyId: components.companyId,
+          note: componentsAssets.note,
+        })
+        .from(componentsAssets)
+        .innerJoin(components, eq(components.id, componentsAssets.componentId))
+        .where(filters)
+        .orderBy(asc(components.name), asc(componentsAssets.id))
+        .limit(query.limit)
+        .offset(pageOffset(query)),
+    ]);
+    return datatable(
+      total!.value,
+      rows.map((row) => ({
+        id: row.componentId,
+        assignment_id: row.assignmentId,
+        name: row.name,
+        serial: row.serial,
+        assigned_qty: row.assignedQty,
+        company_id: row.companyId,
+        note: row.note,
       })),
       query,
       url,

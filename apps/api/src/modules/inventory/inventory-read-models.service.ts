@@ -177,16 +177,28 @@ export class InventoryReadModelsService {
         ),
       );
     if (canRequests) {
+      const canAccessories = permitsEntity(user, 'accessories.view');
+      const canConsumables = permitsEntity(user, 'consumables.view');
+      const canComponents = permitsEntity(user, 'components.view');
       branches.push(
         selection(
           'checkout_request',
-          sql`coalesce(${assets.assetTag}, ${models.name})`,
+          sql`coalesce(${assets.assetTag}, ${models.name}, ${licenses.name},
+            ${secondaryTables.accessories.name}, ${secondaryTables.consumables.name}, ${secondaryTables.components.name})`,
           sql`${checkoutRequests} on ${checkoutRequests.id} = ${source}
           join ${users} on ${users.id} = ${checkoutRequests.userId}
           left join ${assets} on ${assets.id} = ${checkoutRequests.requestableId}
             and ${checkoutRequests.requestableType} = 'asset'
           left join ${models} on ${models.id} = ${checkoutRequests.requestableId}
-            and ${checkoutRequests.requestableType} = 'model'`,
+            and ${checkoutRequests.requestableType} = 'model'
+          left join ${licenses} on ${licenses.id} = ${checkoutRequests.requestableId}
+            and ${checkoutRequests.requestableType} = 'license'
+          left join ${secondaryTables.accessories} on ${secondaryTables.accessories.id} = ${checkoutRequests.requestableId}
+            and ${checkoutRequests.requestableType} = 'accessory'
+          left join ${secondaryTables.consumables} on ${secondaryTables.consumables.id} = ${checkoutRequests.requestableId}
+            and ${checkoutRequests.requestableType} = 'consumable'
+          left join ${secondaryTables.components} on ${secondaryTables.components.id} = ${checkoutRequests.requestableId}
+            and ${checkoutRequests.requestableType} = 'component'`,
           and(
             isNull(checkoutRequests.deletedAt),
             isNull(users.deletedAt),
@@ -197,6 +209,27 @@ export class InventoryReadModelsService {
                 : undefined,
               permitsEntity(user, 'models.view')
                 ? and(sql`${models.id} is not null`, isNull(models.deletedAt))
+                : undefined,
+              canLicenses
+                ? and(sql`${licenses.id} is not null`, this.catalog.visible('licenses', scope))
+                : undefined,
+              canAccessories
+                ? and(
+                    sql`${secondaryTables.accessories.id} is not null`,
+                    this.catalog.visible('accessories', scope),
+                  )
+                : undefined,
+              canConsumables
+                ? and(
+                    sql`${secondaryTables.consumables.id} is not null`,
+                    this.catalog.visible('consumables', scope),
+                  )
+                : undefined,
+              canComponents
+                ? and(
+                    sql`${secondaryTables.components.id} is not null`,
+                    this.catalog.visible('components', scope),
+                  )
                 : undefined,
               sql`false`,
             ),

@@ -20,6 +20,7 @@ import {
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { z } from 'zod';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { permitsKey } from '../../common/guards/permissions.guard.js';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { DirectoryService } from './directory.service.js';
@@ -30,6 +31,8 @@ import { PredefinedKitsService } from './predefined-kits.service.js';
 const id = (value: string) => parse(InventoryIdSchema, value);
 const kind = (value: string) => parse(z.enum(KIT_RESOURCES), value);
 
+@ApiTags('Predefined Kits')
+@ApiBearerAuth()
 @Controller('kits')
 export class PredefinedKitsController {
   constructor(

@@ -25,6 +25,7 @@ import { ConfigService } from '@nestjs/config';
 import bwip from 'bwip-js';
 import PDFDocument from 'pdfkit';
 import { z } from 'zod';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import type { EnvConfig } from '../../config/env.schema.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
@@ -197,6 +198,8 @@ const printInput = z.object({
   format: z.enum(['json', 'pdf']).default('json'),
 });
 
+@ApiTags('Labels')
+@ApiBearerAuth()
 @Controller()
 export class LabelsController {
   constructor(

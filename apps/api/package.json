@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "tsc -p tsconfig.build.json && drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "openapi:export": "tsc -p tsconfig.build.json && node dist/openapi/generate-openapi.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

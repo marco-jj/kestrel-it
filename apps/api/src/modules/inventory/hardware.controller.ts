@@ -12,6 +12,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   CustomFieldFormModeSchema,
   DatatableQuerySchema,
@@ -30,6 +31,8 @@ import { parse } from './inventory-queries.js';
 const tagSchema = z.string().min(1).max(255);
 const modelQuery = DatatableQuerySchema.extend({ deleted: z.enum(['0', '1']).optional() });
 
+@ApiTags('Hardware')
+@ApiBearerAuth()
 @Controller('hardware')
 export class HardwareController {
   constructor(@Inject(HardwareService) private readonly hardware: HardwareService) {}
@@ -107,6 +110,7 @@ export class HardwareController {
 
   @Get(':id/history')
   @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List immutable action log history for a hardware asset' })
   history(
     @Param('id') id: string,
     @Query() query: unknown,
@@ -115,6 +119,74 @@ export class HardwareController {
   ) {
     return this.hardware.history(
       'asset',
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/licenses')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List licenses assigned to a hardware asset' })
+  licenses(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedLicenses(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/assigned/assets')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List child assets checked out to a hardware asset' })
+  assignedAssets(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedAssets(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/assigned/accessories')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List accessories checked out to a hardware asset (suppresses rows without accessories.view)' })
+  assignedAccessories(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedAccessories(
+      parse(InventoryIdSchema, id),
+      parse(HardwareQuerySchema, query),
+      user,
+      req.url,
+    );
+  }
+
+  @Get(':id/assigned/components')
+  @RequirePermission('assets.view')
+  @ApiOperation({ summary: 'List components checked out to a hardware asset (suppresses rows without components.view)' })
+  assignedComponents(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentUser() user: AuthenticatedUserContext,
+    @Req() req: { url: string },
+  ) {
+    return this.hardware.assignedComponents(
       parse(InventoryIdSchema, id),
       parse(HardwareQuerySchema, query),
       user,
@@ -166,6 +238,8 @@ export class HardwareController {
   }
 }
 
+@ApiTags('Asset Models')
+@ApiBearerAuth()
 @Controller('models')
 export class AssetModelsController {
   constructor(
@@ -287,6 +361,8 @@ export class AssetModelsController {
   }
 }
 
+@ApiTags('Depreciations')
+@ApiBearerAuth()
 @Controller('depreciations')
 export class DepreciationSelectorController {
   constructor(@Inject(AssetModelsService) private readonly models: AssetModelsService) {}

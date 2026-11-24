@@ -1,3 +1,6 @@
+import { InventorySubresourcesController } from './inventory-subresources.controller.js';
+import { InventorySubresourcesService } from './inventory-subresources.service.js';
+import { SettingsAdminController } from './settings-admin.controller.js';
 import { NotificationsController } from './notifications.controller.js';
 import { ImportsController } from './imports.controller.js';
 import { ImportRecordsService } from './import-records.service.js';
@@ -47,7 +50,13 @@ import { StorageDeletionService } from './storage-deletion.service.js';
 @Module({
   imports: [StorageModule, AuthModule, InventoryMailModule],
   controllers: [
-    OperationalFilesController, LabelsController, ReportsController, ImportsController, NotificationsController,
+    SettingsAdminController,
+    InventorySubresourcesController,
+    OperationalFilesController,
+    LabelsController,
+    ReportsController,
+    ImportsController,
+    NotificationsController,
     SecondaryInventoryController,
     LicenseSeatsController,
     ConsumableActionsController,
@@ -57,7 +66,6 @@ import { StorageDeletionService } from './storage-deletion.service.js';
     InventoryReadModelsController,
     MaintenanceController,
     MaintenanceTypesController,
-    DirectoryController,
     CustomFieldsController,
     CustomFieldsetsController,
     AssetModelsController,
@@ -67,8 +75,10 @@ import { StorageDeletionService } from './storage-deletion.service.js';
     AssetWorkflowsController,
     InventoryAccountController,
     InventoryRequestsController,
+    DirectoryController,
   ],
   providers: [
+    InventorySubresourcesService,
     StorageDeletionService,
     ImportRecordsService,
     SecondaryCatalogService,

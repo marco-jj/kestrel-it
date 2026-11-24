@@ -27,6 +27,7 @@ import {
   accessoriesCheckout,
   actionLogs,
   categories,
+  checkoutRequests,
   companies,
   components,
   componentsAssets,
@@ -463,6 +464,20 @@ export class SecondaryCatalogService {
             );
             if (kit) throw new ConflictException('Inventory is included in a kit');
           }
+          const [pendingRequest] = await tx
+            .select({ id: checkoutRequests.id })
+            .from(checkoutRequests)
+            .where(
+              and(
+                eq(checkoutRequests.requestableType, secondaryTypes[resource]),
+                eq(checkoutRequests.requestableId, id),
+                eq(checkoutRequests.state, 'pending'),
+                isNull(checkoutRequests.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (pendingRequest)
+            throw new ConflictException('Inventory has pending checkout requests');
         }
         if (action === 'unarchive') {
           if (resource === 'licenses')

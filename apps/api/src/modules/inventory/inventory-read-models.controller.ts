@@ -1,4 +1,5 @@
 import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { DatatableQuerySchema, type AuthenticatedUserContext } from '@kestrel-it/shared';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { parse } from './inventory-queries.js';
@@ -8,6 +9,8 @@ import {
   OrderQuerySchema,
 } from './inventory-read-models.service.js';
 
+@ApiTags('Calendar, Orders & Stock Alerts')
+@ApiBearerAuth()
 @Controller()
 export class InventoryReadModelsController {
   constructor(

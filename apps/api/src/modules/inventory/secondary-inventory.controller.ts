@@ -12,6 +12,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   DatatableQuerySchema,
   InventoryIdSchema,
@@ -47,6 +48,8 @@ const querySchema = DatatableQuerySchema.extend({
     .optional(),
 });
 
+@ApiTags('Secondary Inventory')
+@ApiBearerAuth()
 @Controller([...SECONDARY_RESOURCES])
 export class SecondaryInventoryController {
   constructor(
@@ -239,6 +242,8 @@ export class SecondaryInventoryController {
   }
 }
 
+@ApiTags('Licenses')
+@ApiBearerAuth()
 @Controller('licenses/:licenseId/seats')
 export class LicenseSeatsController {
   constructor(
@@ -277,6 +282,8 @@ export class LicenseSeatsController {
   }
 }
 
+@ApiTags('Consumables')
+@ApiBearerAuth()
 @Controller('consumables')
 export class ConsumableActionsController {
   constructor(

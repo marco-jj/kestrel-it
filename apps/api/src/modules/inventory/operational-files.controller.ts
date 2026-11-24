@@ -22,6 +22,7 @@ import {
 import { and, desc, eq, getTableColumns, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { randomUUID } from 'node:crypto';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { permitsEntity } from '../../common/guards/permissions.guard.js';
@@ -117,6 +118,8 @@ export function attachmentResponse(
     .header('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`);
 }
 
+@ApiTags('File Attachments')
+@ApiBearerAuth()
 @Controller([
   'hardware',
   'assets',

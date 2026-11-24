@@ -20,6 +20,7 @@ import {
 } from '@kestrel-it/shared';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { permitsKey } from '../../common/guards/permissions.guard.js';
 import type { EnvConfig } from '../../config/env.schema.js';
@@ -97,6 +98,8 @@ const settingsInput = z.object({
   webhook_botname: z.string().max(255).nullable().optional(),
 });
 
+@ApiTags('Notifications')
+@ApiBearerAuth()
 @Controller()
 export class NotificationsController {
   constructor(

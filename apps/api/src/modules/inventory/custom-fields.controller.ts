@@ -18,6 +18,7 @@ import {
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { z } from 'zod';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { CustomFieldsService } from './custom-fields.service.js';
 import { parse } from './inventory-queries.js';
@@ -81,6 +82,8 @@ abstract class CustomFieldCatalogController {
   }
 }
 
+@ApiTags('Custom Fields')
+@ApiBearerAuth()
 @Controller('fields')
 export class CustomFieldsController extends CustomFieldCatalogController {
   constructor(@Inject(CustomFieldsService) service: CustomFieldsService) {
@@ -129,6 +132,8 @@ export class CustomFieldsController extends CustomFieldCatalogController {
   }
 }
 
+@ApiTags('Custom Fieldsets')
+@ApiBearerAuth()
 @Controller('fieldsets')
 export class CustomFieldsetsController extends CustomFieldCatalogController {
   constructor(@Inject(CustomFieldsService) service: CustomFieldsService) {

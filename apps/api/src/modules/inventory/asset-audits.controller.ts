@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Multipart } from '@fastify/multipart';
 import {
   DatatableQuerySchema,
@@ -55,6 +56,8 @@ async function auditInput(
   return { data: data ?? fields, photo };
 }
 
+@ApiTags('Audits')
+@ApiBearerAuth()
 @Controller('hardware')
 export class AssetAuditsController {
   constructor(@Inject(AssetAuditsService) private readonly audits: AssetAuditsService) {}

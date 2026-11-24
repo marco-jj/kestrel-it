@@ -23,6 +23,7 @@ import {
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { asc, eq } from 'drizzle-orm';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
@@ -54,6 +55,8 @@ const fields = {
   rate_multiplier: depreciations.rateMultiplier,
 };
 
+@ApiTags('Depreciations')
+@ApiBearerAuth()
 @Controller('depreciations')
 export class DepreciationController {
   constructor(@Inject(DRIZZLE_DB) private readonly db: DrizzleDb) {}

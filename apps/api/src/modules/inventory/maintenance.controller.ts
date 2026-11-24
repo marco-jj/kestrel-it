@@ -18,11 +18,14 @@ import {
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { parse } from './inventory-queries.js';
 import { MaintenanceQuery, MaintenanceService } from './maintenance.service.js';
 
 const id = (value: string) => parse(InventoryIdSchema, value);
 
+@ApiTags('Maintenance')
+@ApiBearerAuth()
 @Controller('maintenances')
 export class MaintenanceController {
   constructor(@Inject(MaintenanceService) private readonly maintenances: MaintenanceService) {}
@@ -118,6 +121,8 @@ export class MaintenanceController {
   }
 }
 
+@ApiTags('Maintenance Types')
+@ApiBearerAuth()
 @Controller('maintenance-types')
 export class MaintenanceTypesController {
   constructor(@Inject(MaintenanceService) private readonly maintenances: MaintenanceService) {}

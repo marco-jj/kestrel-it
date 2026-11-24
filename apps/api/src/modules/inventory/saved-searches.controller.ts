@@ -16,12 +16,15 @@ import {
   type AuthenticatedUserContext,
 } from '@kestrel-it/shared';
 import { and, eq } from 'drizzle-orm';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '../../common/decorators/auth.decorators.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import { savedSearches } from '../../db/schema/index.js';
 import { HardwareService } from './hardware.service.js';
 import { parse, success } from './inventory-queries.js';
 
+@ApiTags('Saved Searches')
+@ApiBearerAuth()
 @Controller('saved-searches')
 @RequirePermission('assets.view')
 export class SavedSearchesController {

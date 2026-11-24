@@ -5,11 +5,12 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import type { EnvConfig } from './config/env.schema.js';
 import { DatabaseBootstrapService } from './db/bootstrap.service.js';
 import { POSTGRES_CLIENT } from './db/database.tokens.js';
+import { buildOpenApiDocument } from './openapi/openapi.util.js';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -31,13 +32,7 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Kestrel-IT API')
-    .setDescription('Cloud-native IT Asset Management (ITAM) REST API')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  const document = buildOpenApiDocument(app);
   SwaggerModule.setup('api/docs', app, document);
 
   await app.get(DatabaseBootstrapService).initialize(app.get(POSTGRES_CLIENT));

@@ -27,6 +27,7 @@ import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../common/storage/storage.interface.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
@@ -76,6 +77,8 @@ function maskPreview(headers: string[], row: string[]) {
   );
 }
 
+@ApiTags('CSV Imports')
+@ApiBearerAuth()
 @Controller('imports')
 export class ImportsController {
   private readonly logger = new Logger(ImportsController.name);

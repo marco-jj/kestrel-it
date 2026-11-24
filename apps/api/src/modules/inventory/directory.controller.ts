@@ -11,6 +11,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   DatatableQuerySchema,
   InventoryIdSchema,
@@ -29,6 +30,8 @@ const directoryQuery = DatatableQuerySchema.extend({
     .optional(),
 });
 
+@ApiTags('Directory & Taxonomy')
+@ApiBearerAuth()
 @Controller()
 export class DirectoryController {
   constructor(@Inject(DirectoryService) private readonly directory: DirectoryService) {}

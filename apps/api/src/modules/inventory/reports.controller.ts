@@ -24,7 +24,16 @@ import {
   type PermissionKey,
   type ReportType,
 } from '@kestrel-it/shared';
-import { and, eq, getTableColumns, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  and,
+  eq,
+  getTableColumns,
+  isNull,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import ExcelJS from 'exceljs';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -38,7 +47,9 @@ import {
   actionLogs,
   assetMaintenances,
   assets,
+  categories,
   checkoutAcceptances,
+  checkoutRequests,
   companies,
   components,
   consumables,
@@ -49,13 +60,14 @@ import {
   locations,
   models,
   reportTemplates,
+  statusLabels,
   suppliers,
   users,
 } from '../../db/schema/index.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
 import { depreciationValue, moneyInCents } from './depreciation.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
-import { HardwareService } from './hardware.service.js';
+import { HardwareService, assetStatus } from './hardware.service.js';
 import { datatable, pageOffset, parse, success } from './inventory-queries.js';
 import { attachmentResponse } from './operational-files.controller.js';
 import { currentSettings, requireInventoryPermission } from './phase-three-queries.js';
@@ -128,6 +140,8 @@ export function csvCell(value: unknown) {
   return '"' + safe.replaceAll('"', '""') + '"';
 }
 
+@ApiTags('Reports & Dashboard')
+@ApiBearerAuth()
 @Controller()
 export class ReportsController {
   constructor(
@@ -490,6 +504,7 @@ export class ReportsController {
   }
 
   @Get('dashboard/activity')
+  @ApiOperation({ summary: 'List FMCS-scoped recent inventory activity feed' })
   dashboardActivity(
     @Query() raw: Record<string, unknown>,
     @Req() req: FastifyRequest,
@@ -497,6 +512,148 @@ export class ReportsController {
     @Res() reply: FastifyReply,
   ) {
     return this.report('activity', { ...raw, scoped: 'true', format: undefined }, req, user, reply);
+  }
+
+  @Get('dashboard/summary')
+  @ApiOperation({ summary: 'Return permission- and FMCS-scoped dashboard KPI metrics' })
+  async dashboardSummary(@CurrentUser() user: AuthenticatedUserContext) {
+    const scope = await this.fmcs.resolve(user);
+    const canAssets = permitsEntity(user, 'assets.view');
+    const canLicenses = permitsEntity(user, 'licenses.view');
+    const canAccessories = permitsEntity(user, 'accessories.view');
+    const canConsumables = permitsEntity(user, 'consumables.view');
+    const canComponents = permitsEntity(user, 'components.view');
+    const assetRows = canAssets
+      ? await this.db
+          .select({ asset: assets, status: statusLabels })
+          .from(assets)
+          .leftJoin(
+            statusLabels,
+            and(eq(statusLabels.id, assets.statusId), isNull(statusLabels.deletedAt)),
+          )
+          .where(this.hardware.visible(scope))
+      : [];
+    const statusBuckets = { deployable: 0, deployed: 0, pending: 0, archived: 0, undeployable: 0 };
+    for (const row of assetRows) {
+      const bucket = assetStatus(row.asset, row.status);
+      statusBuckets[bucket] = (statusBuckets[bucket] ?? 0) + 1;
+    }
+    const [[licenseTotals], [accessoryTotals], [consumableTotals], [componentTotals], [myAcceptances], [myRequests], [pendingQueue], [overdueAudits], [activeMaint]] =
+      await Promise.all([
+        canLicenses
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${licenses} where deleted_at is null and ${this.scope(scope, licenses, 'licenses')}`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+        canAccessories
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${accessories} where deleted_at is null and ${this.scope(scope, accessories, 'accessories')}`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+        canConsumables
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${consumables} where deleted_at is null and ${this.scope(scope, consumables, 'consumables')}`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+        canComponents
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${components} where deleted_at is null and ${this.scope(scope, components, 'components')}`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+        this.db.execute<{ total: number }>(
+          sql`select count(*)::int as total from ${checkoutAcceptances}
+            where deleted_at is null and accepted_at is null and declined_at is null and assigned_to_id = ${user.id}`,
+        ),
+        this.db.execute<{ total: number }>(
+          sql`select count(*)::int as total from ${checkoutRequests}
+            where deleted_at is null and state = 'pending' and user_id = ${user.id}`,
+        ),
+        permitsKey(user, 'assets.checkout')
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${checkoutRequests}
+                where deleted_at is null and state = 'pending'`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+        permitsKey(user, 'assets.audit')
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${assets}
+                where deleted_at is null and next_audit_date is not null and next_audit_date < current_date
+                  and ${this.hardware.visible(scope)}`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+        canAssets
+          ? this.db.execute<{ total: number }>(
+              sql`select count(*)::int as total from ${assetMaintenances} join ${assets} on ${assets.id} = ${assetMaintenances.itemId}
+                where ${assetMaintenances.deletedAt} is null and ${assetMaintenances.completedAt} is null and ${this.hardware.visible(scope)}`,
+            )
+          : Promise.resolve([{ total: 0 }]),
+      ]);
+    return success({
+      assets_total: assetRows.length,
+      status_breakdown: statusBuckets,
+      licenses_total: licenseTotals?.total ?? 0,
+      accessories_total: accessoryTotals?.total ?? 0,
+      consumables_total: consumableTotals?.total ?? 0,
+      components_total: componentTotals?.total ?? 0,
+      my_pending_acceptances: myAcceptances?.total ?? 0,
+      my_pending_requests: myRequests?.total ?? 0,
+      pending_checkout_requests: pendingQueue?.total ?? 0,
+      overdue_audits: overdueAudits?.total ?? 0,
+      active_maintenances: activeMaint?.total ?? 0,
+    });
+  }
+
+  @Get('dashboard/categories')
+  @ApiOperation({ summary: 'Return asset counts grouped by category within FMCS scope' })
+  async dashboardCategories(@CurrentUser() user: AuthenticatedUserContext) {
+    if (!permitsEntity(user, 'assets.view')) return success([]);
+    const scope = await this.fmcs.resolve(user);
+    const rows = await this.db.execute<{ id: number; name: string; count: number }>(sql`
+      select ${categories.id} as id, ${categories.name} as name, count(${assets.id})::int as count
+      from ${categories}
+      left join ${models} on ${models.categoryId} = ${categories.id} and ${models.deletedAt} is null
+      left join ${assets} on ${assets.modelId} = ${models.id} and ${this.hardware.visible(scope)}
+      where ${categories.deletedAt} is null and ${categories.categoryType} = 'asset'
+      group by ${categories.id}, ${categories.name}
+      having count(${assets.id}) > 0
+      order by count(${assets.id}) desc, ${categories.name} asc
+    `);
+    return success(Array.from(rows));
+  }
+
+  @Get('dashboard/companies')
+  @ApiOperation({ summary: 'Return asset counts grouped by company within FMCS scope' })
+  async dashboardCompanies(@CurrentUser() user: AuthenticatedUserContext) {
+    if (!permitsEntity(user, 'assets.view')) return success([]);
+    const scope = await this.fmcs.resolve(user);
+    const rows = await this.db.execute<{ id: number; name: string; count: number }>(sql`
+      select ${companies.id} as id, ${companies.name} as name, count(${assets.id})::int as count
+      from ${companies}
+      left join ${assets} on ${assets.companyId} = ${companies.id} and ${this.hardware.visible(scope)}
+      where ${companies.deletedAt} is null
+        and ${this.fmcs.predicate(scope, 'companies', companies.id) ?? sql`true`}
+      group by ${companies.id}, ${companies.name}
+      order by count(${assets.id}) desc, ${companies.name} asc
+    `);
+    return success(Array.from(rows));
+  }
+
+  @Get('dashboard/locations')
+  @ApiOperation({ summary: 'Return asset counts grouped by location within FMCS scope' })
+  async dashboardLocations(@CurrentUser() user: AuthenticatedUserContext) {
+    if (!permitsEntity(user, 'assets.view')) return success([]);
+    const scope = await this.fmcs.resolve(user);
+    const rows = await this.db.execute<{ id: number; name: string; count: number }>(sql`
+      select ${locations.id} as id, ${locations.name} as name, count(${assets.id})::int as count
+      from ${locations}
+      left join ${assets} on ${assets.locationId} = ${locations.id} and ${this.hardware.visible(scope)}
+      where ${locations.deletedAt} is null
+        and ${this.fmcs.predicate(scope, 'locations', locations.id, locations.companyId) ?? sql`true`}
+      group by ${locations.id}, ${locations.name}
+      having count(${assets.id}) > 0
+      order by count(${assets.id}) desc, ${locations.name} asc
+    `);
+    return success(Array.from(rows));
   }
 
   @Get('unaccepted-acceptances')
