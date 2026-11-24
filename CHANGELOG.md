@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed the login template’s access to the authentication store.
+
 ## v0.0.1-beta
 
 First beta of Kestrel-IT.

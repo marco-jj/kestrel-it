@@ -353,7 +353,7 @@ export class LoginComponent implements OnInit {
   });
 
   constructor(
-    @Inject(AuthStore) private readonly authStore: AuthStore,
+    @Inject(AuthStore) protected readonly authStore: AuthStore,
     @Optional() @Inject(HttpClient) private readonly http?: HttpClient,
     @Optional() @Inject(Router) private readonly router?: Router,
     @Optional() @Inject(ThemeStore) themeStore?: ThemeStore,
