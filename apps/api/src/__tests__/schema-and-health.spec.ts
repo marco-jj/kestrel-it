@@ -137,7 +137,7 @@ describe('Environment validation & controllers', () => {
     const controller = new HealthController();
     expect(controller.getVersion()).toEqual({
       name: 'Kestrel-IT',
-      version: '0.0.1-beta',
+      version: '0.0.2-beta',
       api_version: 'v1',
     });
 

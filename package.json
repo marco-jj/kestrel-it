@@ -1,6 +1,6 @@
 {
   "name": "kestrel-it",
-  "version": "0.0.1-beta",
+  "version": "0.0.2-beta",
   "private": true,
   "description": "A modern, cloud-native IT Asset Management (ITAM) platform built with NestJS, Drizzle/PostgreSQL, Angular, OIDC, and Helm.",
   "packageManager": "pnpm@12.21.0",

@@ -51,7 +51,7 @@ jobs:
       VERSION: ${{ needs.validate-tag.outputs.version }}
       RELEASE_COMMIT: ${{ needs.validate-tag.outputs.commit }}
       GH_TOKEN: ${{ github.token }}
-      TRIVY_IMAGE: aquasec/trivy:0.71.0@sha256:016eae51fdcf989332a5404af7e8f625cd5d95d7c0907a221d080a996f556500
+      TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
       INVENTORY_TEST_DATABASE_URL: postgres://postgres:release_test@127.0.0.1:5432/postgres
     services:
       postgres:
@@ -86,14 +86,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Verify application and REST contract
+      - name: Install pnpm
         run: |
           npm install --global "pnpm@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
-          pnpm install --frozen-lockfile
-          pnpm build
-          pnpm typecheck
-          pnpm test
-          pnpm --filter @kestrel-it/api openapi:check
       - name: Audit workspace dependencies
         run: |
           set -euo pipefail
@@ -109,31 +104,31 @@ jobs:
             echo "::error::The dependency audit did not complete"
             exit 1
           fi
-      - uses: azure/setup-helm@v4
-        with:
-          version: v3.16.4
-      - name: Package and verify the chart
+          printf 'Workspace dependencies have %s high or critical advisories.\n' "$findings"
+          if (( findings > 0 )); then
+            echo "::error::Release blocked by high or critical dependency vulnerabilities. See the security scan artifacts."
+            exit 1
+          fi
+      - name: Prepare Trivy vulnerability database
         run: |
           set -euo pipefail
-          chart=deploy/helm/kestrel-it
-          sed -i "s#ghcr.io/marco-jj/kestrel-it-#$IMAGE_PREFIX-#g" "$chart/values.yaml"
-          values=(
-            --set-string postgresql.auth.password=helm-test
-            --set-string "config.secrets.jwtSecret=$(openssl rand -hex 32)"
-            --set-string "config.secrets.appEncryptionKey=$(openssl rand -hex 32)"
-          )
-          cp LICENSE.md "$chart/LICENSE.md"
-          helm lint "$chart" "${values[@]}"
-          helm package "$chart" --destination release --version "$VERSION" --app-version "$VERSION"
-          helm template kestrel-it "release/kestrel-it-$VERSION.tgz" "${values[@]}" > /tmp/kestrel-release.yaml
-          grep -F "image: \"$IMAGE_PREFIX-api:$VERSION\"" /tmp/kestrel-release.yaml
-          grep -F "image: \"$IMAGE_PREFIX-web:$VERSION\"" /tmp/kestrel-release.yaml
-          (cd release && sha256sum "kestrel-it-$VERSION.tgz" > "kestrel-it-$VERSION.tgz.sha256")
+          cache="$RUNNER_TEMP/kestrel-trivy"
+          mkdir -p "$cache"
+          docker run --rm --volume "$cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image --download-db-only --no-progress \
+            --db-repository mirror.gcr.io/aquasec/trivy-db:2 --db-repository ghcr.io/aquasecurity/trivy-db:2
+      - name: Verify application and REST contract
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm typecheck
+          pnpm test
+          pnpm --filter @kestrel-it/api openapi:check
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - uses: docker/setup-buildx-action@v3
-      - name: Build and smoke-test release images
+      - name: Build release images
         run: |
           set -euo pipefail
           node_version="$(<.nvmrc)"
@@ -148,31 +143,27 @@ jobs:
                 --tag "kestrel-release-$component:$architecture" .
             done
           done
-          bash deploy/images/smoke-test.sh "kestrel-release-api:amd64" "kestrel-release-web:amd64"
       - name: Scan runtime images
         run: |
           set -euo pipefail
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
-          mkdir "$work/cache"
           for architecture in amd64 arm64; do
             for component in api web; do
               docker save --output "$work/image.tar" "kestrel-release-$component:$architecture"
               docker run --rm \
                 --volume "$work/image.tar:/scan/image.tar:ro" \
-                --volume "$work/cache:/root/.cache/trivy" \
+                --volume "$RUNNER_TEMP/kestrel-trivy:/root/.cache/trivy" \
                 "$TRIVY_IMAGE" image --input /scan/image.tar --scanners vuln --format json --no-progress \
-                --db-repository ghcr.io/aquasecurity/trivy-db:2 --db-repository mirror.gcr.io/aquasec/trivy-db:2 \
+                --skip-db-update \
                 > "$SCAN_REPORTS/$component-$architecture.json"
               rm "$work/image.tar"
             done
           done
-      - name: Enforce CVE release gate
+      - name: Enforce runtime image CVE gate
         run: |
           set -euo pipefail
-          dependencies="$(jq '.metadata.vulnerabilities | .high + .critical' "$SCAN_REPORTS/dependencies.json")"
-          printf 'Workspace dependencies have %s high or critical advisories.\n' "$dependencies"
-          total="$dependencies"
+          total=0
           for architecture in amd64 arm64; do
             for component in api web; do
               report="$SCAN_REPORTS/$component-$architecture.json"
@@ -194,6 +185,29 @@ jobs:
           path: ${{ runner.temp }}/kestrel-security
           retention-days: 30
           if-no-files-found: ignore
+      - name: Smoke-test release images
+        run: |
+          bash deploy/images/smoke-test.sh "kestrel-release-api:amd64" "kestrel-release-web:amd64"
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Package and verify the chart
+        run: |
+          set -euo pipefail
+          chart=deploy/helm/kestrel-it
+          sed -i "s#ghcr.io/marco-jj/kestrel-it-#$IMAGE_PREFIX-#g" "$chart/values.yaml"
+          values=(
+            --set-string postgresql.auth.password=helm-test
+            --set-string "config.secrets.jwtSecret=$(openssl rand -hex 32)"
+            --set-string "config.secrets.appEncryptionKey=$(openssl rand -hex 32)"
+          )
+          cp LICENSE.md "$chart/LICENSE.md"
+          helm lint "$chart" "${values[@]}"
+          helm package "$chart" --destination release --version "$VERSION" --app-version "$VERSION"
+          helm template kestrel-it "release/kestrel-it-$VERSION.tgz" "${values[@]}" > /tmp/kestrel-release.yaml
+          grep -F "image: \"$IMAGE_PREFIX-api:$VERSION\"" /tmp/kestrel-release.yaml
+          grep -F "image: \"$IMAGE_PREFIX-web:$VERSION\"" /tmp/kestrel-release.yaml
+          (cd release && sha256sum "kestrel-it-$VERSION.tgz" > "kestrel-it-$VERSION.tgz.sha256")
       - name: Push scanned images and the OCI chart
         run: |
           set -euo pipefail

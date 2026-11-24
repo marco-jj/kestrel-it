@@ -79,7 +79,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Kestrel-IT API')
     .setDescription('Cloud-native IT Asset Management (ITAM) REST API')
-    .setVersion('0.0.1-beta')
+    .setVersion('0.0.2-beta')
     .addBearerAuth()
     .build();
 

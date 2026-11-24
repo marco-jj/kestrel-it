@@ -22009,7 +22009,7 @@
   "info": {
     "title": "Kestrel-IT API",
     "description": "Cloud-native IT Asset Management (ITAM) REST API",
-    "version": "0.0.1-beta",
+    "version": "0.0.2-beta",
     "contact": {}
   },
   "tags": [],
