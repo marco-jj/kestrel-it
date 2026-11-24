@@ -82,3 +82,76 @@ export const LabelLayoutSchema = z.object({
   fields: z.array(z.string().max(160)).max(12).default(['asset_tag', 'name']),
 });
 export type LabelLayout = z.output<typeof LabelLayoutSchema>;
+
+const hexColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{3,8}$/, 'Use a hex color code such as #0D9488');
+
+export const GeneralSettingsUpdateSchema = z
+  .object({
+    site_name: z.string().trim().min(1).max(255).optional(),
+    per_page: z.coerce.number().int().min(5).max(500).optional(),
+    locale: z.string().trim().min(2).max(20).optional(),
+    default_currency: z.string().trim().min(1).max(10).optional(),
+    date_display_format: z.string().trim().min(1).max(50).optional(),
+    time_display_format: z.string().trim().min(1).max(50).optional(),
+    auto_increment_assets: z.boolean().optional(),
+    auto_increment_prefix: z.string().trim().max(100).nullable().optional(),
+    zerofill_count: z.coerce.number().int().min(0).max(20).optional(),
+    unique_serial: z.boolean().optional(),
+    full_multiple_companies_support: z.boolean().optional(),
+    scope_locations_fmcs: z.boolean().optional(),
+    null_company_is_floater: z.boolean().optional(),
+    default_eula_text: z.string().max(50_000).nullable().optional(),
+    require_accept_signature: z.boolean().optional(),
+    require_checkinout_notes: z.boolean().optional(),
+    require_adjust_quantity_notes: z.boolean().optional(),
+    depreciation_method: z.enum(['default', 'half_1', 'half_2', 'diminish']).optional(),
+    two_factor_enabled: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
+    pwd_secure_min: z.coerce.number().int().min(8).max(128).optional(),
+    profile_edit: z.boolean().optional(),
+    show_assigned_assets: z.boolean().optional(),
+    show_archived_in_list: z.boolean().optional(),
+    dash_chart_type: z.enum(['doughnut', 'bar', 'pie', 'horizontalBar']).optional(),
+    header_color: hexColorSchema.nullable().optional(),
+    nav_link_color: hexColorSchema.nullable().optional(),
+    link_light_color: hexColorSchema.nullable().optional(),
+    link_dark_color: hexColorSchema.nullable().optional(),
+    custom_css: z.string().max(50_000).nullable().optional(),
+    footer_text: z.string().max(10_000).nullable().optional(),
+    privacy_policy_link: z.string().trim().url().max(500).nullable().optional(),
+    dashboard_message: z.string().max(10_000).nullable().optional(),
+    login_note: z.string().max(10_000).nullable().optional(),
+    oidc_enabled: z.boolean().optional(),
+    oidc_issuer_url: z.string().trim().url().max(500).nullable().optional(),
+    oidc_client_id: z.string().trim().max(255).nullable().optional(),
+    oidc_client_secret: z.string().max(500).nullable().optional(),
+    oidc_scopes: z.string().trim().max(255).nullable().optional(),
+    oidc_auto_provision_users: z.boolean().optional(),
+    oidc_link_existing_users: z.boolean().optional(),
+    oidc_sync_on_login: z.boolean().optional(),
+    oidc_sync_groups: z.boolean().optional(),
+    oidc_username_claim: z.string().trim().max(100).nullable().optional(),
+    oidc_groups_claim: z.string().trim().max(100).nullable().optional(),
+  })
+  .strict();
+export type GeneralSettingsUpdate = z.infer<typeof GeneralSettingsUpdateSchema>;
+
+export const AccountProfileUpdateSchema = z
+  .object({
+    first_name: z.string().trim().max(255).nullable().optional(),
+    last_name: z.string().trim().max(255).nullable().optional(),
+    display_name: z.string().trim().max(255).nullable().optional(),
+    email: z.string().trim().email().max(255).nullable().optional(),
+    locale: z.string().trim().min(2).max(20).optional(),
+    phone: z.string().trim().max(50).nullable().optional(),
+    current_password: z.string().min(1).max(255).optional(),
+    new_password: z.string().min(8).max(255).optional(),
+  })
+  .strict()
+  .refine((input) => !input.new_password || Boolean(input.current_password), {
+    path: ['current_password'],
+    message: 'Current password is required to set a new password',
+  });
+export type AccountProfileUpdate = z.infer<typeof AccountProfileUpdateSchema>;
