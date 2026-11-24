@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LabelLayoutSchema } from '@kestrel-it/shared';
 import {
   BarcodeFormat,
@@ -141,5 +144,39 @@ describe('Snipe-IT operational format parity', () => {
     expect(() => webhookUrl('https://service.local/hook')).toThrow();
     expect(() => webhookUrl('https://user:secret@example.com/hook')).toThrow();
     expect(webhookUrl('https://hooks.example.com/hook').hostname).toBe('hooks.example.com');
+  });
+
+  it('publishes an exported OpenAPI contract covering Plan 3.5 parity routes', () => {
+    const specPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../docs/openapi.json',
+    );
+    expect(existsSync(specPath)).toBe(true);
+    const spec = JSON.parse(readFileSync(specPath, 'utf8')) as {
+      openapi?: string;
+      paths?: Record<string, unknown>;
+    };
+    expect(spec.openapi).toMatch(/^3\./);
+    const paths = Object.keys(spec.paths ?? {});
+    for (const required of [
+      '/api/v1/hardware/{id}/licenses',
+      '/api/v1/hardware/{id}/assigned/assets',
+      '/api/v1/hardware/{id}/assigned/accessories',
+      '/api/v1/hardware/{id}/assigned/components',
+      '/api/v1/account/assets',
+      '/api/v1/account/profile',
+      '/api/v1/account/request/{type}/{id}',
+      '/api/v1/account/request/{type}/{id}/cancel',
+      '/api/v1/users/{id}/assets',
+      '/api/v1/locations/{id}/assets',
+      '/api/v1/statuslabels/assets/name',
+      '/api/v1/statuslabels/assets/type',
+      '/api/v1/dashboard/summary',
+      '/api/v1/dashboard/categories',
+      '/api/v1/settings',
+      '/api/v1/settings/login-attempts',
+    ]) {
+      expect(paths).toContain(required);
+    }
   });
 });

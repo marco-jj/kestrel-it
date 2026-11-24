@@ -2591,6 +2591,169 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       await rm(folder, { recursive: true, force: true });
     }
   });
+
+  it('enforces FMCS, sub-permissions, and Plan 3.5 parity routes across settings, profile, and requestables', async () => {
+    const westHost = await create('HOST-P35');
+    const eastHost = await create('EAST-HOST-P35', eastCompany);
+
+    const westLicense = (
+      await ok('POST', '/licenses', 'root', {
+        name: 'West IDE License',
+        serial: 'SECRET-KEY-P35',
+        seats: 2,
+        company_id: westCompany,
+        requestable: true,
+      })
+    ).payload;
+    const eastLicense = (
+      await ok('POST', '/licenses', 'root', {
+        name: 'East IDE License',
+        serial: 'EAST-KEY-P35',
+        seats: 2,
+        company_id: eastCompany,
+        requestable: true,
+      })
+    ).payload;
+    const westAccessory = (
+      await ok('POST', '/accessories', 'root', {
+        name: 'West Dock',
+        qty: 3,
+        company_id: westCompany,
+        requestable: true,
+      })
+    ).payload;
+    const westComponent = (
+      await ok('POST', '/components', 'root', {
+        name: 'West NVMe 1TB',
+        qty: 2,
+        serial: 'NVME-P35',
+        company_id: westCompany,
+        requestable: true,
+      })
+    ).payload;
+
+    const freeSeat = (await ok('GET', `/licenses/${westLicense.id}/seats`, 'root')).rows.find(
+      (s: { assigned_to: number | null }) => s.assigned_to === null,
+    );
+    await ok('POST', `/licenses/${westLicense.id}/checkout`, 'root', {
+      target_type: 'asset',
+      target_id: westHost.id,
+      seat_id: freeSeat.id,
+    });
+    await ok('POST', `/accessories/${westAccessory.id}/checkout`, 'root', {
+      target_type: 'user',
+      target_id: west,
+    });
+    await ok('POST', `/components/${westComponent.id}/checkout`, 'root', {
+      target_type: 'asset',
+      target_id: westHost.id,
+      assigned_qty: 1,
+    });
+
+    const westLicensesTab = await ok('GET', `/hardware/${westHost.id}/licenses`, 'west');
+    expect(westLicensesTab.rows[0]).toMatchObject({
+      name: 'West IDE License',
+      serial: '***************',
+    });
+    const rootLicensesTab = await ok('GET', `/hardware/${westHost.id}/licenses`, 'root');
+    expect(rootLicensesTab.rows[0].serial).toBe('SECRET-KEY-P35');
+
+    // west lacks components.view -> suppressed empty rows instead of leaking components
+    const westCompTab = await ok('GET', `/hardware/${westHost.id}/assigned/components`, 'west');
+    expect(westCompTab.rows).toEqual([]);
+    const rootCompTab = await ok('GET', `/hardware/${westHost.id}/assigned/components`, 'root');
+    expect(rootCompTab.rows.map((r: { name: string }) => r.name)).toContain('West NVMe 1TB');
+
+    // Self-service requestable secondary items + FMCS + bulk delete guard + fulfillment
+    const westAccCatalog = await ok('GET', '/account/requestable/accessories', 'west');
+    expect(westAccCatalog.rows.map((r: { id: number }) => r.id)).toContain(westAccessory.id);
+    const westLicCatalog = await ok('GET', '/account/requestable/licenses', 'west');
+    expect(westLicCatalog.rows.map((r: { id: number }) => r.id)).not.toContain(eastLicense.id);
+
+    expect(
+      (await http('POST', `/account/request/licenses/${eastLicense.id}`, 'west', {})).statusCode,
+    ).toBe(404);
+
+    const accReq = (
+      await ok('POST', `/account/request/accessories/${westAccessory.id}`, 'west', {
+        quantity: 1,
+        notes: 'Need spare dock',
+      })
+    ).payload;
+    expect(
+      (await http('PATCH', '/accessories/bulk', 'root', { action: 'delete', ids: [westAccessory.id] }))
+        .statusCode,
+    ).toBe(422);
+    expect((await http('POST', `/requests/${accReq.id}/fulfill`, 'east', {})).statusCode).toBe(403);
+    await ok('POST', `/requests/${accReq.id}/fulfill`, 'root', { note: 'Approved dock' });
+
+    const compReq = (
+      await ok('POST', `/account/request/components/${westComponent.id}`, 'west', { quantity: 1 })
+    ).payload;
+    expect((await http('POST', `/requests/${compReq.id}/fulfill`, 'root', {})).statusCode).toBe(422);
+    await ok('POST', `/requests/${compReq.id}/fulfill`, 'root', { asset_id: westHost.id });
+
+    const licReq = (await ok('POST', `/account/request/licenses/${westLicense.id}`, 'west', {}))
+      .payload;
+    expect((await http('POST', `/requests/${licReq.id}/cancel`, 'west', {})).statusCode).toBe(403);
+    await ok('POST', `/account/requests/${licReq.id}/cancel`, 'west', {});
+
+    // Account, user, location, statuslabel, and dashboard parity views
+    const acct = (await ok('GET', '/account/assets', 'west')).payload;
+    expect(acct.accessories.map((a: { id: number }) => a.id)).toContain(westAccessory.id);
+    expect(
+      (await ok('GET', `/users/${west}/accessories`, 'west')).rows.map(
+        (a: { id: number }) => a.id,
+      ),
+    ).toContain(westAccessory.id);
+    expect((await http('GET', `/users/${east}/assets`, 'west')).statusCode).toBe(404);
+    expect(
+      (await ok('GET', `/locations/${westLocation}/assets`, 'west')).rows.map(
+        (a: { id: number }) => a.id,
+      ),
+    ).toContain(westHost.id);
+    expect(
+      (await ok('GET', `/locations/${westLocation}/assigned/components`, 'root')).rows.map(
+        (c: { id: number }) => c.id,
+      ),
+    ).toContain(westComponent.id);
+    expect((await http('GET', `/locations/${eastLocation}/assets`, 'west')).statusCode).toBe(404);
+
+    expect((await http('GET', '/statuslabels/assets/type', 'west')).statusCode).toBe(403);
+    const statusByType = (await ok('GET', '/statuslabels/assets/type', 'root')).payload;
+    expect(statusByType.deployable).toBeGreaterThanOrEqual(1);
+    expect((await ok('GET', `/statuslabels/${status}/deployable`, 'root')).payload.status_type).toBe(
+      'deployable',
+    );
+    const dashSummary = (await ok('GET', '/dashboard/summary', 'west')).payload;
+    expect(dashSummary.assets_total).toBeGreaterThanOrEqual(1);
+    expect((await ok('GET', '/dashboard/categories', 'west')).payload.length).toBeGreaterThanOrEqual(1);
+
+    // Superuser settings + sanitized secret handling + profile edit
+    expect((await http('GET', '/settings', 'west')).statusCode).toBe(403);
+    expect((await http('GET', '/settings/login-attempts', 'west')).statusCode).toBe(403);
+    const updatedSettings = (
+      await ok('PATCH', '/settings', 'root', {
+        site_name: 'Kestrel P35',
+        oidc_enabled: true,
+        oidc_client_secret: 'secret-oidc-value',
+      })
+    ).payload;
+    expect(updatedSettings.site_name).toBe('Kestrel P35');
+    expect(updatedSettings.oidc_client_secret_configured).toBe(true);
+    expect(JSON.stringify(updatedSettings)).not.toContain('secret-oidc-value');
+
+    expect((await ok('GET', '/settings/login-attempts', 'root')).total).toBeGreaterThanOrEqual(0);
+    const westProfile = (
+      await ok('PATCH', '/account/profile', 'west', {
+        phone: '+39 02 123456',
+        locale: 'it-IT',
+      })
+    ).payload;
+    expect(westProfile.phone).toBe('+39 02 123456');
+    expect(westProfile.locale).toBe('it-IT');
+    expect(eastHost.id).toBeGreaterThan(0);
+  });
 });
 
 describe('Phase 3 depreciation', () => {

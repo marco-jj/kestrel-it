@@ -24,6 +24,7 @@ import {
 } from '../app/core/guards/setup.guard.js';
 import { filterNavigationItems, AppShellComponent } from '../app/core/layout/app-shell.component.js';
 import { ThemeStore } from '../app/core/theme/theme.store.js';
+import { DashboardComponent } from '../app/features/dashboard/dashboard.component.js';
 import { LoginComponent } from '../app/features/auth/login.component.js';
 import { SetupWizardComponent } from '../app/features/setup/setup-wizard.component.js';
 import {
@@ -627,5 +628,57 @@ describe('ThemeStore & Shared UI Kit (Piano 1.7 Precision Enterprise)', () => {
     expect(shell.commandPaletteOpen()).toBe(true);
     shell.toggleTheme();
     expect(themeStore.isDark()).toBe(false);
+  });
+
+  it('registers self-service, admin, and hardware quick-action routes cleanly before :id', () => {
+    const shellChildren = appRoutes.find((r) => r.path === '')?.children ?? [];
+    const childPaths = shellChildren.map((r) => r.path);
+
+    for (const expected of [
+      'hardware/create',
+      'hardware/bulk-checkout',
+      'hardware/:id',
+      'account/profile',
+      'account/view-assets',
+      'account/api',
+      'admin/settings',
+      'admin/branding',
+      'admin/integrations',
+      'admin/login-attempts',
+    ]) {
+      expect(childPaths).toContain(expected);
+    }
+
+    expect(childPaths.indexOf('hardware/create')).toBeLessThan(childPaths.indexOf('hardware/:id'));
+    expect(childPaths.indexOf('hardware/bulk-checkout')).toBeLessThan(
+      childPaths.indexOf('hardware/:id'),
+    );
+
+    const limitedStore = new AuthStore();
+    const limitedPerms = makePermissions(['assets.view', 'self.api']);
+    limitedStore.applyLoginResponse({
+      status: 'authenticated',
+      accessToken: 'jwt',
+      refreshToken: 'ref',
+      user: makeUser({
+        effectivePermissions: limitedPerms,
+        keyPermissions: limitedPerms,
+      }),
+    });
+
+    const visibleRoutes = filterNavigationItems(limitedStore).map((n) => n.route);
+    expect(visibleRoutes).toContain('/account/profile');
+    expect(visibleRoutes).toContain('/account/view-assets');
+    expect(visibleRoutes).toContain('/account/api');
+    expect(visibleRoutes).not.toContain('/admin/branding');
+    expect(visibleRoutes).not.toContain('/admin/login-attempts');
+
+    const cmdRoutes = filterCommandItems(DEFAULT_COMMAND_ITEMS, '', limitedStore).map((c) => c.route);
+    expect(cmdRoutes).toContain('/account/api');
+    expect(cmdRoutes).not.toContain('/admin/login-attempts');
+
+    const dashboard = new DashboardComponent(limitedStore);
+    expect(dashboard.activeCompanyCount()).toBe('1');
+    expect(dashboard.statusSummaryLine()).toBe('Live telemetry');
   });
 });

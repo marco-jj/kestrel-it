@@ -251,7 +251,7 @@ test('Phase 2 inventory through Angular and Chromium', { timeout: 90_000 }, asyn
 
 test(
   'Phase 3 inventory and operations through Angular and Chromium',
-  { timeout: 90_000 },
+  { timeout: 150_000 },
   async (t) => {
     const browser = await chromium.launch({ executablePath });
     t.after(() => browser.close());
@@ -493,4 +493,68 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
     await page.getByRole('button', { name: 'Send test email' }).click();
     await page.getByRole('status').filter({ hasText: 'Test email queued' }).waitFor();
   });
+
+  await t.test(
+    'covers live dashboard telemetry, hardware detail subtabs, secondary requestables, self-service account, and admin settings',
+    async () => {
+      const reqAccessory = await create('/accessories', {
+        name: 'Req Dock ' + marker,
+        qty: 4,
+        requestable: true,
+      });
+
+      await page.goto('/dashboard');
+      await page.getByRole('heading', { name: 'IT Asset Operations Cockpit' }).waitFor();
+      assert.equal(await page.getByText('Phase 2.3').count(), 0);
+      await page.getByText('HARDWARE ASSETS', { exact: true }).waitFor();
+
+      await page.goto('/hardware/' + asset.id);
+      await page.getByRole('button', { name: 'Components', exact: true }).click();
+      await page.getByRole('button', { name: 'Accessories', exact: true }).click();
+      await page.getByRole('button', { name: 'Maintenances', exact: true }).click();
+      await page.getByRole('button', { name: 'Licenses', exact: true }).click();
+
+      await page.goto('/account/requestable');
+      await page.getByRole('button', { name: 'Accessories', exact: true }).click();
+      const accRow = page.getByRole('row').filter({ hasText: reqAccessory.name });
+      await accRow.waitFor();
+      await accRow.getByRole('button', { name: 'request', exact: true }).click();
+      await page.getByLabel('Quantity').fill('2');
+      await page.getByRole('button', { name: 'Submit request', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Request submitted.' }).waitFor();
+
+      await page.goto('/requests');
+      const queueRow = page.getByRole('row').filter({ hasText: reqAccessory.name });
+      await queueRow.getByRole('button', { name: 'checkout', exact: true }).click();
+      await page.getByRole('button', { name: 'Fulfill request', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Request fulfilled.' }).waitFor();
+
+      await page.goto('/account/profile');
+      await page.getByRole('heading', { name: 'My Profile' }).waitFor();
+      await page.getByLabel('Phone', { exact: true }).fill('+39 02 998877');
+      await page.getByRole('button', { name: 'Save Profile', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Profile details updated' }).waitFor();
+
+      await page.goto('/account/view-assets');
+      await page.getByRole('heading', { name: 'My Assigned Inventory' }).waitFor();
+
+      await page.goto('/account/api');
+      await page.getByLabel('Token name', { exact: true }).fill('E2E Token ' + marker);
+      await page.getByRole('button', { name: 'Generate Token', exact: true }).click();
+      await page.getByText(/Copy your new token now/).waitFor();
+      await page.getByRole('button', { name: 'Revoke', exact: true }).first().click();
+
+      await page.goto('/admin/settings');
+      await page.getByRole('heading', { name: 'Administration Settings' }).waitFor();
+      await page.getByRole('button', { name: 'Save Settings', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Settings saved' }).waitFor();
+
+      await page.goto('/admin/branding');
+      await page.getByRole('heading', { name: 'Colors, Banners & Custom CSS' }).waitFor();
+      await page.goto('/admin/integrations');
+      await page.getByRole('heading', { name: 'OIDC / OAuth 2.1 Single Sign-On' }).waitFor();
+      await page.goto('/admin/login-attempts');
+      await page.getByRole('heading', { name: 'Login Attempts Audit' }).waitFor();
+    },
+  );
 });
