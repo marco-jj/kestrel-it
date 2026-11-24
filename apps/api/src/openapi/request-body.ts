@@ -1,15 +1,8 @@
 import { ApiBody, type SchemaObject } from '@nestjs/swagger';
-import type { ZodTypeAny } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z, type ZodTypeAny } from 'zod';
 
 export function requestBodySchema(schema: ZodTypeAny): SchemaObject {
-  return zodToJsonSchema(schema, {
-    target: 'openApi3',
-    $refStrategy: 'none',
-    pipeStrategy: 'input',
-    removeAdditionalStrategy: 'strict',
-    applyRegexFlags: true,
-  }) as SchemaObject;
+  return z.toJSONSchema(schema, { target: 'openapi-3.0', io: 'input' }) as SchemaObject;
 }
 
 export function ApiZodBody(schema: ZodTypeAny, required = true) {

@@ -8,7 +8,7 @@ import {
   type StandardApiResponse,
 } from '@kestrel-it/shared';
 import { sql, type SQL } from 'drizzle-orm';
-import type { ZodType } from 'zod';
+import type { output, ZodType } from 'zod';
 import type { DrizzleDb } from '../../db/database.module.js';
 
 export type InventoryTransaction = Parameters<Parameters<DrizzleDb['transaction']>[0]>[0];
@@ -35,7 +35,7 @@ export async function inventoryWrite<T>(
   }
 }
 
-export function parse<T>(schema: ZodType<T, any, any>, input: unknown): T {
+export function parse<T extends ZodType>(schema: T, input: unknown): output<T> {
   const result = schema.safeParse(input);
   if (!result.success) {
     const { fieldErrors, formErrors } = result.error.flatten();

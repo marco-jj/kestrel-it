@@ -4,32 +4,32 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "ng build",
+    "build": "node scripts/build.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:e2e": "node --test e2e/phase-2.mjs"
   },
   "dependencies": {
-    "@angular/cdk": "^19.2.0",
-    "@angular/common": "^19.2.0",
-    "@angular/compiler": "^19.2.0",
-    "@angular/core": "^19.2.0",
-    "@angular/forms": "^19.2.0",
-    "@angular/platform-browser": "^19.2.0",
-    "@angular/router": "^19.2.0",
+    "@angular/cdk": "^21.2.14",
+    "@angular/common": "~21.2.0",
+    "@angular/compiler": "~21.2.0",
+    "@angular/core": "~21.2.0",
+    "@angular/forms": "~21.2.0",
+    "@angular/platform-browser": "~21.2.0",
+    "@angular/router": "~21.2.0",
     "@kestrel-it/shared": "workspace:*",
     "rxjs": "^7.8.2",
-    "zod": "^3.24.2",
+    "zod": "^4.6.7",
     "zone.js": "^0.15.0"
   },
   "devDependencies": {
-    "@angular/build": "~19.2.0",
-    "@angular/cli": "~19.2.0",
-    "@angular/compiler-cli": "~19.2.0",
+    "@angular/build": "~21.2.0",
+    "@angular/cli": "~21.2.0",
+    "@angular/compiler-cli": "~21.2.0",
     "@tailwindcss/postcss": "^4.0.0",
     "playwright": "^1.65.1",
     "postcss": "^8.5.0",
     "tailwindcss": "^4.0.0",
-    "typescript": "~5.8.3"
+    "typescript": "~5.9.3"
   }
 }

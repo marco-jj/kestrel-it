@@ -39,7 +39,7 @@ const address = {
   phone: text(50),
   fax: text(50),
 };
-const permissions = z.record(z.union([z.literal(-1), z.literal(0), z.literal(1)])).optional();
+const permissions = z.record(z.string(), z.union([z.literal(-1), z.literal(0), z.literal(1)])).optional();
 
 interface DirectoryDefinition {
   table: PgTable;

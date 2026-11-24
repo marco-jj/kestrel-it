@@ -1074,8 +1074,7 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       await expect(
         migrate(drizzle(upgraded), { migrationsFolder: migrations }),
       ).rejects.toMatchObject({
-        code: '23505',
-        constraint_name: 'uq_checkout_requests_pending_item',
+        cause: { code: '23505', constraint_name: 'uq_checkout_requests_pending_item' },
       });
       expect(await upgraded`select state from checkout_requests order by id`).toEqual([
         { state: 'pending' },
@@ -1736,7 +1735,7 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       expect(parseCsv(csv.body, { columns: true })).toEqual([{ book_value: '80.00' }, { book_value: '640.00' }]);
       const xlsx = await http('GET', selection + '&format=xlsx&order=desc', 'west');
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(Buffer.from(xlsx.rawPayload));
+      await workbook.xlsx.load(new Uint8Array(xlsx.rawPayload).buffer);
       expect(workbook.getWorksheet(1)?.getColumn(1).values).toEqual([, 'book_value', '640.00', '80.00']);
     } finally {
       await db.update(tables.users)
@@ -1764,7 +1763,7 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       const xlsx = await http('GET', `/reports/${type}?format=xlsx`, 'root');
       expect(xlsx.statusCode, `XLSX ${type}`).toBe(200);
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(xlsx.rawPayload as unknown as ArrayBuffer);
+      await workbook.xlsx.load(new Uint8Array(xlsx.rawPayload).buffer);
       expect(workbook.worksheets[0]!.getRow(1).values).toEqual([, ...preview.columns]);
     }
     const csv = await http(

@@ -1,5 +1,5 @@
 ARG NODE_VERSION=26.13.1
-FROM node:${NODE_VERSION}-bookworm-slim AS workspace
+FROM node:${NODE_VERSION}-alpine3.24 AS workspace
 WORKDIR /app
 ENV CI=true
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -16,7 +16,10 @@ RUN pnpm build
 FROM workspace AS production-dependencies
 RUN pnpm --filter @kestrel-it/api... install --prod --frozen-lockfile
 
-FROM node:${NODE_VERSION}-bookworm-slim AS api
+FROM node:${NODE_VERSION}-alpine3.24 AS api
+# Keep the Node runtime and remove package managers from the production filesystem.
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /app
 ENV NODE_ENV=production STORAGE_LOCAL_ROOT=/var/lib/kestrel/storage
 COPY --chown=node:node --from=production-dependencies /app/node_modules ./node_modules
@@ -32,7 +35,7 @@ WORKDIR /app/apps/api
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
 
-FROM nginx:1.28-alpine AS web
+FROM nginx:1.30.8-alpine AS web
 ENV KESTREL_API_ORIGIN=http://kestrel-it-api:3000
 COPY deploy/images/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist/kestrel-web/browser/ /usr/share/nginx/html/

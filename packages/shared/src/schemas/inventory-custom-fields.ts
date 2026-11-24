@@ -3,6 +3,7 @@ import { CUSTOM_FIELD_ELEMENTS } from '../enums/index.js';
 import { InventoryIdSchema } from './core-inventory.js';
 
 export const CustomFieldValuesSchema = z.record(
+  z.string(),
   z.union([
     z.string().max(8_192),
     z.number().finite(),

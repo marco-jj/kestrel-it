@@ -20,7 +20,7 @@ export type ImportType = (typeof IMPORT_TYPES)[number];
 
 export const ImportProcessSchema = z.object({
   import_type: z.enum(IMPORT_TYPES),
-  field_map: z.record(z.string().min(1).max(200).nullable()),
+  field_map: z.record(z.string(), z.string().min(1).max(200).nullable()),
   update_existing: z.boolean().default(false),
   preserve_blanks: z.boolean().default(false),
   send_welcome: z.boolean().default(false),

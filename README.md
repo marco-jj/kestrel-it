@@ -96,7 +96,7 @@ Enabling Better Auth requires a dedicated `BETTER_AUTH_SECRET` of at least 32 ch
 
 - **Build & Typecheck:** `pnpm build` and `pnpm typecheck`
 - **Tests:** `pnpm test` (set `INVENTORY_TEST_DATABASE_URL` for PostgreSQL 16 integration suites in `@kestrel-it/api`)
-- **OpenAPI Contract (`docs/openapi.json`):** generated from NestJS Swagger decorators and Zod schemas via `zod-to-json-schema`:
+- **OpenAPI Contract (`docs/openapi.json`):** generated from NestJS Swagger decorators and Zod schemas via Zod's JSON Schema exporter:
   - `pnpm --filter @kestrel-it/api openapi:export` — regenerate `docs/openapi.json`
   - `pnpm --filter @kestrel-it/api openapi:check` — verify `docs/openapi.json` matches the current API contract
 

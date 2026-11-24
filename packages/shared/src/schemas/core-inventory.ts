@@ -19,7 +19,7 @@ export const InventoryBulkSchema = z.discriminatedUnion('action', [
     .object({
       action: z.literal('edit'),
       ids: z.array(InventoryIdSchema).min(1).max(100),
-      changes: z.record(z.unknown()),
+      changes: z.record(z.string(), z.unknown()),
     })
     .strict(),
   z
