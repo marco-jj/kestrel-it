@@ -10,5 +10,7 @@ First beta of Kestrel-IT.
 - Operators can import CSV data, print labels, use saved reports, export CSV and Excel, and configure notifications.
 - Authentication includes local accounts with TOTP, OIDC and OAuth, personal access tokens, and the Better Auth bridge.
 - One Helm chart deploys the web app, API, and optional PostgreSQL. The release includes an OpenAPI contract with request-body schemas.
+- Docker Compose runs Kestrel locally with PostgreSQL and Garage S3.
+- Updated multipart upload and Angular dependencies to patched versions and removed ExcelJS from report exports.
 
 The Snipe-IT database migration CLI and independent visual parity verification are still pending. See the [upstream feature map](docs/08-upstream-feature-map.md).
