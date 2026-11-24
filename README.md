@@ -31,7 +31,7 @@ Snipe-IT has proven, battle-tested ITAM workflows, but its PHP/Laravel monolith 
 
 ---
 
-## Planned Monorepo Structure
+## Monorepo Structure
 
 ```text
 kestrel-it/
@@ -58,7 +58,7 @@ kestrel-it/
 
 ---
 
-The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstream behavior to the planned Kestrel-IT equivalents and records open parity decisions.
+The [Snipe-IT feature map](docs/08-upstream-feature-map.md) links observed upstream behavior to Kestrel-IT equivalents, parity evidence, and open decisions.
 
 ## Database startup and Helm configuration
 
@@ -88,12 +88,20 @@ Provide production JWT and encryption keys through `config.secrets` or `config.e
 
 Enabling Better Auth requires a dedicated `BETTER_AUTH_SECRET` of at least 32 characters. In Helm, use `config.betterAuth.secret` or supply the key in `config.existingSecret`.
 
+## OpenAPI & Verification
+
+- **Build & Typecheck:** `pnpm build` and `pnpm typecheck`
+- **Tests:** `pnpm test` (set `INVENTORY_TEST_DATABASE_URL` for PostgreSQL 16 integration suites in `@kestrel-it/api`)
+- **OpenAPI Contract (`docs/openapi.json`):** generated from NestJS Swagger decorators and Zod schemas via `zod-to-json-schema`:
+  - `pnpm --filter @kestrel-it/api openapi:export` — regenerate `docs/openapi.json`
+  - `pnpm --filter @kestrel-it/api openapi:check` — verify `docs/openapi.json` matches the current API contract
+
 ## Roadmap
 
-- [ ] **Phase 1 — Foundation:** Monorepo setup, Drizzle + PostgreSQL schema, OIDC + local auth, Storage adapters (Local / S3 / Nextcloud), Helm chart skeleton
-- [ ] **Phase 2 — Core Inventory & Workflows:** Users, Companies, RBAC, Assets, Models, Custom Fields, Checkout/Checkin, EULA/Acceptance
-- [ ] **Phase 3 — Full Parity:** Licenses, Accessories, Consumables, Components, Kits, Audits, Maintenance, Depreciation, Reports, Importers, Labels
-- [ ] **Phase 4 — Migration:** Snipe-IT MySQL → Kestrel-IT PostgreSQL data migration CLI
+- [x] **Phase 1 — Foundation:** Monorepo setup, Drizzle + PostgreSQL schema, OIDC + local auth, Storage adapters (Local / S3 / Nextcloud), Helm chart skeleton
+- [x] **Phase 2 — Core Inventory & Workflows:** Users, Companies, RBAC, Assets, Models, Custom Fields, Checkout/Checkin, EULA/Acceptance
+- [x] **Phase 3 — Full Parity & REA Verification:** Licenses, Accessories, Consumables, Components, Kits, Audits, Maintenance, Depreciation, Reports, Importers, Labels, Self-service/Settings UI, and Piano 3.5 REA parity checks (`PLAN.md`, `docs/openapi.json`)
+- [ ] **Phase 4 — Migration:** Snipe-IT MySQL → Kestrel-IT PostgreSQL data migration CLI & optional extensions
 
 ---
 

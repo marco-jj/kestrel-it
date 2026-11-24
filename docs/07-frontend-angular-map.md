@@ -8,13 +8,13 @@ Questo documento mappa i principali flussi del layer di presentazione di Snipe-I
 
 Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 file, 28.654 nodi AST) e dall'analisi di `app/Livewire/`, il frontend di Snipe-IT si appoggia a 5 meccanismi legacy che in Kestrel-IT diventano componenti Angular nativi e riutilizzabili:
 
-| Meccanismo Legacy in Snipe-IT | Funzione nel Codice Originale | Componente Angular in Kestrel-IT (`apps/web/src/app/shared/*`) |
+| Meccanismo Legacy in Snipe-IT | Funzione nel Codice Originale | Componente Angular in Kestrel-IT (`apps/web/src/app/`) |
 | :--- | :--- | :--- |
-| **Bootstrap-Table Server-Side + Custom Formatters** (`snipeit.js`) | Tabelle paginabili con colonne dinamiche, export, bulk actions toolbar, persistenza colonne in `localStorage`, e decine di formatter JS (`polymorphicItemFormatter`, `assetActionsFormatter`, `statusMetaFormatter`). | **`<kestrel-data-grid>`**: Componente DataGrid server-side basato su Signals (`page`, `pageSize`, `sort`, `order`, `search`, `advancedFilters`, `selectedIds`), salvataggio preset su `/api/v1/saved-searches` e rendering delle azioni guidato direttamente dall'oggetto `row.available_actions`. |
-| **Select2 AJAX (`class="js-data-ajax"`)** (`snipeit.js` + `ModalController`) | Dropdown asincroni che interrogano `/api/v1/<endpoint>/selectlist`, propagano `data-company-id` (`companyId`) per FMCS e `data-asset-status-type` (`statusType`), e permettono la creazione "al volo" tramite modale (`ModalController::show`). | **`<kestrel-async-select>`**: `ControlValueAccessor` Angular con Signals + `rxResource` / debounce, che accetta `endpoint`, `companyId()` (Signal reattivo collegato al campo Company del form!), `statusType()`, `includeNull` e pulsante `+ New` che apre il dialog di creazione rapida. |
-| **Modali jQuery Imperativi** (`#adjustQuantityModal`, `#requestItemModal`, `#completeMaintenanceModal`, `#dataConfirmModal`, `#restoreConfirmModal`) | Manipolazione diretta del DOM in `snipeit.js` (righe 149–393): leggi `data-*` dal bottone cliccato, mostra/nascondi i campi acquisto se `amount > 0`, pre-popola `lastUnitCost`/`lastCurrency`, svuota gli input tra un'apertura e l'altra. | **Dialog tipizzati Angular** (`AdjustQuantityDialogComponent`, `RequestItemDialogComponent`, `CompleteMaintenanceDialogComponent`, `ConfirmActionDialogComponent`) con `ReactiveForms` e stato isolato per ogni apertura (nessun rischio di state-bleeding tra aperture). |
-| **18 Widget Livewire v4** (`app/Livewire/*`) | Componenti server-driven sparsi dentro pagine Blade (`CustomFieldEditor`, `CheckoutTargetPanel`, `Importer`, `Labels`, `IntegrationSettingsForm`, `AlertMenu`, `NeedsAttention`, `ReportTemplateSelect`, ecc.). | **Componenti Angular Standalone con Signals**, eliminando il doppio paradigma Blade + Livewire + jQuery. |
-| **SignaturePad & Chart.js v2.9.4** (`signature_pad.js`, `Chart.min.js`) | Canvas HTML5 per firma accettazione EULA e grafici dashboard v2 (`horizontalBar`, `doughnut`). | **`<kestrel-signature-pad>`** (Canvas touch/mouse nativo) e componenti Chart basati su Chart.js v4. |
+| **Bootstrap-Table Server-Side + Custom Formatters** (`snipeit.js`) | Tabelle paginabili con colonne dinamiche, export, bulk actions toolbar, persistenza colonne in `localStorage`, e decine di formatter JS (`polymorphicItemFormatter`, `assetActionsFormatter`, `statusMetaFormatter`). | **`<kestrel-data-grid>`** (`shared/ui/data-grid.component.ts`): DataGrid server-side basato su Signals (`page`, `pageSize`, `sort`, `order`, `search`, `selectedIds`), salvataggio preset su `/api/v1/saved-searches` e rendering delle azioni guidato da `row.available_actions`. |
+| **Select2 AJAX (`class="js-data-ajax"`)** (`snipeit.js` + `ModalController`) | Dropdown asincroni che interrogano `/api/v1/<endpoint>/selectlist`, propagano `data-company-id` (`companyId`) per FMCS e `data-asset-status-type` (`statusType`), e permettono la creazione "al volo" tramite modale (`ModalController::show`). | **`<kestrel-async-select>`** (`shared/ui/async-select.component.ts`): `ControlValueAccessor` Angular con Signals che accetta `endpoint`, `companyId()` e `statusType()` per query FMCS reattive. |
+| **Modali jQuery Imperativi** (`#adjustQuantityModal`, `#requestItemModal`, `#completeMaintenanceModal`, `#dataConfirmModal`, `#restoreConfirmModal`) | Manipolazione diretta del DOM in `snipeit.js` (righe 149–393): leggi `data-*` dal bottone cliccato, mostra/nascondi i campi acquisto se `amount > 0`, pre-popola `lastUnitCost`/`lastCurrency`, svuota gli input tra un'apertura e l'altra. | **`<kestrel-slide-drawer>`** (`shared/ui/slide-drawer.component.ts`) e form reattivi standalone nelle viste inventario (`asset-lifecycle.component.ts`, `phase-three-page.component.ts`, `checkout-requests-page.component.ts`), con stato isolato ad ogni apertura. |
+| **18 Widget Livewire v4** (`app/Livewire/*`) | Componenti server-driven sparsi dentro pagine Blade (`CustomFieldEditor`, `CheckoutTargetPanel`, `Importer`, `Labels`, `IntegrationSettingsForm`, `AlertMenu`, `NeedsAttention`, `ReportTemplateSelect`, ecc.). | **Componenti Angular Standalone con Signals** sotto `core/layout/`, `features/dashboard/` e `features/inventory/`, eliminando il doppio paradigma Blade + Livewire + jQuery. |
+| **SignaturePad & Dashboard Stats** (`signature_pad.js`, `Chart.min.js`) | Canvas HTML5 per firma accettazione EULA e grafici/statistiche dashboard. | Canvas firma nativo integrato in `features/inventory/acceptance-page.component.ts` e viste statistiche reattive in `features/dashboard/dashboard.component.ts`. |
 
 ---
 
@@ -22,19 +22,19 @@ Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 
 
 | Componente Livewire in `../snipe-it/app/Livewire/` | Responsabilità Funzionale | Equivalente Angular in `apps/web/src/app/` |
 | :--- | :--- | :--- |
-| `CheckoutTargetPanel.php` | Selettore a 3 tab (`User` \| `Asset` \| `Location`) nei form di Checkout, che aggiorna il `selectlist` target filtrato per `companyId`. | `shared/components/checkout-target-panel/` |
-| `CustomFieldEditor.php` | Form di creazione/modifica `CustomField`: disabilita in tempo reale gli `element` incompatibili col `format` scelto (es. `DATE` → solo `date_picker`), blocca `field_encrypted` su `DATE`/`checkbox`/`radio`, richiede `field_values` su `listbox`/`checkbox`/`radio` e mostra la live preview del campo. | `features/custom-fields/custom-field-editor/` (usa la matrice condivisa in `@kestrel-it/shared`). |
-| `CustomFieldSetDefaultValuesForModel.php` | Nel form di un `AssetModel`, quando si seleziona un `CustomFieldset`, carica i campi di quel fieldset per permettere di impostare i valori di default (`custom_field_defaults`). | `features/models/model-fieldset-defaults/` |
-| `FieldsetFieldPicker.php` & `CloneFieldset.php` | Aggiunta, riordino drag-and-drop, flag `required` e clonazione di un `CustomFieldset`. | `features/custom-fields/fieldset-detail/` |
-| `AssetAdditionalTags.php` | Nel form di creazione Asset, permette di aggiungere `N` blocchi `(asset_tag, serial)` per creare più esemplari dello stesso modello in un solo salvataggio. | `features/hardware/asset-multi-tag-input/` |
-| `CategoryEditForm.php` | Form categoria con toggle dinamico EULA custom vs `use_default_eula` e preview. | `features/taxonomy/categories/category-form/` |
-| `Importer.php` | Upload file CSV, selezione `import_type`, auto-matching colonne (`header_row` → `field_map`), preview `first_row`, barra di progresso ed elenco errori riga per riga. | `features/importer/importer-wizard/` |
-| `Labels/*` | Editor visuale dei layout etichette (`CustomUserLabel`), anteprima live PDF/SVG delle dimensioni, margini, QR/Barcode e campi selezionati. | `features/labels/label-designer/` |
-| `AlertMenu.php` & `NeedsAttention.php` | Campanella notifiche in topbar e widget dashboard per scorte basse (`/api/v1/low-stock`), audit in scadenza, checkin scaduti e accettazioni pendenti. | `core/layout/alert-menu/` & `features/dashboard/needs-attention-widget/` |
-| `ReportTemplateSelect.php` | Nel Custom Asset Report, carica/salva/aggiorna i `ReportTemplate` (selezione checkbox delle colonne standard e custom fields da esportare). | `features/reports/custom-asset-report/` |
-| `IntegrationSettingsForm.php` | Configurazione webhook (Slack, MS Teams, Google Chat, Generic) con pulsante "Test Webhook". | `features/settings/integrations-settings/` |
-| `PersonalAccessTokens.php`, `AdminPersonalAccessTokens.php`, `OauthClients.php` | Creazione token API (con visualizzazione one-time del token generato) e revoca. | `features/account/api-tokens/` & `features/settings/api-tokens/` |
-| `LocationScopeCheck.php` | Diagnostica delle incongruenze di `company_id` sulle Location quando si attiva `scope_locations_fmcs`. | `features/settings/location-scope-diagnostic/` |
+| `CheckoutTargetPanel.php` | Selettore a 3 tab (`User` \| `Asset` \| `Location`) nei form di Checkout, che aggiorna il `selectlist` target filtrato per `companyId`. | `features/inventory/asset-lifecycle.component.ts` |
+| `CustomFieldEditor.php` | Form di creazione/modifica `CustomField`: disabilita in tempo reale gli `element` incompatibili col `format` scelto (es. `DATE` → solo `date_picker`), blocca `field_encrypted` su `DATE`/`checkbox`/`radio`, richiede `field_values` su `listbox`/`checkbox`/`radio` e mostra la live preview del campo. | `features/inventory/custom-fields-page.component.ts` (usa la matrice condivisa in `@kestrel-it/shared`). |
+| `CustomFieldSetDefaultValuesForModel.php` | Nel form di un `AssetModel`, quando si seleziona un `CustomFieldset`, carica i campi di quel fieldset per permettere di impostare i valori di default (`custom_field_defaults`). | `features/inventory/custom-field-form-section.component.ts` & `features/inventory/directory-page.component.ts` |
+| `FieldsetFieldPicker.php` & `CloneFieldset.php` | Aggiunta, riordino drag-and-drop, flag `required` e clonazione di un `CustomFieldset`. | `features/inventory/custom-fields-page.component.ts` |
+| `AssetAdditionalTags.php` | Nel form di creazione Asset, permette di aggiungere `N` blocchi `(asset_tag, serial)` per creare più esemplari dello stesso modello in un solo salvataggio. | `features/inventory/hardware-page.component.ts` |
+| `CategoryEditForm.php` | Form categoria con toggle dinamico EULA custom vs `use_default_eula` e preview. | `features/inventory/directory-page.component.ts` & `features/inventory/directory-ui.ts` |
+| `Importer.php` | Upload file CSV, selezione `import_type`, auto-matching colonne (`header_row` → `field_map`), preview `first_row`, barra di progresso ed elenco errori riga per riga. | `features/inventory/import-page.component.ts` |
+| `Labels/*` | Editor visuale dei layout etichette (`CustomUserLabel`), anteprima live PDF/SVG delle dimensioni, margini, QR/Barcode e campi selezionati. | `features/inventory/labels-settings.component.ts` |
+| `AlertMenu.php` & `NeedsAttention.php` | Navigazione notifiche/scorte e widget dashboard per scorte basse (`/api/v1/low-stock`), audit in scadenza, checkin scaduti e accettazioni pendenti. | `core/layout/app-shell.component.ts`, `features/dashboard/low-stock.component.ts` & `features/dashboard/dashboard.component.ts` |
+| `ReportTemplateSelect.php` | Nel Custom Asset Report, carica/salva/aggiorna i `ReportTemplate` (selezione checkbox delle colonne standard e custom fields da esportare). | `features/inventory/reports-page.component.ts` |
+| `IntegrationSettingsForm.php` | Configurazione OIDC, SMTP e webhook (Slack, MS Teams, Google Chat, Generic) con pulsante "Test". | `features/inventory/admin-settings.components.ts` & `features/inventory/notification-settings.component.ts` |
+| `PersonalAccessTokens.php`, `AdminPersonalAccessTokens.php`, `OauthClients.php` | Creazione token API (con visualizzazione one-time del token generato) e revoca. | `features/inventory/account-self-service.components.ts` |
+| `LocationScopeCheck.php` | Configurazione e diagnostica delle impostazioni di scope aziendale sulle sedi (`scope_locations_fmcs`). | `features/inventory/admin-settings.components.ts` |
 
 ---
 
@@ -54,80 +54,57 @@ Dall'analisi REA del codice JavaScript in `../snipe-it/resources/assets/js` (11 
 | `/hardware/audit/:status`, `/calendar`, `/reports`, `/reports/:type`, `/unaccepted-acceptances`, `/import` | Liste audit (`due`, `overdue`, `due-or-overdue`), calendario unificato, 10 report + export CSV/XLSX + template salvabili, solleciti EULA e wizard CSV Importer (12 tipi). |
 | `/account/profile`, `/account/view-assets`, `/account/api`, `/admin/settings`, `/admin/branding`, `/admin/integrations`, `/admin/labels`, `/admin/notifications`, `/admin/login-attempts` | Profilo e 2FA, asset assegnati, PAT token e pannello di amministrazione completo (incluso Label Designer PDF/SVG, notifiche/webhook e registro accessi). |
 
-### Struttura prevista per la parità
+### Struttura delle rotte implementate
 
-L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-it/routes/web.php`](https://github.com/grokability/snipe-it/blob/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web.php) e [`../snipe-it/routes/web/*`](https://github.com/grokability/snipe-it/tree/576e1c3c9e1ad67b7c7d53dcde49b9b7b5d253f8/routes/web) con breadcrumb e guard per le rotte protette. Il guard di setup reindirizza a `/setup` finché la configurazione iniziale è incompleta.
+L’albero riepiloga la struttura delle rotte registrate in [`app.routes.ts`](../apps/web/src/app/app.routes.ts) con `setupGuard`, `authGuard` e command palette (`Ctrl/Cmd + K`). Il guard di setup reindirizza a `/setup` finché la configurazione iniziale è incompleta.
 
 ```text
-/setup                                  # SetupWizardComponent a 3 step (protetto da setupIncompleteGuard):
-                                        #   1) Pre-Flight Check, 2) Instance & Asset Tag Settings, 3) First Superuser Account
-/login                                  # Local Login + pulsante "Sign in with SSO (OIDC)"
-/login/2fa                              # Verifica TOTP 2FA o enrollment iniziale
-/auth/oidc/callback                     # Callback OIDC PKCE
-/forgot-password, /reset-password       # Recupero password account locali
+/setup                                  # SetupWizardComponent a 3 step (setupIncompleteGuard)
+/login                                  # LoginComponent: credenziali locali, verifica 2FA TOTP inline e avvio SSO (OIDC)
 
-/                                       # Layout Shell autenticato (Sidebar, Topbar, AlertMenu, Breadcrumbs)
-├── /dashboard                          # KPI Cards, Activity Feed, Chart per Status/Category/Company, NeedsAttention
+/                                       # AppShellComponent autenticato (Sidebar, Topbar, CommandPalette)
+├── /dashboard                          # KPI, statistiche risorse, activity feed, low stock
 ├── /calendar                           # Calendario unificato (Audit, Expected Checkin, Garanzie, Licenze, Manutenzioni)
 │
-├── /hardware                           # Lista Asset (tutti o filtrati per status: Deployable, Deployed, Pending, Archived, BYOD, Deleted)
-│   ├── /create                         # Creazione Asset (con AssetAdditionalTags e CustomFields dinamici per modello)
-│   ├── /bulk-checkout                  # Checkout multiplo di N asset verso User / Location / Asset
-│   ├── /bulk-edit                      # Modifica massiva (status, location, company, acquisto, custom fields)
-│   ├── /audit/due, /audit/overdue      # Liste e form di Audit fisico singolo o bulk
-│   ├── /:id                            # Dettaglio Asset a 9 Tab:
-│   │                                   #   (Info, Licenses, Components, Accessories, Maintenances, History, Files, Notes, Calendar)
-│   ├── /:id/edit                       # Modifica Asset (o Clone)
-│   ├── /:id/checkout                   # Checkout Asset (con CheckoutTargetPanel + CustomFields display_checkout + Sign-in-place)
-│   ├── /:id/checkin                    # Checkin Asset (con status override, location override e CustomFields display_checkin)
-│   └── /:id/audit                      # Form Audit Asset (con upload foto, location, next_audit_date e CustomFields display_audit)
+├── /hardware                           # Lista Asset, filtri, ricerche salvate, quickscan e drawer (creazione, dettaglio, modifica, checkout, checkin, bulk edit)
+│   └── /audit/:status                  # Liste Audit (due, overdue, due-or-overdue) con form di audit
 │
-├── /models                             # Lista, Creazione, Dettaglio (con tab Assets & Files), Modifica, Bulk Edit/Delete Asset Models
-├── /fields                             # Gestione Custom Fields (con CustomFieldEditor) e Custom Fieldsets (/fieldsets/:id)
+├── /models                             # Lista, dettaglio, creazione, modifica, clonazione, eliminazione e ripristino tramite drawer
+├── /fields                             # Gestione Custom Fields
+├── /fieldsets                          # Gestione Custom Fieldsets (composizione, obbligatorietà e riordino)
 │
-├── /licenses                           # Lista, Creazione, Dettaglio (con tab Seats, Files, History), Checkout/Checkin Seat
-├── /accessories                        # Lista, Creazione, Dettaglio (tab Checked-Out & History), Checkout, Checkin, Adjust Quantity
-├── /consumables                        # Lista, Creazione, Dettaglio, Checkout (consume), Adjust Quantity
-├── /components                         # Lista, Creazione, Dettaglio (tab Assigned Assets), Checkout a Asset, Checkin parziale, Adjust Quantity
-├── /kits                               # Predefined Kits: Lista, Composizione (Models, Licenses, Consumables, Accessories), Kit Checkout
-├── /maintenances                       # Asset Maintenances & Maintenance Types (/maintenance-types)
+├── /licenses                           # Gestione Licenze, seat e drawer checkout/checkin
+├── /accessories                        # Gestione Accessori, checkout/checkin e quantità
+├── /consumables                        # Gestione Consumabili, checkout e quantità
+├── /components                         # Gestione Componenti, assegnazioni ad asset e quantità
+├── /kits                               # Predefined Kits: composizione (models/licenses/accessories/consumables) e checkout
+├── /maintenances                       # Asset Maintenances
+├── /maintenance-types                  # Tipi di manutenzione
+├── /depreciations                      # Piani di ammortamento
 │
-├── /users                              # Lista, Creazione, Dettaglio (tab Assets, Licenses, Accessories, Consumables, EULAs, History, Files, Managed Locations/Users), Bulk actions
-├── /groups                             # Gestione Gruppi e Matrice Permessi (`Grant` / `Deny`)
-├── /companies                          # Gestione Aziende (gerarchia Parent/Child, tab elementi per azienda, webhook aziendale)
-├── /locations                          # Gestione Sedi (albero gerarchico, asset assegnati alla sede, asset con RTD nella sede, stampa audit)
-├── /departments                        # Gestione Dipartimenti
-├── /categories                         # Gestione Categorie (EULA, flag require_acceptance, checkin_email)
-├── /manufacturers                      # Gestione Produttori (con seed produttori standard IT)
-├── /suppliers                          # Gestione Fornitori
-├── /statuslabels                       # Gestione Status Labels (Deployable, Pending, Archived, Undeployable, colori grafico)
-├── /depreciations                      # Gestione Piani di Ammortamento (Linear, Half-Year, Diminishing)
+├── /users, /groups, /companies         # Directory utenti, gruppi/permessi e aziende
+├── /locations, /departments            # Sedi e dipartimenti
+├── /categories, /manufacturers         # Categorie e produttori
+├── /suppliers, /statuslabels           # Fornitori e status label
 │
 ├── /import                             # Wizard CSV Importer (12 tipi)
-├── /reports                            # 10 report:
-│   ├── /activity                       # Activity Log globale filtrabile
-│   ├── /custom                         # Custom Asset Report Builder (con salvataggio ReportTemplates)
-│   ├── /custom-components              # Report componenti personalizzabile
-│   ├── /custom-consumables             # Report consumabili personalizzabile
-│   ├── /depreciation                   # Report Ammortamenti e Valore Contabile (Book Value)
-│   ├── /licenses                       # Report Licenze e utilizzo postazioni
-│   ├── /maintenances                   # Report Manutenzioni e costi
-│   ├── /unaccepted-assets              # Asset / Accessori in attesa di accettazione EULA (con invio solleciti bulk)
-│   ├── /accessories                    # Report Accessori
-│   └── /audit                          # Report Storico Audit fisici
+├── /reports, /reports/:type            # 10 report + export CSV/XLSX + template salvabili
+├── /unaccepted-acceptances             # Coda accettazioni pendenti con invio solleciti
+├── /requests                           # Coda richieste self-service per operatori
 │
-├── /account                            # Self-Service Portal per ogni utente autenticato:
-│   ├── /profile                        # Modifica profilo, lingua, password, avatar, 2FA TOTP
-│   ├── /view-assets                    # "My Assigned Assets, Licenses, Accessories & Consumables" + scarico EULA firmati
-│   ├── /accept                         # Coda accettazioni pendenti (`/account/accept/:id` con lettura EULA + SignaturePad)
-│   ├── /requestable                    # Catalogo Self-Service (Hardware, Models, Accessories, Consumables, Components, Licenses)
-│   └── /api                            # Gestione Personal Access Tokens (se ha permesso `self.api`)
+├── /account                            # Self-Service Portal autenticato:
+│   ├── /profile                        # Profilo, lingua, password e 2FA TOTP
+│   ├── /view-assets                    # Asset, licenze, accessori e consumabili assegnati
+│   ├── /accept, /accept/:id, /eulas    # Coda accettazioni EULA con firma canvas
+│   ├── /requestable, /requests         # Catalogo requestable (6 tipi) e richieste personali (`/account/requestable-assets` -> redirect)
+│   └── /api                            # Personal Access Tokens (`self.api`)
 │
-└── /admin                              # Impostazioni Globali (solo `superuser`):
-    ├── /settings                       # General Settings, Asset Tags, Barcodes, Security, Localization, Notifications
-    ├── /branding                       # Logo, Favicon, Colori, Custom CSS, Footer
-    ├── /labels                         # Label Designer visuale e template di stampa PDF
-    ├── /integrations                   # Configurazione OIDC, SMTP (con test mail), Webhooks (Slack/Teams/Generic)
+└── /admin                              # Impostazioni Globali (`superuser`):
+    ├── /settings                       # General Settings, Asset Tags, Security, Localization, FMCS
+    ├── /branding                       # Colori, Custom CSS, Footer, Privacy Policy, Dashboard/Login notes
+    ├── /labels                         # Label Designer visuale e template di stampa PDF/SVG
+    ├── /notifications                  # Configurazione alert, SMTP (con test) e webhook
+    ├── /integrations                   # Configurazione SSO / OIDC
     └── /login-attempts                 # Registro accessi e audit di sicurezza
 ```
 
@@ -143,8 +120,8 @@ L’albero propone la struttura Angular a partire dalle rotte UI di [`../snipe-i
 ## 4. Architettura Reattiva in Angular (Signals + RBAC + FMCS)
 
 1. **`AuthStore` (Angular Signal Store in `core/auth/auth.store.ts`)**:
-   - Mantiene `currentUser = signal<UserProfile | null>(null)`, `permissions = computed(...)`, `settings = signal<PublicSettings>(...)`.
-   - Espone il metodo `can(permission: PermissionKey): boolean` che usa la stessa funzione pura `@kestrel-it/shared` del backend, più una direttiva strutturale `*kestrelCan="'assets.checkout'"`.
+   - Mantiene `currentUser = signal<AuthenticatedUserContext | null>(null)` insieme ai segnali derivati (`isAuthenticated`, `isSuperUser`, `isAdmin`, `userCompanyIds`).
+   - Espone il metodo `can(permission: PermissionKey): boolean` che valuta le stesse regole RBAC condivise in `@kestrel-it/shared`.
 2. **Reattività Company-Scoped (FMCS nei Form)**:
    - I selettori di sedi, dipartimenti e utenti ricaricano le opzioni quando cambia l'azienda del form. Per i form utente, un'appartenenza aziendale singola fornisce il filtro.
    - I drawer di checkout e check-in usano l'azienda dell'asset per caricare destinatari e sedi di rientro. I filtri delle selectlist seguono le regole FMCS del server, inclusi i record floater e le sedi condivise.
