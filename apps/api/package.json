@@ -11,7 +11,8 @@
     "test": "vitest run",
     "db:generate": "tsc -p tsconfig.build.json && drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "openapi:export": "tsc -p tsconfig.build.json && node dist/openapi/generate-openapi.js"
+    "openapi:export": "tsc -p tsconfig.build.json && node dist/openapi/generate-openapi.js",
+    "openapi:check": "tsc -p tsconfig.build.json && node dist/openapi/generate-openapi.js --check"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -38,7 +39,8 @@
     "postgres": "^3.4.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.11",
