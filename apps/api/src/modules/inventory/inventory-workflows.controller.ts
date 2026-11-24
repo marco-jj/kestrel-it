@@ -11,6 +11,10 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  AcceptanceResponseSchema,
+  AssetCheckinInputSchema,
+  AssetCheckoutInputSchema,
+  RequestableInputSchema,
   DatatableQuerySchema,
   InventoryIdSchema,
   RequestableTypeSchema,
@@ -23,10 +27,15 @@ import { CurrentUser, RequireKeyPermission } from '../../common/decorators/auth.
 import { permitsKey } from '../../common/guards/permissions.guard.js';
 import { AssetCheckoutService } from './asset-checkout.service.js';
 import { CheckoutAcceptancesService } from './checkout-acceptances.service.js';
-import { CheckoutRequestsService, type RequestableKind } from './checkout-requests.service.js';
+import {
+  FulfillRequestSchema,
+  CheckoutRequestsService,
+  type RequestableKind,
+} from './checkout-requests.service.js';
 import { DirectoryService } from './directory.service.js';
 import { HardwareService } from './hardware.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const tag = z.string().trim().min(1).max(255);
 const requestableKindMap: Record<RequestableType, RequestableKind> = {
@@ -72,6 +81,7 @@ export class AssetWorkflowsController {
     return this.directory.options(target === 'user' ? 'users' : 'locations', query, user, true);
   }
 
+  @ApiZodBody(AssetCheckoutInputSchema)
   @Post(':id/checkout')
   @RequireKeyPermission('assets.checkout')
   checkout(
@@ -82,6 +92,7 @@ export class AssetWorkflowsController {
     return this.service.checkout(parse(InventoryIdSchema, id), body, user);
   }
 
+  @ApiZodBody(AssetCheckoutInputSchema)
   @Post('bytag/:tag/checkout')
   @RequireKeyPermission('assets.checkout')
   checkoutByTag(
@@ -92,6 +103,7 @@ export class AssetWorkflowsController {
     return this.service.checkout(parse(tag, assetTag), body, user);
   }
 
+  @ApiZodBody(AssetCheckinInputSchema, false)
   @Post(':id/checkin')
   @RequireKeyPermission('assets.checkin')
   checkin(
@@ -102,6 +114,7 @@ export class AssetWorkflowsController {
     return this.service.checkin(parse(InventoryIdSchema, id), body ?? {}, user);
   }
 
+  @ApiZodBody(AssetCheckinInputSchema, false)
   @Post('bytag/:tag/checkin')
   @RequireKeyPermission('assets.checkin')
   checkinByTag(
@@ -112,6 +125,7 @@ export class AssetWorkflowsController {
     return this.service.checkin(parse(tag, assetTag), body ?? {}, user);
   }
 
+  @ApiZodBody(AssetCheckinInputSchema.extend({ asset_tag: tag }))
   @Post('checkinbytag')
   @RequireKeyPermission('assets.checkin')
   checkinWithTag(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
@@ -144,6 +158,7 @@ export class InventoryAccountController {
     return this.acceptances.get(parse(InventoryIdSchema, id), user);
   }
 
+  @ApiZodBody(AcceptanceResponseSchema)
   @Post('accept/:id')
   respond(
     @Param('id') id: string,
@@ -199,6 +214,7 @@ export class InventoryAccountController {
     return this.requests.cancel(parse(InventoryIdSchema, id), user);
   }
 
+  @ApiZodBody(RequestableInputSchema, false)
   @Post('request/:id')
   @ApiOperation({ summary: 'Request a hardware asset from the self-service catalog' })
   requestAsset(
@@ -215,6 +231,7 @@ export class InventoryAccountController {
     return this.requests.cancelByItem('asset', parse(InventoryIdSchema, id), user);
   }
 
+  @ApiZodBody(RequestableInputSchema, false)
   @Post('request/:type/:id')
   @ApiOperation({ summary: 'Request a model or secondary inventory item from the catalog' })
   requestTypedItem(
@@ -257,6 +274,7 @@ export class InventoryRequestsController {
     return this.requests.list(parse(DatatableQuerySchema, query), user, req.url, true);
   }
 
+  @ApiZodBody(FulfillRequestSchema, false)
   @Post(':id/fulfill')
   @ApiOperation({ summary: 'Fulfill a pending checkout request' })
   fulfill(

@@ -20,7 +20,14 @@ import {
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { parse } from './inventory-queries.js';
-import { MaintenanceQuery, MaintenanceService } from './maintenance.service.js';
+import {
+  MaintenanceChangeSchema,
+  MaintenanceInputSchema,
+  MaintenanceTypeInputSchema,
+  MaintenanceQuery,
+  MaintenanceService,
+} from './maintenance.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const id = (value: string) => parse(InventoryIdSchema, value);
 
@@ -48,11 +55,13 @@ export class MaintenanceController {
     return this.maintenances.get(id(value), user);
   }
 
+  @ApiZodBody(MaintenanceInputSchema)
   @Post()
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.maintenances.save(body, user);
   }
 
+  @ApiZodBody(MaintenanceInputSchema.partial())
   @Patch(':id')
   update(
     @Param('id') value: string,
@@ -62,6 +71,7 @@ export class MaintenanceController {
     return this.maintenances.save(body, user, id(value));
   }
 
+  @ApiZodBody(MaintenanceInputSchema.partial())
   @Put(':id')
   replace(
     @Param('id') value: string,
@@ -76,6 +86,7 @@ export class MaintenanceController {
     return this.maintenances.change(id(value), 'delete', {}, user);
   }
 
+  @ApiZodBody(MaintenanceChangeSchema, false)
   @Post(':id/complete')
   complete(
     @Param('id') value: string,
@@ -111,6 +122,7 @@ export class MaintenanceController {
     );
   }
 
+  @ApiZodBody(MaintenanceChangeSchema)
   @Post(':id/notes')
   addNote(
     @Param('id') value: string,
@@ -146,11 +158,13 @@ export class MaintenanceTypesController {
     return this.maintenances.readType(id(value), user);
   }
 
+  @ApiZodBody(MaintenanceTypeInputSchema)
   @Post()
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.maintenances.saveType(body, user);
   }
 
+  @ApiZodBody(MaintenanceTypeInputSchema)
   @Patch(':id')
   update(
     @Param('id') value: string,
@@ -160,6 +174,7 @@ export class MaintenanceTypesController {
     return this.maintenances.saveType(body, user, id(value));
   }
 
+  @ApiZodBody(MaintenanceTypeInputSchema)
   @Put(':id')
   replace(
     @Param('id') value: string,

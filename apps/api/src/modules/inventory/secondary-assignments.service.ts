@@ -59,7 +59,7 @@ import {
 type Assignment = z.output<typeof InventoryAssignmentSchema>;
 type StockItem = Awaited<ReturnType<SecondaryCatalogService['find']>>;
 type Person = { id: number; email: string | null };
-const returnSchema = z.object({
+export const SecondaryReturnSchema = z.object({
   assignment_id: InventoryIdSchema.optional(),
   accessory_checkout_id: InventoryIdSchema.optional(),
   seat_id: InventoryIdSchema.optional(),
@@ -559,7 +559,7 @@ export class SecondaryAssignmentsService {
   ) {
     if (resource === 'consumables') throw new NotFoundException('Consumables cannot be checked in');
     requireInventoryPermission(user, `${resource}.checkin`, true);
-    const dto = parse(returnSchema, body);
+    const dto = parse(SecondaryReturnSchema, body);
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
       if ((await currentSettings(tx))?.requireCheckinoutNotes && !dto.note)

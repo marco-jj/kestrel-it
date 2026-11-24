@@ -31,6 +31,7 @@ import { depreciations, licenses, models, settings } from '../../db/schema/index
 import { fieldIssue } from './custom-fields-validation.service.js';
 import { contains, inventoryWrite, parse, success } from './inventory-queries.js';
 import { currentSettings, inventoryPage } from './phase-three-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const schema = z.object({
   name: inventoryName,
@@ -69,6 +70,7 @@ export class DepreciationController {
     return success({ depreciation_method: config.depreciationMethod ?? 'default' });
   }
 
+  @ApiZodBody(settingsInput)
   @Patch('settings')
   updateSettings(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     this.requireSuperuser(user);
@@ -115,12 +117,14 @@ export class DepreciationController {
     return row;
   }
 
+  @ApiZodBody(schema)
   @Post()
   @RequirePermission('depreciations.create')
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.save(body, user.id);
   }
 
+  @ApiZodBody(schema.partial())
   @Patch(':id')
   @RequirePermission('depreciations.edit')
   update(
@@ -131,6 +135,7 @@ export class DepreciationController {
     return this.save(body, user.id, id(value));
   }
 
+  @ApiZodBody(schema.partial())
   @Put(':id')
   @RequirePermission('depreciations.edit')
   replace(

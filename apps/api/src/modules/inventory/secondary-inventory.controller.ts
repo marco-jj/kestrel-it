@@ -14,6 +14,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  InventoryAssignmentSchema,
+  StockAdjustmentSchema,
   DatatableQuerySchema,
   InventoryIdSchema,
   InventoryIdsSchema,
@@ -28,8 +30,12 @@ import { DirectoryService } from './directory.service.js';
 import { HardwareService } from './hardware.service.js';
 import { requireInventoryPermission } from './phase-three-queries.js';
 import { parse } from './inventory-queries.js';
-import { SecondaryAssignmentsService } from './secondary-assignments.service.js';
-import { SecondaryCatalogService } from './secondary-catalog.service.js';
+import {
+  SecondaryReturnSchema,
+  SecondaryAssignmentsService,
+} from './secondary-assignments.service.js';
+import { SecondaryBulkSchema, SecondaryCatalogService } from './secondary-catalog.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 type FastifyRequest = { url: string; routeOptions: { url: string } };
 
@@ -47,6 +53,10 @@ const querySchema = DatatableQuerySchema.extend({
     .transform((value) => value === '1')
     .optional(),
 });
+const seatChangeSchema = z.union([
+  InventoryAssignmentSchema.omit({ seat_id: true }),
+  SecondaryReturnSchema.omit({ seat_id: true }).extend({ target_id: z.null() }),
+]);
 
 @ApiTags('Secondary Inventory')
 @ApiBearerAuth()
@@ -156,6 +166,7 @@ export class SecondaryInventoryController {
     return this.catalog.archiveAction(resource(req), id(value), 'unarchive', user);
   }
 
+  @ApiZodBody(SecondaryBulkSchema)
   @Post(['bulkedit', 'bulkdelete', 'bulkrestore'])
   bulk(
     @Body() body: unknown,
@@ -211,6 +222,7 @@ export class SecondaryInventoryController {
     );
   }
 
+  @ApiZodBody(InventoryAssignmentSchema)
   @Post(':id/checkout')
   checkout(
     @Param('id') value: string,
@@ -221,6 +233,7 @@ export class SecondaryInventoryController {
     return this.workflows.checkout(resource(req), id(value), body, user);
   }
 
+  @ApiZodBody(SecondaryReturnSchema)
   @Post(':id/checkin')
   checkin(
     @Param('id') value: string,
@@ -231,6 +244,7 @@ export class SecondaryInventoryController {
     return this.workflows.checkin(resource(req), id(value), body, user);
   }
 
+  @ApiZodBody(StockAdjustmentSchema)
   @Post(':id/adjust-quantity')
   adjust(
     @Param('id') value: string,
@@ -259,6 +273,7 @@ export class LicenseSeatsController {
     return this.workflows.seat(id(license), id(seat), user);
   }
 
+  @ApiZodBody(seatChangeSchema)
   @Patch(':seatId')
   change(
     @Param('licenseId') license: string,
@@ -271,6 +286,7 @@ export class LicenseSeatsController {
     return this.workflows.checkout('licenses', id(license), { ...body, seat_id: id(seat) }, user);
   }
 
+  @ApiZodBody(seatChangeSchema)
   @Put(':seatId')
   replace(
     @Param('licenseId') license: string,
@@ -299,6 +315,7 @@ export class ConsumableActionsController {
     return this.workflows.consume([id(assignment)], user, id(item));
   }
 
+  @ApiZodBody(z.object({ ids: InventoryIdsSchema }))
   @Post('bulkconsume')
   bulk(@Body('ids') ids: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.workflows.consume(parse(InventoryIdsSchema, ids), user);

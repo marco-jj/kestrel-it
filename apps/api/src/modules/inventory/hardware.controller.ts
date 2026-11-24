@@ -14,6 +14,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  AssetInputSchema,
+  AssetModelInputSchema,
+  InventoryBulkSchema,
   CustomFieldFormModeSchema,
   DatatableQuerySchema,
   HardwareQuerySchema,
@@ -27,8 +30,10 @@ import { permitsEntity, permitsKey } from '../../common/guards/permissions.guard
 import { AssetModelsService } from './asset-models.service.js';
 import { HardwareService } from './hardware.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const tagSchema = z.string().min(1).max(255);
+const modelCloneSchema = z.object({ name: z.string().trim().min(1).max(255) }).strict();
 const modelQuery = DatatableQuerySchema.extend({ deleted: z.enum(['0', '1']).optional() });
 
 @ApiTags('Hardware')
@@ -194,17 +199,20 @@ export class HardwareController {
     );
   }
 
+  @ApiZodBody(AssetInputSchema)
   @Post()
   @RequirePermission('assets.create')
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.hardware.save(body, user);
   }
 
+  @ApiZodBody(InventoryBulkSchema)
   @Patch('bulk')
   bulk(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.hardware.bulk(body, user);
   }
 
+  @ApiZodBody(AssetInputSchema.partial())
   @Patch(':id')
   @RequirePermission('assets.edit')
   update(
@@ -215,6 +223,7 @@ export class HardwareController {
     return this.hardware.save(body, user, parse(InventoryIdSchema, id));
   }
 
+  @ApiZodBody(AssetInputSchema.partial())
   @Put(':id')
   @RequirePermission('assets.edit')
   replace(
@@ -311,12 +320,14 @@ export class AssetModelsController {
     );
   }
 
+  @ApiZodBody(AssetModelInputSchema)
   @Post()
   @RequirePermission('models.create')
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.models.save(body, user);
   }
 
+  @ApiZodBody(AssetModelInputSchema.partial())
   @Patch(':id')
   @RequirePermission('models.edit')
   update(
@@ -327,6 +338,7 @@ export class AssetModelsController {
     return this.models.save(body, user, parse(InventoryIdSchema, id));
   }
 
+  @ApiZodBody(AssetModelInputSchema.partial())
   @Put(':id')
   @RequirePermission('models.edit')
   replace(
@@ -337,6 +349,7 @@ export class AssetModelsController {
     return this.update(id, body, user);
   }
 
+  @ApiZodBody(modelCloneSchema)
   @Post(':id/clone')
   @RequirePermission('models.view', 'models.create')
   clone(
@@ -344,7 +357,7 @@ export class AssetModelsController {
     @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUserContext,
   ) {
-    const { name } = parse(z.object({ name: z.string().trim().min(1).max(255) }).strict(), body);
+    const { name } = parse(modelCloneSchema, body);
     return this.models.clone(parse(InventoryIdSchema, id), name, user);
   }
 

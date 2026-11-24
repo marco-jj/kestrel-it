@@ -50,7 +50,12 @@ const members = {
   },
 } as const;
 const kinds = ['models', 'licenses', 'accessories', 'consumables'] as const;
-const kitSchema = z.object({ name: inventoryName });
+export const KitInputSchema = z.object({ name: inventoryName });
+export const KitLineSchema = z.object({
+  item_id: InventoryIdSchema.optional(),
+  quantity: assignmentQuantity,
+});
+export const KitCheckoutSchema = z.object({ user_id: InventoryIdSchema, note: inventoryNote });
 
 @Injectable()
 export class PredefinedKitsService {
@@ -106,7 +111,7 @@ export class PredefinedKitsService {
 
   async save(body: unknown, user: AuthenticatedUserContext, id?: number) {
     requireInventoryPermission(user, id === undefined ? 'kits.create' : 'kits.edit');
-    const dto = parse(kitSchema, body);
+    const dto = parse(KitInputSchema, body);
     return inventoryWrite(this.db, async (tx) => {
       if (id === undefined)
         return success(
@@ -166,16 +171,7 @@ export class PredefinedKitsService {
     id?: number,
   ) {
     requireInventoryPermission(user, 'kits.edit');
-    const input =
-      change === 'delete'
-        ? null
-        : parse(
-            z.object({
-              item_id: InventoryIdSchema.optional(),
-              quantity: assignmentQuantity,
-            }),
-            body,
-          );
+    const input = change === 'delete' ? null : parse(KitLineSchema, body);
     const itemId = parse(InventoryIdSchema, id ?? input?.item_id);
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
@@ -213,7 +209,7 @@ export class PredefinedKitsService {
 
   async checkout(kitId: number, body: unknown, user: AuthenticatedUserContext) {
     requireInventoryPermission(user, 'kits.view');
-    const dto = parse(z.object({ user_id: InventoryIdSchema, note: inventoryNote }), body);
+    const dto = parse(KitCheckoutSchema, body);
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
       await this.find(tx, kitId, scope, true);

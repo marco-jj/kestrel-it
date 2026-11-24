@@ -49,6 +49,13 @@ import { SecondaryAssignmentsService } from './secondary-assignments.service.js'
 import { SecondaryCatalogService, secondaryTables, usedStock } from './secondary-catalog.service.js';
 
 export type RequestableKind = keyof typeof CHECKOUT_REQUEST_PERMISSIONS;
+export const FulfillRequestSchema = z
+  .object({
+    asset_id: z.coerce.number().int().positive().max(2_147_483_647).optional(),
+    expected_checkin: z.string().date().nullable().optional(),
+    note: z.string().trim().max(10_000).optional(),
+  })
+  .strict();
 type CheckoutRequest = typeof checkoutRequests.$inferSelect;
 const ALL_REQUESTABLE_KINDS = Object.keys(CHECKOUT_REQUEST_PERMISSIONS) as RequestableKind[];
 const SECONDARY_REQUEST_MAP: Partial<Record<RequestableKind, SecondaryResource>> = {
@@ -513,16 +520,7 @@ export class CheckoutRequestsService {
   }
 
   async fulfill(id: number, input: unknown, user: AuthenticatedUserContext) {
-    const dto = parse(
-      z
-        .object({
-          asset_id: z.coerce.number().int().positive().max(2_147_483_647).optional(),
-          expected_checkin: z.string().date().nullable().optional(),
-          note: z.string().trim().max(10_000).optional(),
-        })
-        .strict(),
-      input ?? {},
-    );
+    const dto = parse(FulfillRequestSchema, input ?? {});
     return inventoryWrite(this.db, async (tx) => {
       const row = await this.find(tx, id);
       if (row.state !== 'pending')

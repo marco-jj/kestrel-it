@@ -67,6 +67,7 @@ import {
 import { depreciationValue } from './depreciation.js';
 
 export const secondaryTables = { licenses, accessories, consumables, components };
+export const SecondaryBulkSchema = z.object({ ids: InventoryIdsSchema, changes: z.unknown().optional() });
 export const secondaryTypes = {
   licenses: 'license',
   accessories: 'accessory',
@@ -437,10 +438,7 @@ export class SecondaryCatalogService {
       user,
       `${resource}.${action === 'edit' || action === 'unarchive' ? 'edit' : 'delete'}`,
     );
-    const { ids, changes } = parse(
-      z.object({ ids: InventoryIdsSchema, changes: z.unknown().optional() }),
-      body,
-    );
+    const { ids, changes } = parse(SecondaryBulkSchema, body);
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
       const table = secondaryTables[resource];

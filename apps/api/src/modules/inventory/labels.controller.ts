@@ -35,6 +35,7 @@ import { HardwareService } from './hardware.service.js';
 import { inventoryWrite, parse, success } from './inventory-queries.js';
 import { attachmentResponse } from './operational-files.controller.js';
 import { currentSettings, requireInventoryPermission } from './phase-three-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const inch = (width: number, height: number, margin_x = 0.1875, margin_y = 0.5, gap_x = 0.125) =>
   LabelLayoutSchema.parse({
@@ -287,11 +288,13 @@ export class LabelsController {
     });
   }
 
+  @ApiZodBody(templateInput)
   @Post('labels')
   create(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.save(raw, user);
   }
 
+  @ApiZodBody(templateInput)
   @Patch('labels/:id')
   edit(
     @Param('id') id: string,
@@ -360,6 +363,7 @@ export class LabelsController {
     return success(null);
   }
 
+  @ApiZodBody(LabelLayoutSchema)
   @Post('labels/preview')
   @HttpCode(200)
   async preview(
@@ -381,6 +385,7 @@ export class LabelsController {
     );
   }
 
+  @ApiZodBody(printInput)
   @Post('hardware/labels')
   @HttpCode(200)
   async print(

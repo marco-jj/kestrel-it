@@ -1,15 +1,26 @@
 import {
   CORE_INVENTORY_RESOURCES,
+  CustomFieldInputSchema,
+  CustomFieldsetInputSchema,
   KIT_RESOURCES,
   REPORT_TYPES,
   REQUESTABLE_TYPES,
+  SecondaryCatalogSchemas,
 } from '@kestrel-it/shared';
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swagger';
+import { z, type ZodTypeAny } from 'zod';
+import { directoryDefinitions } from '../modules/inventory/directory-definitions.js';
+import { requestBodySchema } from './request-body.js';
 
 type PathItem = Record<string, any>;
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'] as const;
+const catalogSchemas = {
+  ...SecondaryCatalogSchemas,
+  fields: CustomFieldInputSchema,
+  fieldsets: CustomFieldsetInputSchema,
+};
 
 const PARAM_ENUMS: Array<{ pathMatch: string; param: string; values: readonly string[] }> = [
   { pathMatch: '/account/requestable/{type}', param: 'type', values: REQUESTABLE_TYPES },
@@ -53,6 +64,17 @@ function cloneOperation(op: Record<string, any>, resource: string): Record<strin
   return cloned;
 }
 
+function documentCatalogWrite(path: string, item: PathItem, create: ZodTypeAny, update: ZodTypeAny) {
+  const editing = path.endsWith('/{id}');
+  const methods = editing ? ['patch', 'put'] : ['post'];
+  const schema = requestBodySchema(editing ? update : create);
+  for (const method of methods) {
+    if (item[method]) {
+      item[method].requestBody = { required: true, content: { 'application/json': { schema } } };
+    }
+  }
+}
+
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Kestrel-IT API')
@@ -75,11 +97,25 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
             targetItem[method] = cloneOperation(pathItem[method], resource);
           }
         }
+        if (pathKey.endsWith('/{resource}') || pathKey.endsWith('/{resource}/{id}')) {
+          const schema = z.object(directoryDefinitions[resource].shape).strict();
+          documentCatalogWrite(concretePath, targetItem, schema, schema.partial());
+        }
       }
       continue;
     }
 
     const clonedItem: PathItem = structuredClone(pathItem);
+    for (const [resource, schema] of Object.entries(catalogSchemas)) {
+      if (pathKey.endsWith(`/${resource}`) || pathKey.endsWith(`/${resource}/{id}`)) {
+        documentCatalogWrite(
+          pathKey,
+          clonedItem,
+          schema,
+          resource === 'fieldsets' ? schema : schema.partial(),
+        );
+      }
+    }
     for (const rule of PARAM_ENUMS) {
       if (!pathKey.endsWith(rule.pathMatch)) continue;
       for (const method of HTTP_METHODS) {

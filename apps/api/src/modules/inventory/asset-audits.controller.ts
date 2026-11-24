@@ -2,6 +2,8 @@ import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Multipart } from '@fastify/multipart';
 import {
+  AssetAuditSchema,
+  InventoryIdsSchema,
   DatatableQuerySchema,
   InventoryIdSchema,
   type AuthenticatedUserContext,
@@ -11,6 +13,7 @@ import { CurrentUser, RequireKeyPermission } from '../../common/decorators/auth.
 import { AssetAuditsService, MAX_AUDIT_PHOTO_BYTES } from './asset-audits.service.js';
 import { fieldIssue } from './custom-fields-validation.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 type AuditRequest = {
   url: string;
@@ -62,6 +65,7 @@ async function auditInput(
 export class AssetAuditsController {
   constructor(@Inject(AssetAuditsService) private readonly audits: AssetAuditsService) {}
 
+  @ApiZodBody(AssetAuditSchema)
   @Post('audit')
   @RequireKeyPermission('assets.audit')
   async legacy(
@@ -79,6 +83,7 @@ export class AssetAuditsController {
     return this.audits.context(id(value), user);
   }
 
+  @ApiZodBody(AssetAuditSchema, false)
   @Post(':id/audit')
   @RequireKeyPermission('assets.audit')
   async single(
@@ -91,6 +96,7 @@ export class AssetAuditsController {
     return this.audits.single(id(value), data, photo, user);
   }
 
+  @ApiZodBody(AssetAuditSchema.extend({ ids: InventoryIdsSchema }))
   @Post('audit/bulk')
   @RequireKeyPermission('assets.audit')
   async bulk(

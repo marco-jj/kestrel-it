@@ -48,6 +48,7 @@ import { inventoryWrite, parse, success, type InventoryTransaction } from './inv
 import { InventoryReadModelsService } from './inventory-read-models.service.js';
 import { currentSettings, requireInventoryPermission } from './phase-three-queries.js';
 import { webhookUrl } from './webhook-delivery.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const systemScope: FmcsScope = {
   enabled: false,
@@ -83,6 +84,8 @@ const weekPeriod = (date: string) => {
   return today.toISOString().slice(0, 10);
 };
 
+const testMailInput = z.object({ email: z.string().email().optional() });
+const acceptanceReminderInput = z.object({ ids: z.array(InventoryIdSchema).min(1).max(500) });
 const settingsInput = z.object({
   alerts_enabled: z.boolean().optional(),
   alert_email: z.string().max(255).nullable().optional(),
@@ -138,6 +141,7 @@ export class NotificationsController {
     });
   }
 
+  @ApiZodBody(settingsInput)
   @Patch('settings/notifications')
   async update(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     this.admin(user);
@@ -187,10 +191,11 @@ export class NotificationsController {
     return this.settings(user);
   }
 
+  @ApiZodBody(testMailInput, false)
   @Post('settings/notifications/test')
   async testMail(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     this.admin(user);
-    const { email } = parse(z.object({ email: z.string().email().optional() }), raw ?? {});
+    const { email } = parse(testMailInput, raw ?? {});
     const recipient = email ?? user.email;
     if (!recipient) throw new UnprocessableEntityException('Enter a test recipient');
     await inventoryWrite(this.db, (tx) =>
@@ -263,9 +268,10 @@ export class NotificationsController {
     });
   }
 
+  @ApiZodBody(acceptanceReminderInput)
   @Post('unaccepted-acceptances/send-reminders')
   async remind(@Body() raw: unknown, @CurrentUser() actor: AuthenticatedUserContext) {
-    const { ids } = parse(z.object({ ids: z.array(InventoryIdSchema).min(1).max(500) }), raw);
+    const { ids } = parse(acceptanceReminderInput, raw);
     const keys = {
       asset: 'assets.checkout',
       accessory: 'accessories.checkout',

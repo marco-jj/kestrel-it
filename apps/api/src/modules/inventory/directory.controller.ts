@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  InventoryBulkSchema,
   DatatableQuerySchema,
   InventoryIdSchema,
   SelectlistQuerySchema,
@@ -22,6 +23,7 @@ import { z } from 'zod';
 import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { DirectoryService } from './directory.service.js';
 import { parse } from './inventory-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const directoryQuery = DatatableQuerySchema.extend({
   deleted: z
@@ -73,6 +75,7 @@ export class DirectoryController {
     return this.directory.create(resource, body, user);
   }
 
+  @ApiZodBody(InventoryBulkSchema)
   @Patch(':resource/bulk')
   bulk(
     @Param('resource') resource: string,

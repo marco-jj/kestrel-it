@@ -73,11 +73,11 @@ import { visibleActivityItems } from './inventory-visibility.js';
 import { attachmentResponse } from './operational-files.controller.js';
 import { currentSettings, requireInventoryPermission } from './phase-three-queries.js';
 import { usedStock } from './secondary-catalog.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 type ReportQuery = z.output<typeof ReportQuerySchema>;
 type Row = Record<string, unknown>;
 type DepreciationInputs = {
-  id: number;
   purchase_cost: string | null;
   purchase_date: string | null;
   _schedule: {
@@ -688,37 +688,53 @@ export class ReportsController {
     const asOf = query.as_of ?? new Date().toISOString().slice(0, 10);
     const bookSearch =
       type === 'depreciation' &&
-      Boolean(query.search && /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(query.search));
+      query.search &&
+      /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(query.search)
+        ? query.search
+        : undefined;
+    const sortByBookValue = type === 'depreciation' && query.sort === 'book_value';
+    const bookMatches =
+      !sortByBookValue && bookSearch && searchCondition
+        ? await this.numericSearchMatches(baseFrom, searchCondition, method, asOf, bookSearch)
+        : undefined;
+    const filtered = bookMatches
+      ? sql`${baseFrom} where id = any(${sql.param(bookMatches)}::int[])`
+      : from;
+    // Numeric exports can span many batches. Resolve their ordered IDs once.
     const ranked =
-      type === 'depreciation' && (query.sort === 'book_value' || bookSearch)
+      sortByBookValue
         ? await this.rankBookValues(
             bookSearch ? baseFrom : from,
-            order,
             bookSearch ? searchCondition : undefined,
             method,
             asOf,
-            query.sort === 'book_value' ? query.order : undefined,
-            bookSearch ? query.search : undefined,
+            query.order,
+            bookSearch,
           )
-        : undefined;
+        : query.format && bookMatches
+          ? await this.db.execute<{ id: number; value?: never }>(
+              sql`select id ${filtered} order by ${order}`,
+            )
+          : undefined;
     const pages = async (offset: number, limit: number) => {
+      if (bookMatches?.length === 0) return [];
       const entries = ranked?.slice(offset, offset + limit);
       if (entries?.length === 0) return [];
       const statement = entries
         ? sql`select * ${baseFrom}
             where id in (${sql.join(entries.map(({ id }) => sql`${id}`), sql`, `)})`
-        : sql`select * ${from} order by ${order} limit ${limit} offset ${offset}`;
+        : sql`select * ${filtered} order by ${order} limit ${limit} offset ${offset}`;
       const records = await this.db.execute<Row>(statement);
       const byId = entries && new Map(records.map((row) => [row.id, row]));
       const orderedRecords = entries && byId
         ? entries.flatMap(({ id, value }) => {
             const row = byId.get(id);
-            return row ? [{ ...row, book_value: value }] : [];
+            return row ? [sortByBookValue ? { ...row, book_value: value } : row] : [];
           })
         : records;
       return Promise.all(
         orderedRecords.map(async (row: Row) => {
-          if (type === 'depreciation' && !entries)
+          if (type === 'depreciation' && !sortByBookValue)
             row.book_value = reportBookValue(row as DepreciationInputs, method, asOf);
           if (type === 'custom' && columns.some((column) => extra.includes(column))) {
             const asset = await this.hardware.get(Number(row.id), user);
@@ -773,8 +789,8 @@ export class ReportsController {
       ).send(stream);
     }
     const [total, rows] = await Promise.all([
-      ranked?.length ??
-        this.db.execute<{ total: number }>(sql`select count(*)::int as total ${from}`)
+      ranked?.length ?? bookMatches?.length ??
+        this.db.execute<{ total: number }>(sql`select count(*)::int as total ${filtered}`)
           .then(([result]) => result!.total),
       pages(pageOffset(query), query.limit),
     ]);
@@ -785,36 +801,61 @@ export class ReportsController {
     });
   }
 
+  private bookValueCandidate(search: string, asOf: string) {
+    // The purchase cost is already searchable and caps the computed book value.
+    // One or two digits can match the cents of a much smaller value.
+    const minBookCost = search.includes('.') || search.length > 2 ? search : null;
+    return sql`(
+      purchase_cost > 0
+      ${minBookCost === null ? sql`` : sql`and purchase_cost >= ${minBookCost}::numeric`}
+      and purchase_date < ${asOf}::date
+      and (_schedule->>'months')::int > 0
+    )`;
+  }
+
+  private async numericSearchMatches(
+    baseFrom: SQL,
+    searchCondition: SQL,
+    method: DepreciationMethod,
+    asOf: string,
+    search: string,
+  ) {
+    // Text matches need only their IDs. Group the other candidates by financial inputs.
+    const candidates = await this.db.execute<DepreciationInputs & { ids: number[]; _sql_match: boolean }>(sql`
+      with candidates as materialized (
+        select id, coalesce(${searchCondition}, false) as _sql_match, purchase_cost, purchase_date, _schedule
+        ${baseFrom} where ${searchCondition} or ${this.bookValueCandidate(search, asOf)}
+      ), grouped_inputs as (
+        select id, _sql_match,
+          case when not _sql_match then purchase_cost end as purchase_cost,
+          case when not _sql_match then purchase_date end as purchase_date,
+          case when not _sql_match then _schedule end as _schedule
+        from candidates
+      )
+      select array_agg(id) as ids, _sql_match, purchase_cost, purchase_date, _schedule
+      from grouped_inputs group by _sql_match, purchase_cost, purchase_date, _schedule`);
+    return candidates
+      .filter((row) => row._sql_match || reportBookValue(row, method, asOf)?.includes(search))
+      .flatMap(({ ids }) => ids);
+  }
+
   private async rankBookValues(
     baseFrom: SQL,
-    sqlOrder: SQL,
     searchCondition: SQL | undefined,
     method: DepreciationMethod,
     asOf: string,
-    bookOrder: 'asc' | 'desc' | undefined,
+    bookOrder: 'asc' | 'desc',
     search: string | undefined,
   ) {
-    // The purchase cost is already searchable and caps the computed book value.
-    // One or two digits can match the cents of a much smaller value.
-    const minBookCost = search && (search.includes('.') || search.length > 2) ? search : null;
     const candidateFilter = search
-      ? sql`where ${searchCondition} or (
-          purchase_cost is not null
-          and purchase_cost > 0
-          ${minBookCost === null ? sql`` : sql`and purchase_cost >= ${minBookCost}::numeric`}
-          and purchase_date is not null
-          and purchase_date < ${asOf}::date
-          and _schedule is not null
-          and (_schedule->>'months')::int > 0
-        )`
+      ? sql`where ${searchCondition} or ${this.bookValueCandidate(search, asOf)}`
       : sql``;
     // Evaluate book values with the same calculation used by asset and license details.
-    const rows = await this.db.execute<DepreciationInputs & { _sql_match: boolean }>(
+    const rows = await this.db.execute<DepreciationInputs & { id: number; _sql_match: boolean }>(
       sql`select id, purchase_cost, purchase_date, _schedule,
         ${searchCondition ? sql`coalesce(${searchCondition}, false)` : sql`true`} as _sql_match
         ${baseFrom}
-        ${candidateFilter}
-        ${bookOrder ? sql`` : sql`order by ${sqlOrder}`}`,
+        ${candidateFilter}`,
     );
     const needle = search?.toLowerCase();
     const matched = rows.flatMap((row) => {
@@ -823,7 +864,6 @@ export class ReportsController {
         return [];
       return [{ id: row.id, value, cents: value === null ? null : moneyInCents(value) }];
     });
-    if (!bookOrder) return matched;
     return matched.sort((a, b) => {
       if (a.cents === b.cents) return b.id - a.id;
       if (a.cents === null) return 1;
@@ -895,6 +935,7 @@ export class ReportsController {
     return success(row);
   }
 
+  @ApiZodBody(templateInput)
   @Post('report-templates')
   async create(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     requireInventoryPermission(user, 'reports.view', true);
@@ -911,6 +952,7 @@ export class ReportsController {
     return success(row);
   }
 
+  @ApiZodBody(templateInput)
   @Patch('report-templates/:id')
   async edit(
     @Param('id') id: string,

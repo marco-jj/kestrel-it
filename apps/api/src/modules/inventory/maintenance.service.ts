@@ -45,7 +45,7 @@ import {
 } from './phase-three-queries.js';
 
 const reference = InventoryIdSchema.nullable().optional();
-const intervention = z.object({
+export const MaintenanceInputSchema = z.object({
   asset_id: InventoryIdSchema,
   name: inventoryName,
   maintenance_type_id: InventoryIdSchema,
@@ -65,6 +65,11 @@ const intervention = z.object({
     .nullable()
     .optional(),
 });
+export const MaintenanceChangeSchema = z.object({
+  note: inventoryNote,
+  completed_at: z.string().date().optional(),
+});
+export const MaintenanceTypeInputSchema = z.object({ name: inventoryName });
 const table = assetMaintenances;
 const fields = {
   id: table.id,
@@ -150,7 +155,8 @@ export class MaintenanceService {
 
   async save(body: unknown, user: AuthenticatedUserContext, id?: number) {
     requireInventoryPermission(user, 'assets.edit');
-    const dto = parse(id === undefined ? intervention : intervention.partial(), body);
+    const input = id === undefined ? MaintenanceInputSchema : MaintenanceInputSchema.partial();
+    const dto = parse(input, body);
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
       const previous = id === undefined ? null : await this.find(tx, scope, id, true);
@@ -238,10 +244,7 @@ export class MaintenanceService {
     user: AuthenticatedUserContext,
   ) {
     requireInventoryPermission(user, 'assets.edit');
-    const dto = parse(
-      z.object({ note: inventoryNote, completed_at: z.string().date().optional() }),
-      body ?? {},
-    );
+    const dto = parse(MaintenanceChangeSchema, body ?? {});
     if (action === 'note added' && !dto.note) fieldIssue('note', 'Enter a note');
     return inventoryWrite(this.db, async (tx) => {
       const scope = await this.fmcs.resolve(user, tx);
@@ -367,7 +370,7 @@ export class MaintenanceService {
 
   async saveType(body: unknown, user: AuthenticatedUserContext, id?: number, remove = false) {
     if (!user.isSuperUser) throw new ForbiddenException('Superuser access required');
-    const dto = remove ? null : parse(z.object({ name: inventoryName }), body);
+    const dto = remove ? null : parse(MaintenanceTypeInputSchema, body);
     return inventoryWrite(this.db, async (tx) => {
       if (id !== undefined) {
         const [type] = await tx

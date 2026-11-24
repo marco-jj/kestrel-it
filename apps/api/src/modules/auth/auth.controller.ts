@@ -39,6 +39,7 @@ import {
 } from '../../common/guards/jwt-or-pat-auth.guard.js';
 import { AuthService } from './auth.service.js';
 import { BetterAuthService } from './better-auth.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 interface HttpCookieReply {
   setCookie(name: string, value: string, options: Record<string, unknown>): unknown;
@@ -69,6 +70,7 @@ export class AuthController {
     return this.authService.getAuthProvidersStatus();
   }
 
+  @ApiZodBody(LoginRequestSchema)
   @Public()
   @Post('auth/login')
   @HttpCode(200)
@@ -99,6 +101,7 @@ export class AuthController {
     return result;
   }
 
+  @ApiZodBody(RefreshTokenRequestSchema, false)
   @Public()
   @Post('auth/refresh')
   @HttpCode(200)
@@ -124,6 +127,7 @@ export class AuthController {
     return result;
   }
 
+  @ApiZodBody(TwoFactorEnrollRequestSchema, false)
   @Public()
   @Post('auth/2fa/enroll')
   @HttpCode(200)
@@ -138,6 +142,7 @@ export class AuthController {
     return this.authService.enrollTwoFactor(userId);
   }
 
+  @ApiZodBody(TwoFactorVerifyRequestSchema)
   @Public()
   @Post('auth/2fa/verify')
   @HttpCode(200)
@@ -284,6 +289,7 @@ export class AuthController {
     return this.oidcCallback(code, state, request, reply);
   }
 
+  @ApiZodBody(BetterAuthSessionExchangeRequestSchema)
   @Public()
   @Post('auth/better-auth/exchange')
   @HttpCode(200)
@@ -315,6 +321,7 @@ export class AuthController {
     return result;
   }
 
+  @ApiZodBody(RefreshTokenRequestSchema, false)
   @Public()
   @Post(['logout', 'auth/logout'])
   @HttpCode(200)

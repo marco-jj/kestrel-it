@@ -26,7 +26,13 @@ import { CurrentUser } from '../../common/decorators/auth.decorators.js';
 import { DirectoryService } from './directory.service.js';
 import { requireInventoryPermission } from './phase-three-queries.js';
 import { parse } from './inventory-queries.js';
-import { PredefinedKitsService } from './predefined-kits.service.js';
+import {
+  KitCheckoutSchema,
+  KitInputSchema,
+  KitLineSchema,
+  PredefinedKitsService,
+} from './predefined-kits.service.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const id = (value: string) => parse(InventoryIdSchema, value);
 const kind = (value: string) => parse(z.enum(KIT_RESOURCES), value);
@@ -71,11 +77,13 @@ export class PredefinedKitsController {
     return this.kits.get(id(value), user);
   }
 
+  @ApiZodBody(KitInputSchema)
   @Post()
   create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUserContext) {
     return this.kits.save(body, user);
   }
 
+  @ApiZodBody(KitInputSchema)
   @Patch(':id')
   update(
     @Param('id') value: string,
@@ -85,6 +93,7 @@ export class PredefinedKitsController {
     return this.kits.save(body, user, id(value));
   }
 
+  @ApiZodBody(KitInputSchema)
   @Put(':id')
   replace(
     @Param('id') value: string,
@@ -108,6 +117,7 @@ export class PredefinedKitsController {
     return this.kits.lines(id(value), kind(type), user);
   }
 
+  @ApiZodBody(KitLineSchema.required({ item_id: true }))
   @Post(':id/:kind')
   add(
     @Param('id') value: string,
@@ -118,6 +128,7 @@ export class PredefinedKitsController {
     return this.kits.changeLine(id(value), kind(type), user, 'add', body);
   }
 
+  @ApiZodBody(KitLineSchema)
   @Put(':id/:kind/:item')
   updateLine(
     @Param('id') value: string,
@@ -139,6 +150,7 @@ export class PredefinedKitsController {
     return this.kits.changeLine(id(value), kind(type), user, 'delete', undefined, id(item));
   }
 
+  @ApiZodBody(KitCheckoutSchema)
   @Post(':id/checkout')
   checkout(
     @Param('id') value: string,

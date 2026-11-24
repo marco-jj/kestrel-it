@@ -26,6 +26,7 @@ import { actionLogs, loginAttempts, settings, users } from '../../db/schema/inde
 import { userEmailMatches } from '../../db/user-email.js';
 import { contains, datatable, inventoryWrite, pageOffset, parse, success } from './inventory-queries.js';
 import { currentSettings } from './phase-three-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 @ApiTags('Admin Settings & Account Profile')
 @ApiBearerAuth()
@@ -97,6 +98,7 @@ export class SettingsAdminController {
     });
   }
 
+  @ApiZodBody(GeneralSettingsUpdateSchema, false)
   @Patch('settings')
   @ApiOperation({ summary: 'Update global instance, branding, security, and OIDC settings' })
   async updateSettings(@Body() raw: unknown, @CurrentUser() user: AuthenticatedUserContext) {
@@ -280,6 +282,7 @@ export class SettingsAdminController {
     });
   }
 
+  @ApiZodBody(AccountProfileUpdateSchema, false)
   @Patch('account/profile')
   @ApiOperation({ summary: 'Update signed-in user profile details or local password' })
   async updateProfile(@Body() raw: unknown, @CurrentUser() actor: AuthenticatedUserContext) {

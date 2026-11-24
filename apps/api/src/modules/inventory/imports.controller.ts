@@ -44,6 +44,7 @@ import { ImportRecordsService } from './import-records.service.js';
 import { inventoryWrite, parse, success, type InventoryDatabase } from './inventory-queries.js';
 import { attachmentResponse } from './operational-files.controller.js';
 import { inventoryPage, requireInventoryPermission } from './phase-three-queries.js';
+import { ApiZodBody } from '../../openapi/request-body.js';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_ROWS = 100_000;
@@ -287,6 +288,7 @@ export class ImportsController {
     });
   }
 
+  @ApiZodBody(ImportProcessSchema)
   @Post('process/:id')
   async queue(
     @Param('id') value: string,
