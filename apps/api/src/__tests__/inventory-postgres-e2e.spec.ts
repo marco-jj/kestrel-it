@@ -2796,6 +2796,10 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     expect((await http('GET', '/requests', 'east')).statusCode).toBe(403);
     expect((await ok('GET', '/requests', 'west')).rows.map(({ id }: { id: number }) => id))
       .toContain(otherKind.id);
+    expect((await http('GET', '/hardware/targets/asset', 'componentOperator')).statusCode).toBe(403);
+    expect((await ok('GET', '/components/targets/asset', 'componentOperator')).results).toBeInstanceOf(
+      Array,
+    );
 
     await ok('POST', `/account/requests/${inScopeRequest.id}/cancel`, 'west', {});
     expect((await ok('GET', '/dashboard/summary', 'componentOperator')).payload.pending_checkout_requests)
@@ -3161,6 +3165,160 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
         privacyPolicyLink: config!.privacyPolicyLink,
         oidcIssuerUrl: config!.oidcIssuerUrl,
       }).where(eq(tables.settings.id, config!.id));
+    }
+  });
+
+  it('enforces case-insensitive email uniqueness in directory user create, edit, and restore', async () => {
+    const email = 'directory-unique@example.test';
+    const first = (
+      await ok('POST', '/users', 'root', {
+        username: 'dir-email-first',
+        email,
+        activated: true,
+      })
+    ).payload;
+    const dupCreate = await http('POST', '/users', 'root', {
+      username: 'dir-email-dup',
+      email: email.toUpperCase(),
+      activated: true,
+    });
+    expect(dupCreate.statusCode).toBe(409);
+    expect(dupCreate.json().messages).toHaveProperty('email');
+
+    const second = (
+      await ok('POST', '/users', 'root', {
+        username: 'dir-email-second',
+        email: 'directory-second@example.test',
+        activated: true,
+      })
+    ).payload;
+    const dupPatch = await http('PATCH', `/users/${second.id}`, 'root', {
+      email: `  ${email.toUpperCase()}  `,
+    });
+    expect(dupPatch.statusCode).toBe(409);
+    expect(dupPatch.json().messages).toHaveProperty('email');
+
+    // Unrelated edits keep working when the email is unchanged.
+    const unchanged = await ok('PATCH', `/users/${first.id}`, 'root', {
+      phone: '+39 555 0199',
+    });
+    expect(unchanged.payload).toMatchObject({ email, phone: '+39 555 0199' });
+
+    // Soft-deleting first frees the email; reclaiming it blocks restoring first.
+    await ok('DELETE', `/users/${first.id}`, 'root');
+    await db.update(tables.users).set({ email: `  ${email}  ` }).where(eq(tables.users.id, first.id));
+    await ok('PATCH', `/users/${second.id}`, 'root', { email });
+    const restoreConflict = await http('POST', `/users/${first.id}/restore`, 'root', {});
+    expect(restoreConflict.statusCode).toBe(409);
+    expect(restoreConflict.json().messages).toHaveProperty('email');
+  });
+
+  it('prunes non-candidate depreciation rows on numeric search while keeping exact book-value matches', async () => {
+    const [depSchedule] = await db
+      .insert(tables.depreciations)
+      .values({ name: 'Numeric Prune 12m', months: 12, depreciationMin: '0.00', depreciationType: 'amount' })
+      .returning({ id: tables.depreciations.id });
+    const [depModel] = await db
+      .insert(tables.models)
+      .values({ name: 'Numeric Prune Model', depreciationId: depSchedule!.id })
+      .returning({ id: tables.models.id });
+    const [noDepModel] = await db
+      .insert(tables.models)
+      .values({ name: 'Numeric No-Dep Model' })
+      .returning({ id: tables.models.id });
+
+    const inserted = await db
+      .insert(tables.assets)
+      .values([
+        {
+          assetTag: '887766',
+          name: 'High numeric tag asset',
+          companyId: westCompany,
+          modelId: depModel!.id,
+          purchaseCost: '1200.00',
+          purchaseDate: '2025-01-01',
+        },
+        {
+          assetTag: 'PRUNE-HALF',
+          name: 'Depreciated to 600.00',
+          companyId: westCompany,
+          modelId: depModel!.id,
+          purchaseCost: '1200.00',
+          purchaseDate: '2025-01-01',
+        },
+        {
+          assetTag: 'PRUNE-CHEAP',
+          name: 'Low cost asset',
+          companyId: westCompany,
+          modelId: depModel!.id,
+          purchaseCost: '100.00',
+          purchaseDate: '2025-01-01',
+        },
+        {
+          assetTag: 'PRUNE-NODEP',
+          name: 'No depreciation asset',
+          companyId: westCompany,
+          modelId: noDepModel!.id,
+          purchaseCost: '1200.00',
+          purchaseDate: '2025-01-01',
+        },
+        {
+          assetTag: 'PRUNE-CENTS',
+          name: 'Fractional book value',
+          companyId: westCompany,
+          modelId: depModel!.id,
+          purchaseCost: '0.98',
+          purchaseDate: '2025-01-01',
+        },
+      ])
+      .returning({ id: tables.assets.id, assetTag: tables.assets.assetTag });
+
+    try {
+      const executeSpy = vi.spyOn(app.get<DrizzleDb>(DRIZZLE_DB), 'execute');
+      try {
+        const tagSearch = await ok(
+          'GET',
+          `/reports/depreciation?search=887766&as_of=2025-07-01&company_id=${westCompany}`,
+          'root',
+        );
+        expect(tagSearch.total).toBe(1);
+        expect(tagSearch.rows[0]).toMatchObject({ asset_tag: '887766', book_value: '600.00' });
+        const rankResult = await executeSpy.mock.results[0]?.value;
+        expect(Array.isArray(rankResult)).toBe(true);
+        expect(rankResult).toHaveLength(1);
+      } finally {
+        executeSpy.mockRestore();
+      }
+
+      const bookMatch = await ok(
+        'GET',
+        `/reports/depreciation?search=600.00&as_of=2025-07-01&company_id=${westCompany}`,
+        'root',
+      );
+      expect(bookMatch.rows.map(({ asset_tag }: { asset_tag: string }) => asset_tag)).toEqual(
+        expect.arrayContaining(['887766', 'PRUNE-HALF']),
+      );
+      expect(bookMatch.rows.map(({ asset_tag }: { asset_tag: string }) => asset_tag)).not.toContain(
+        'PRUNE-CHEAP',
+      );
+      expect(bookMatch.rows.map(({ asset_tag }: { asset_tag: string }) => asset_tag)).not.toContain(
+        'PRUNE-NODEP',
+      );
+
+      for (const search of ['49', '.49']) {
+        const centsMatch = await ok(
+          'GET',
+          `/reports/depreciation?search=${search}&as_of=2025-07-01&company_id=${westCompany}`,
+          'root',
+        );
+        expect(centsMatch.rows).toEqual(
+          expect.arrayContaining([expect.objectContaining({ asset_tag: 'PRUNE-CENTS', book_value: '0.49' })]),
+        );
+      }
+    } finally {
+      await db.delete(tables.assets).where(inArray(tables.assets.id, inserted.map(({ id }) => id)));
+      await db.delete(tables.models).where(inArray(tables.models.id, [depModel!.id, noDepModel!.id]));
+      await db.delete(tables.depreciations).where(eq(tables.depreciations.id, depSchedule!.id));
     }
   });
 });

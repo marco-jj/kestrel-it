@@ -30,6 +30,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   SQL,
 } from 'drizzle-orm';
 import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
@@ -38,6 +39,7 @@ import { CryptoService } from '../../common/crypto/crypto.service.js';
 import { permitsEntity } from '../../common/guards/permissions.guard.js';
 import { DRIZZLE_DB, type DrizzleDb } from '../../db/database.module.js';
 import * as schema from '../../db/schema/index.js';
+import { userEmailMatches } from '../../db/user-email.js';
 import { companyWebhookFields, directoryDefinitions } from './directory-definitions.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
 import {
@@ -441,7 +443,7 @@ export class DirectoryService {
       ) {
         throw new ForbiddenException('Username and email changes require a superuser');
       }
-      await this.validateUser(tx, input, user, scope, id);
+      await this.validateUser(tx, input, user, scope, id, existing?.email);
       const start = input.start_date === undefined ? existing?.startDate : input.start_date;
       const end = input.end_date === undefined ? existing?.endDate : input.end_date;
       if (typeof start === 'string' && typeof end === 'string' && start > end) {
@@ -522,6 +524,7 @@ export class DirectoryService {
     actor: AuthenticatedUserContext,
     scope: FmcsScope,
     id?: number,
+    currentEmail?: unknown,
   ) {
     if (
       !actor.isSuperUser &&
@@ -567,6 +570,27 @@ export class DirectoryService {
         .limit(1);
       if (duplicate && duplicate.id !== id)
         throw new ConflictException('Username is already in use');
+    }
+    const email = typeof input.email === 'string' ? input.email.trim() : '';
+    if (email && (id === undefined || input.email !== currentEmail)) {
+      const [duplicate] = await tx
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(
+          and(
+            id !== undefined ? ne(schema.users.id, id) : undefined,
+            isNull(schema.users.deletedAt),
+            userEmailMatches(schema.users.email, email),
+          ),
+        )
+        .limit(1);
+      if (duplicate) {
+        throw new ConflictException({
+          status: 'error',
+          messages: { email: ['Email is already in use'] },
+          payload: null,
+        });
+      }
     }
     if (Array.isArray(input.company_ids)) this.validateMembershipScope(scope, input.company_ids);
   }
@@ -668,7 +692,9 @@ export class DirectoryService {
     if (resource === 'users')
       await this.validateUser(
         tx,
-        action === 'restore' ? { username: row.username } : {},
+        action === 'restore'
+          ? { username: row.username, ...(typeof row.email === 'string' ? { email: row.email } : {}) }
+          : {},
         user,
         scope,
         id,

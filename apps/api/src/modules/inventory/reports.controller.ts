@@ -794,11 +794,26 @@ export class ReportsController {
     bookOrder: 'asc' | 'desc' | undefined,
     search: string | undefined,
   ) {
+    // The purchase cost is already searchable and caps the computed book value.
+    // One or two digits can match the cents of a much smaller value.
+    const minBookCost = search && (search.includes('.') || search.length > 2) ? search : null;
+    const candidateFilter = search
+      ? sql`where ${searchCondition} or (
+          purchase_cost is not null
+          and purchase_cost > 0
+          ${minBookCost === null ? sql`` : sql`and purchase_cost >= ${minBookCost}::numeric`}
+          and purchase_date is not null
+          and purchase_date < ${asOf}::date
+          and _schedule is not null
+          and (_schedule->>'months')::int > 0
+        )`
+      : sql``;
     // Evaluate book values with the same calculation used by asset and license details.
     const rows = await this.db.execute<DepreciationInputs & { _sql_match: boolean }>(
       sql`select id, purchase_cost, purchase_date, _schedule,
         ${searchCondition ? sql`coalesce(${searchCondition}, false)` : sql`true`} as _sql_match
         ${baseFrom}
+        ${candidateFilter}
         ${bookOrder ? sql`` : sql`order by ${sqlOrder}`}`,
     );
     const needle = search?.toLowerCase();

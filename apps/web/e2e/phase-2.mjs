@@ -601,6 +601,7 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
 
     await patch({ profile_edit: false, login_note: loginNote, dashboard_message: dashboardMessage });
     let operatorPage;
+    let fulfilled = false;
     try {
       operatorPage = await signIn(browser, operatorName, operatorPassword);
       await operatorPage.getByText(dashboardMessage, { exact: true }).waitFor();
@@ -612,7 +613,17 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
       const palette = operatorPage.getByRole('dialog', { name: 'Global Command Palette' });
       await palette.getByRole('textbox', { name: 'Command search' }).fill('Checkout Requests');
       await palette.getByRole('option').filter({ hasText: 'Checkout Requests' }).click();
-      await operatorPage.getByRole('row').filter({ hasText: component.name }).waitFor();
+      const requestRow = operatorPage.getByRole('row').filter({ hasText: component.name });
+      await requestRow.waitFor();
+      await requestRow.getByRole('button', { name: 'checkout', exact: true }).click();
+      const hostSelect = operatorPage.locator('kestrel-async-select').filter({
+        has: operatorPage.getByText('Select target host asset', { exact: true }),
+      });
+      await hostSelect.getByRole('combobox').fill(tag(1));
+      await hostSelect.getByRole('option').filter({ hasText: tag(1) }).first().click();
+      await operatorPage.getByRole('button', { name: 'Fulfill request', exact: true }).click();
+      await operatorPage.getByRole('status').filter({ hasText: 'Request fulfilled.' }).waitFor();
+      fulfilled = true;
 
       await operatorPage.goto('/account/view-assets');
       await operatorPage.getByRole('heading', { name: 'Hardware Assets (51)', exact: true }).waitFor();
@@ -658,7 +669,9 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
         login_note: settings.login_note,
         dashboard_message: settings.dashboard_message,
       });
-      await create('/account/requests/' + request.id + '/cancel', {});
+      if (!fulfilled) {
+        await create('/account/requests/' + request.id + '/cancel', {});
+      }
     }
   });
 

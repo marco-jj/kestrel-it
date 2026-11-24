@@ -305,7 +305,9 @@ export class CheckoutRequestsPageComponent implements OnInit {
     if (reqType === 'model' && typeof modelId !== 'number') return;
     const request = ++this.assetRequest;
     try {
-      const data = await this.api.read<SelectlistResponse>('/hardware/targets/asset', {
+      const targetPath =
+        reqType === 'component' ? '/components/targets/asset' : '/hardware/targets/asset';
+      const data = await this.api.read<SelectlistResponse>(targetPath, {
         ...(reqType === 'model' ? { statusType: 'deployable', model_id: Number(modelId) } : {}),
         search,
       });
