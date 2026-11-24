@@ -3247,6 +3247,21 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
           purchaseDate: '2025-01-01',
         },
         {
+          assetTag: 'PRUNE-SERIAL',
+          serial: 'Serial 887766',
+          companyId: westCompany,
+          modelId: depModel!.id,
+          purchaseCost: '1200.00',
+          purchaseDate: '2025-01-01',
+        },
+        ...['PRUNE-BOOK-A', 'PRUNE-BOOK-B'].map((assetTag) => ({
+          assetTag,
+          companyId: westCompany,
+          modelId: depModel!.id,
+          purchaseCost: '1775532.00',
+          purchaseDate: '2025-01-01',
+        })),
+        {
           assetTag: 'PRUNE-CHEAP',
           name: 'Low cost asset',
           companyId: westCompany,
@@ -3274,21 +3289,35 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       .returning({ id: tables.assets.id, assetTag: tables.assets.assetTag });
 
     try {
+      const numericSearch = `/reports/depreciation?search=887766&as_of=2025-07-01&model_id=${depModel!.id}`;
+      const assetTagOrder = numericSearch + '&sort=asset_tag&order=asc&limit=2';
       const executeSpy = vi.spyOn(app.get<DrizzleDb>(DRIZZLE_DB), 'execute');
       try {
-        const tagSearch = await ok(
-          'GET',
-          `/reports/depreciation?search=887766&as_of=2025-07-01&company_id=${westCompany}`,
-          'root',
+        const tagSearch = await ok('GET', assetTagOrder, 'root');
+        expect(tagSearch).toMatchObject({ total: 4, rows: [
+          { asset_tag: '887766', book_value: '600.00' },
+          { asset_tag: 'PRUNE-BOOK-A', book_value: '887766.00' },
+        ] });
+        const candidateGroups = await executeSpy.mock.results[0]?.value;
+        expect(candidateGroups).toHaveLength(2);
+        expect(candidateGroups).toContainEqual(
+          expect.objectContaining({ _sql_match: false, ids: expect.arrayContaining(
+            inserted.filter(({ assetTag }) => assetTag?.startsWith('PRUNE-BOOK-')).map(({ id }) => id),
+          ) }),
         );
-        expect(tagSearch.total).toBe(1);
-        expect(tagSearch.rows[0]).toMatchObject({ asset_tag: '887766', book_value: '600.00' });
-        const rankResult = await executeSpy.mock.results[0]?.value;
-        expect(Array.isArray(rankResult)).toBe(true);
-        expect(rankResult).toHaveLength(1);
       } finally {
         executeSpy.mockRestore();
       }
+      expect(await ok('GET', assetTagOrder + '&page=2', 'root')).toMatchObject({ total: 4, rows: [
+        { asset_tag: 'PRUNE-BOOK-B', book_value: '887766.00' },
+        { asset_tag: 'PRUNE-SERIAL', book_value: '600.00' },
+      ] });
+      expect(await ok('GET', numericSearch + '&sort=book_value&order=desc&limit=2', 'root'))
+        .toMatchObject({ total: 4, rows: [{ asset_tag: 'PRUNE-BOOK-B' }, { asset_tag: 'PRUNE-BOOK-A' }] });
+      const csv = await http('GET', numericSearch + '&format=csv&sort=asset_tag&columns=asset_tag', 'root');
+      expect(parseCsv(csv.body, { columns: true })).toEqual(
+        ['887766', 'PRUNE-BOOK-A', 'PRUNE-BOOK-B', 'PRUNE-SERIAL'].map((asset_tag) => ({ asset_tag })),
+      );
 
       const bookMatch = await ok(
         'GET',

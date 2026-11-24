@@ -1,8 +1,13 @@
 import 'reflect-metadata';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LabelLayoutSchema } from '@kestrel-it/shared';
+import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants.js';
+import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum.js';
+import { MetadataScanner, ModulesContainer, NestFactory } from '@nestjs/core';
+import { FastifyAdapter } from '@nestjs/platform-fastify';
+import type { OpenAPIObject } from '@nestjs/swagger';
 import {
   BarcodeFormat,
   BinaryBitmap,
@@ -14,6 +19,7 @@ import {
 import { PNG } from 'pngjs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
+import { AppModule } from '../app.module.js';
 import { automaticMapping, csvRows } from '../modules/inventory/import-mapping.js';
 import {
   barcodeImage,
@@ -28,6 +34,7 @@ import {
   webhookUrl,
   publicAddress,
 } from '../modules/inventory/webhook-delivery.js';
+import { buildOpenApiDocument } from '../openapi/openapi.util.js';
 
 describe('Snipe-IT operational format parity', () => {
   it.each([
@@ -146,18 +153,67 @@ describe('Snipe-IT operational format parity', () => {
     expect(webhookUrl('https://hooks.example.com/hook').hostname).toBe('hooks.example.com');
   });
 
-  it('publishes an exported OpenAPI contract covering Plan 3.5 parity routes', () => {
+  it('publishes an up-to-date OpenAPI contract with the JSON request bodies', async () => {
     const specPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
       '../../../../docs/openapi.json',
     );
-    expect(existsSync(specPath)).toBe(true);
-    const spec = JSON.parse(readFileSync(specPath, 'utf8')) as {
-      openapi?: string;
-      paths?: Record<string, unknown>;
-    };
-    expect(spec.openapi).toMatch(/^3\./);
-    const paths = Object.keys(spec.paths ?? {});
+    const published: OpenAPIObject = JSON.parse(readFileSync(specPath, 'utf8'));
+    const app = await NestFactory.create(AppModule, new FastifyAdapter(), { logger: false });
+    const bodyHandlers = new Set<string>();
+    app.setGlobalPrefix('api/v1', { exclude: ['health', 'ready'] });
+    try {
+      const scanner = new MetadataScanner();
+      for (const module of app.get(ModulesContainer).values()) {
+        for (const { metatype: controller } of module.controllers.values()) {
+          if (!controller) continue;
+          for (const method of scanner.getAllMethodNames(controller.prototype)) {
+            const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, controller, method) ?? {};
+            if (Object.keys(args).some((key) => key.startsWith(`${RouteParamtypes.BODY}:`))) {
+              bodyHandlers.add(`${controller.name}_${method}`);
+            }
+          }
+        }
+      }
+
+      const spec = buildOpenApiDocument(app);
+      const documented = new Set<string>();
+      for (const [route, item] of Object.entries(spec.paths)) {
+        for (const [method, operation] of Object.entries(item)) {
+          const exported = Object.entries(published.paths[route] ?? {}).find(([name]) => name === method)?.[1];
+          expect(operation?.requestBody, `${method} ${route}`).toEqual(exported?.requestBody);
+          const id = operation?.operationId?.replace(/\[\d+\]$/, '');
+          const handler = id?.startsWith('DirectoryController_') ? id.split('_').slice(0, 2).join('_') : id;
+          if (!handler || !bodyHandlers.has(handler)) continue;
+          const schema = operation.requestBody?.content?.['application/json']?.schema;
+          expect(Object.keys(schema ?? {}).length, `${method} ${route}`).toBeGreaterThan(0);
+          documented.add(handler);
+        }
+      }
+      expect(documented).toEqual(bodyHandlers);
+      expect(spec.paths['/api/v1/settings']?.patch?.requestBody).toMatchObject({
+        required: false,
+        content: { 'application/json': { schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            per_page: { type: 'integer', minimum: 5, maximum: 500 },
+            login_note: { type: 'string', nullable: true },
+          },
+        } } },
+      });
+      expect(spec.paths['/api/v1/users']?.post?.requestBody).toMatchObject({
+        content: { 'application/json': { schema: { required: ['username'] } } },
+      });
+      expect(spec.paths['/api/v1/users/{id}']?.patch?.requestBody).toMatchObject({
+        content: { 'application/json': { schema: { properties: { email: { format: 'email' } } } } },
+      });
+    } finally {
+      await app.close();
+    }
+
+    expect(published.openapi).toMatch(/^3\./);
+    const paths = Object.keys(published.paths);
     for (const required of [
       '/api/v1/hardware/{id}/licenses',
       '/api/v1/hardware/{id}/assigned/assets',
