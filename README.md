@@ -40,8 +40,9 @@ kestrel-it/
 │   └── web/            # Angular frontend application
 ├── packages/
 │   └── shared/         # Shared TypeScript types, validation schemas, & RBAC enums
-└── deploy/
-    └── helm/           # Single Helm chart for API, Web, & optional PostgreSQL
+├── deploy/
+│   └── helm/           # Single Helm chart for API, Web, & optional PostgreSQL
+└── kestrel-showcase/   # Static project showcase site
 ```
 
 ---
