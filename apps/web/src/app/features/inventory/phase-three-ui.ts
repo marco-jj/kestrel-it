@@ -1,4 +1,5 @@
-import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { FormControl, FormGroup } from '@angular/forms';
+import { inventoryFieldValidators } from './inventory-field-validation.js';
 import type { DataGridColumn, DataGridRow } from '../../shared/ui/data-grid.component.js';
 import { field, reference, type InventoryField } from './directory-ui.js';
 
@@ -27,14 +28,16 @@ export function inventoryForm(fields: InventoryField[], values: DataGridRow = {}
         item.key,
         new FormControl(
           values[item.key] ?? (item.type === 'boolean' ? false : null),
-          item.required ? Validators.required : undefined,
+          inventoryFieldValidators(item, values[item.key]),
         ),
       ]),
     ),
   );
 }
 
-const column = (key: string, label: string): DataGridColumn => ({ key, label, sortable: false });
+const column = (key: string, label: string, type?: DataGridColumn['type']): DataGridColumn => ({
+  key, label, type, sortable: false,
+});
 const name = required(field('name', 'Name'));
 const categoryFields = [
   name,
@@ -67,7 +70,7 @@ export const phaseThreeDefinitions: Record<
     columns: [
       column('seats', 'Seats'),
       column('remaining', 'Free seats'),
-      column('expiration_date', 'Expires'),
+      column('expiration_date', 'Expires', 'date'),
     ],
     fields: [
       ...categoryFields,
@@ -82,7 +85,7 @@ export const phaseThreeDefinitions: Record<
       field('order_number', 'Order number'),
       field('purchase_order', 'Purchase order'),
       field('license_name', 'Licensed to'),
-      field('license_email', 'License email'),
+      field('license_email', 'License email', 'email'),
       reference('supplier_id', 'Supplier', 'suppliers'),
       field('depreciate', 'Depreciate', 'boolean'),
       reference('depreciation_id', 'Depreciation schedule', 'depreciations'),
@@ -104,8 +107,8 @@ export const phaseThreeDefinitions: Record<
     title: 'Maintenance',
     columns: [
       column('asset_id', 'Asset ID'),
-      column('start_date', 'Start'),
-      column('completed_at', 'Completed'),
+      column('start_date', 'Start', 'date'),
+      column('completed_at', 'Completed', 'date'),
     ],
     fields: [
       name,
@@ -117,7 +120,7 @@ export const phaseThreeDefinitions: Record<
       field('expected_completion_date', 'Expected completion', 'date'),
       field('cost', 'Cost'),
       field('is_warranty', 'Under warranty', 'boolean'),
-      field('url', 'Reference URL'),
+      field('url', 'Reference URL', 'url'),
       field('notes', 'Notes', 'textarea'),
     ],
   },

@@ -11,6 +11,7 @@ import {
   type DataGridRow,
 } from '../../shared/ui/data-grid.component.js';
 import { KestrelSlideDrawerComponent } from '../../shared/ui/slide-drawer.component.js';
+import { datePresentationForKey, formatDisplayDate } from '../../shared/ui/display-date.js';
 import { field, permissionFor, reference, type InventoryField } from './directory-ui.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import { InventoryFormFieldsComponent } from './inventory-form-fields.component.js';
@@ -59,6 +60,13 @@ const adjustmentFields = [
   field('currency', 'Currency'),
   field('purchase_date', 'Purchase date', 'date'),
 ];
+
+export function assignmentRecipient(row: DataGridRow): string {
+  const label = row['assigned_to_label'];
+  if (typeof label === 'string' && label.trim()) return label;
+  if (row['assigned_to']) return `User #${row['assigned_to']}`;
+  return '';
+}
 
 @Component({
   selector: 'kestrel-phase-three-page',
@@ -123,7 +131,8 @@ const adjustmentFields = [
       (pageChanged)="page.set($event); load()"
       (sortChanged)="order = $event.order; load()"
     />
-    <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()" size="xl" (closed)="close()">
+    <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()" size="xl"
+      [placement]="deleting() ? 'center' : 'side'" (closed)="close()">
       @if (drawer()) {
         @if (operation() === null && current(); as row) {
           <nav class="toolbar tabs" aria-label="Record details">
@@ -302,7 +311,8 @@ const adjustmentFields = [
             }
             <div class="toolbar footer">
               <button class="k-btn k-btn-secondary" type="button" (click)="back()">Cancel</button>
-              <button class="k-btn k-btn-primary" [disabled]="saving()" type="submit">
+              <button [class]="deleting() ? 'k-btn k-btn-danger' : 'k-btn k-btn-primary'"
+                [disabled]="saving()" type="submit">
                 {{ submitLabel() }}
               </button>
             </div>
@@ -618,13 +628,15 @@ export class PhaseThreePageComponent implements OnInit {
       ...this.definition.fields.filter(({ key }) => key !== 'name'),
       ...(this.isSecondary ? [field('remaining', 'Available')] : []),
       field('book_value', 'Book value'),
-      field('completed_at', 'Completed'),
+      field('completed_at', 'Completed', 'date'),
     ];
     return fields
       .filter(({ key }) => row[key] !== undefined && row[key] !== null)
-      .map(({ key, label }) => ({
+      .map(({ key, label, type }) => ({
         label,
-        value: typeof row[key] === 'boolean' ? (row[key] ? 'Yes' : 'No') : String(row[key]),
+        value: type === 'date'
+          ? formatDisplayDate(row[key], datePresentationForKey(key) === 'datetime') ?? '—'
+          : typeof row[key] === 'boolean' ? (row[key] ? 'Yes' : 'No') : String(row[key]),
       }));
   }
 
@@ -678,7 +690,8 @@ export class PhaseThreePageComponent implements OnInit {
         row['quantity'] ? `Quantity ${row['quantity']}` : '',
         row['consumed_at'] ? 'Consumed' : '',
         row['asset_id'] ? `Asset #${row['asset_id']}` : '',
-        row['assigned_to'] ? `User #${row['assigned_to']}` : '',
+        assignmentRecipient(row),
+        row['occupied'] && !row['assigned_to'] && !row['asset_id'] ? 'Assigned' : '',
         row['target_id'] ? `${row['target_type']} #${row['target_id']}` : '',
         row['note'],
       ]
@@ -687,7 +700,7 @@ export class PhaseThreePageComponent implements OnInit {
     }
     return [
       row['action_type'],
-      typeof row['action_date'] === 'string' ? new Date(row['action_date']).toLocaleString() : '',
+      formatDisplayDate(row['action_date'], true),
       row['quantity'] && this.isSecondary ? `Quantity ${row['quantity']}` : '',
       row['note'],
     ]
@@ -789,6 +802,10 @@ export class PhaseThreePageComponent implements OnInit {
   }
 
   confirmation() {
+    if (this.operation() === 'delete') {
+      return `Delete ${this.ids.length} ${this.ids.length === 1 ? 'record' : 'records'}?`;
+    }
+    if (this.operation() === 'remove-line') return 'Remove this item from the kit?';
     return this.ids.length > 1
       ? `Apply this action to ${this.ids.length} selected records?`
       : 'Confirm this action?';
@@ -815,6 +832,10 @@ export class PhaseThreePageComponent implements OnInit {
     }[action];
   }
 
+  deleting(): boolean {
+    return this.operation() === 'delete' || this.operation() === 'remove-line';
+  }
+
   back() {
     if (this.fromDetail && this.current()) {
       this.operation.set(null);
@@ -836,6 +857,7 @@ export class PhaseThreePageComponent implements OnInit {
     const action = this.operation();
     if (action === null) return;
     if (this.form().invalid) {
+      this.form().markAllAsTouched();
       this.error.set('Complete the required fields.');
       return;
     }

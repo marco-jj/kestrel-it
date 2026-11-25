@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import type { StandardApiResponse } from '@kestrel-it/shared';
 import { InventoryApi, inventoryError } from './inventory-api.js';
+import { formatDisplayDate } from '../../shared/ui/display-date.js';
 
 type SettingsSection = 'general' | 'branding' | 'integrations';
 
@@ -510,7 +511,7 @@ export class AdminSettingsComponent implements OnInit {
                 </span>
               </td>
               <td>{{ row.user_agent || '—' }}</td>
-              <td class="k-mono">{{ row.created_at }}</td>
+              <td class="k-mono">{{ formatDate(row.created_at, true) || '—' }}</td>
             </tr>
           } @empty {
             <tr><td colspan="6" class="k-helper">No matching login attempts.</td></tr>
@@ -530,6 +531,7 @@ export class AdminSettingsComponent implements OnInit {
   styles: [ADMIN_STYLES],
 })
 export class LoginAttemptsComponent implements OnInit {
+  readonly formatDate = formatDisplayDate;
   private readonly api = inject(InventoryApi);
   readonly rows = signal<LoginAttemptRow[]>([]);
   readonly total = signal(0);

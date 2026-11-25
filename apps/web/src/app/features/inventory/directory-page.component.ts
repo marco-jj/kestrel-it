@@ -1,7 +1,8 @@
 import type { PermissionKey } from '@kestrel-it/shared';
 import { InventoryFilesComponent } from './inventory-files.component.js';
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { inventoryFieldValidators } from './inventory-field-validation.js';
 import { ActivatedRoute } from '@angular/router';
 import type { CoreInventoryResource } from '@kestrel-it/shared';
 import { AuthStore } from '../../core/auth/auth.store.js';
@@ -12,7 +13,7 @@ import {
   type DataGridRow,
 } from '../../shared/ui/data-grid.component.js';
 import { KestrelSlideDrawerComponent } from '../../shared/ui/slide-drawer.component.js';
-import { DIRECTORY_UI, permissionFor, type InventoryField } from './directory-ui.js';
+import { DIRECTORY_UI, directoryFormField, permissionFor, type InventoryField } from './directory-ui.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import { InventoryFormFieldsComponent } from './inventory-form-fields.component.js';
 
@@ -64,11 +65,12 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
         <kestrel-inventory-files [resource]="resource" [itemId]="itemId" [canWrite]="true" />
       }
     </kestrel-slide-drawer>
-    <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()" (closed)="drawer.set(false)">
+    <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()"
+      [placement]="pendingAction() === 'delete' ? 'center' : 'side'" (closed)="drawer.set(false)">
       @if (drawer()) {
         @if (pendingAction()) {
           <p>
-            Apply this change to {{ selectedIds().length }}
+            {{ pendingAction() === 'delete' ? 'Delete' : 'Restore' }} {{ selectedIds().length }}
             {{ selectedIds().length === 1 ? 'record' : 'records' }}?
           </p>
         } @else {
@@ -89,7 +91,8 @@ import { InventoryFormFieldsComponent } from './inventory-form-fields.component.
           <button class="k-btn k-btn-secondary" type="button" (click)="drawer.set(false)">
             Cancel
           </button>
-          <button class="k-btn k-btn-primary" type="button" [disabled]="saving()" (click)="save()">
+          <button [class]="pendingAction() === 'delete' ? 'k-btn k-btn-danger' : 'k-btn k-btn-primary'"
+            type="button" [disabled]="saving() || (!pendingAction() && form().invalid)" (click)="save()">
             {{
               pendingAction() === 'delete'
                 ? 'Delete'
@@ -150,6 +153,9 @@ export class DirectoryPageComponent implements OnInit {
           { key: 'username', label: 'Username' },
           { key: 'email', label: 'Email' },
         ]
+      : []),
+    ...(this.resource === 'statuslabels'
+      ? [{ key: 'color', label: 'Color', type: 'color', sortable: false } as const]
       : []),
     { key: 'notes', label: 'Notes', sortable: false },
   ];
@@ -258,7 +264,7 @@ export class DirectoryPageComponent implements OnInit {
       return (
         !bulk || (!field.required && field.type !== 'password' && field.type !== 'permissions')
       );
-    });
+    }).map((field) => directoryFormField(field, this.resource, editingUsers));
     const controls: Record<string, FormControl> = {};
     for (const field of fields) {
       const initial =
@@ -271,7 +277,7 @@ export class DirectoryPageComponent implements OnInit {
               : null;
       controls[field.key] = new FormControl(
         data[field.key] ?? initial,
-        field.required && !bulk ? Validators.required : [],
+        inventoryFieldValidators(field, data[field.key]),
       );
     }
     this.fields.set(fields);
@@ -341,9 +347,11 @@ export class DirectoryPageComponent implements OnInit {
             control.dirty ||
             (creating && this.fields().some((field) => field.key === key && field.required)),
         )
+        .filter(([key, control]) => key !== 'password' || Boolean(control.value))
         .map(([key, control]) => [key, control.value === '' ? null : control.value]),
     );
     if (!action && (this.form().invalid || Object.keys(changes).length === 0)) {
+      this.form().markAllAsTouched();
       this.error.set('Enter the required values or change a field.');
       return;
     }

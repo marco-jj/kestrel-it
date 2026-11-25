@@ -1,6 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { formatDisplayDate } from '../../shared/ui/display-date.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 
 type CalendarEvent = {
@@ -72,7 +73,7 @@ const eventFilters = [
       }
       @for (day of days(); track day.key) {
         <div class="day" [class.other-month]="!day.inMonth">
-          <time [attr.datetime]="day.key">{{ day.day }}</time>
+          <time [attr.datetime]="day.key" [attr.aria-label]="formatDate(day.key)">{{ day.day }}</time>
           @for (event of day.events; track event.id) {
             <a
               [routerLink]="pathFor(event)"
@@ -88,7 +89,7 @@ const eventFilters = [
     <ul class="agenda" aria-label="Monthly events">
       @for (event of events(); track event.id) {
         <li>
-          <time [attr.datetime]="event.start">{{ event.start.slice(0, 10) }}</time>
+          <time [attr.datetime]="event.start">{{ formatDate(event.start) }}</time>
           <a [routerLink]="pathFor(event)" [queryParams]="paramsFor(event)">{{ event.title }}</a>
         </li>
       } @empty {
@@ -186,6 +187,7 @@ export class InventoryCalendarComponent implements OnInit {
   readonly loading = signal(false);
   readonly weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   readonly filters = eventFilters;
+  readonly formatDate = formatDisplayDate;
   readonly label = computed(() =>
     this.month().toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
   );

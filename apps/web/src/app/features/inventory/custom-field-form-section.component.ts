@@ -2,16 +2,20 @@ import { Component, Input, OnChanges, inject } from '@angular/core';
 import { FormControl, FormRecord, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   normalizeFormatLabel,
+  buildCustomFieldZodSchema,
   parseFieldValuesOptions,
   type InventoryCustomField,
 } from '@kestrel-it/shared';
 
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { FieldErrorComponent } from '../../shared/ui/field-validation.js';
+import { DateInputComponent } from '../../shared/ui/date-input.component.js';
+import { phonePattern } from './inventory-field-validation.js';
 
 @Component({
   selector: 'kestrel-custom-field-form-section',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, FieldErrorComponent, DateInputComponent],
   template: `
     @if (fields.length) {
       <fieldset [formGroup]="form">
@@ -72,12 +76,18 @@ import { AuthStore } from '../../core/auth/auth.store.js';
                   </div>
                 }
                 @default {
-                  <input
-                    [id]="'custom-' + field.id"
-                    [type]="inputType(field)"
-                    [formControlName]="field.db_column"
-                  />
+                  @if (field.element === 'date_picker' || field.element === 'datetime_picker') {
+                    <kestrel-date-input
+                      [inputId]="'custom-' + field.id" [label]="field.name"
+                      [withTime]="field.element === 'datetime_picker'" [formControlName]="field.db_column"
+                    />
+                  } @else {
+                    <input [id]="'custom-' + field.id" [type]="inputType(field)" [formControlName]="field.db_column" />
+                  }
                 }
+              }
+              @if (!form.controls[field.db_column]?.hasError('dateFormat')) {
+                <kestrel-field-error [control]="form.controls[field.db_column]" />
               }
             }
           </div>
@@ -138,11 +148,34 @@ export class CustomFieldFormSectionComponent implements OnChanges {
         field.element === 'datetime_picker' && typeof value === 'string'
           ? value.replace(' ', 'T')
           : value;
+      const format = normalizeFormatLabel(field.format);
+      const schema = buildCustomFieldZodSchema({
+        name: field.name,
+        dbColumn: field.db_column,
+        element: field.element,
+        format: format.startsWith('regex:') ? 'ANY' : format,
+        fieldValues: field.field_values,
+      }, false);
+      const required = field.required && !this.defaultsOnly;
       this.form.addControl(
         field.db_column,
         new FormControl(
           { value: initial, disabled: this.isMasked(field) },
-          field.required && !this.defaultsOnly ? [Validators.required] : [],
+          [
+            ...(required ? [Validators.required] : []),
+            (control) => {
+              if (control.value === initial) return null;
+              const normalized = field.element === 'datetime_picker' && typeof control.value === 'string'
+                ? normalizeDateTime(control.value)
+                : control.value;
+              const result = schema.safeParse(normalized);
+              if ((format === 'PHONE' || format === 'FAX') && normalized) {
+                return Validators.pattern(phonePattern)(control);
+              }
+              if (format === 'URL' && normalized && !/^https?:\/\//i.test(normalized)) return { url: true };
+              return result.success ? null : { format: result.error.issues[0]?.message ?? 'Enter a valid value.' };
+            },
+          ],
         ),
       );
     }
@@ -156,10 +189,11 @@ export class CustomFieldFormSectionComponent implements OnChanges {
   }
 
   inputType(field: InventoryCustomField) {
-    if (field.element === 'date_picker') return 'date';
-    if (field.element === 'datetime_picker') return 'datetime-local';
     const format = normalizeFormatLabel(field.format);
-    return format === 'EMAIL' ? 'email' : format === 'URL' ? 'url' : 'text';
+    if (format === 'EMAIL') return 'email';
+    if (format === 'URL') return 'url';
+    if (format === 'PHONE' || format === 'FAX') return 'tel';
+    return 'text';
   }
 
   checked(key: string, value: string) {
@@ -178,6 +212,10 @@ export class CustomFieldFormSectionComponent implements OnChanges {
   }
 }
 
+function normalizeDateTime(value: string): string {
+  const normalized = value.replace('T', ' ');
+  return normalized.length === 16 ? normalized + ':00' : normalized;
+}
 export function customFieldChanges(form: FormRecord<FormControl>, fields: InventoryCustomField[]) {
   const values: Record<string, unknown> = {};
   for (const field of fields) {
@@ -185,8 +223,7 @@ export function customFieldChanges(form: FormRecord<FormControl>, fields: Invent
     if (!control?.dirty || control.disabled) continue;
     const value: unknown = control.value;
     if (field.element === 'datetime_picker' && typeof value === 'string' && value) {
-      const formatted = value.replace('T', ' ');
-      values[field.db_column] = formatted.length === 16 ? formatted + ':00' : formatted;
+      values[field.db_column] = normalizeDateTime(value);
     } else {
       values[field.db_column] = value === '' ? null : value;
     }

@@ -317,3 +317,21 @@
     transition-duration: 0.01ms !important;
   }
 }
+.k-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--kestrel-border-strong);
+  border-radius: 999px;
+  background: var(--kestrel-surface-subtle);
+  color: var(--kestrel-ink);
+  overflow-wrap: anywhere;
+}
+
+.k-field-error {
+  color: var(--kestrel-danger);
+}
+.k-field-error:empty {
+  display: none;
+}

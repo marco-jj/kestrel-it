@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, viewChildren } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import type { SelectlistResponse } from '@kestrel-it/shared';
@@ -12,6 +12,7 @@ import {
   type DataGridRow,
 } from '../../shared/ui/data-grid.component.js';
 import { KestrelSlideDrawerComponent } from '../../shared/ui/slide-drawer.component.js';
+import { DateInputComponent } from '../../shared/ui/date-input.component.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 
 type Catalog = 'hardware' | 'models' | 'licenses' | 'accessories' | 'consumables' | 'components';
@@ -34,6 +35,7 @@ const CATALOG_TABS: ReadonlyArray<{ key: Catalog; label: string }> = [
     RouterLink,
     KestrelDataGridComponent,
     KestrelAsyncSelectComponent,
+    DateInputComponent,
     KestrelSlideDrawerComponent,
   ],
   template: `
@@ -88,8 +90,8 @@ const CATALOG_TABS: ReadonlyArray<{ key: Catalog; label: string }> = [
           @if (catalog() !== 'hardware' && catalog() !== 'models') {
             <label>Quantity <input type="number" min="1" [(ngModel)]="quantity" /></label>
           }
-          <label>Start date <input type="date" [(ngModel)]="start" /></label>
-          <label>End date <input type="date" [(ngModel)]="end" /></label>
+          <label>Start date <kestrel-date-input label="Start date" [(ngModel)]="start" /></label>
+          <label>End date <kestrel-date-input label="End date" [(ngModel)]="end" /></label>
           <label>Notes <textarea rows="3" [(ngModel)]="notes"></textarea></label>
         }
         @if (operation() === 'checkout') {
@@ -102,7 +104,7 @@ const CATALOG_TABS: ReadonlyArray<{ key: Catalog; label: string }> = [
               (searchChanged)="loadAssets($event)"
             />
           }
-          <label>Expected return date <input type="date" [(ngModel)]="end" /></label>
+          <label>Expected return date <kestrel-date-input label="Expected return date" [(ngModel)]="end" /></label>
           <label>Checkout note <textarea rows="3" [(ngModel)]="notes"></textarea></label>
         }
         @if (error()) {
@@ -115,7 +117,7 @@ const CATALOG_TABS: ReadonlyArray<{ key: Catalog; label: string }> = [
           <button
             type="button"
             class="k-btn k-btn-primary"
-            [disabled]="saving()"
+            [disabled]="saving() || hasInvalidDate()"
             (click)="submit()"
           >
             {{ title() }}
@@ -196,6 +198,11 @@ export class CheckoutRequestsPageComponent implements OnInit {
   private asset: number | null = null;
   private request = 0;
   private assetRequest = 0;
+  private readonly dateInputs = viewChildren(DateInputComponent);
+
+  hasInvalidDate(): boolean {
+    return this.dateInputs().some((input) => input.invalid());
+  }
 
   ngOnInit(): void {
     void this.load();
@@ -321,7 +328,7 @@ export class CheckoutRequestsPageComponent implements OnInit {
   async submit() {
     const row = this.row();
     const operation = this.operation();
-    if (this.saving() || typeof row?.id !== 'number') return;
+    if (this.saving() || this.hasInvalidDate() || typeof row?.id !== 'number') return;
     if (operation === 'checkout' && this.needsTargetAsset(row) && this.asset === null) {
       this.error.set(
         row['requestable_type'] === 'component'

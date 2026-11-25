@@ -18,6 +18,7 @@ import {
   type DataGridRow,
 } from '../../shared/ui/data-grid.component.js';
 import { KestrelSlideDrawerComponent } from '../../shared/ui/slide-drawer.component.js';
+import { datePresentationForKey, formatDisplayDate } from '../../shared/ui/display-date.js';
 import {
   CustomFieldFormSectionComponent,
   customFieldChanges,
@@ -44,7 +45,7 @@ const modelFields: InventoryField[] = [
   field('notes', 'Notes', 'textarea'),
 ];
 const assetFields: InventoryField[] = [
-  field('asset_tag', 'Asset tag'),
+  field('asset_tag', 'Asset tag', 'tag'),
   field('name', 'Name'),
   field('serial', 'Serial number'),
   { ...reference('model_id', 'Model', 'models'), required: true },
@@ -71,7 +72,7 @@ const filterFields: InventoryField[] = [
   reference('supplier_id', 'Supplier', 'suppliers'),
   reference('manufacturer_id', 'Manufacturer', 'manufacturers'),
   { key: 'status', label: 'Status', type: 'enum', options: statuses },
-  field('tag', 'Exact asset tag'),
+  { ...field('tag', 'Exact asset tag', 'tag'), suggestTags: true },
   field('serial', 'Exact serial number'),
   field('custom_value', 'Custom field value'),
 ];
@@ -224,6 +225,7 @@ type AssetFormRecord = DataGridRow & {
       [open]="drawer()"
       [title]="drawerTitle()"
       size="xl"
+      [placement]="mode() === 'delete' ? 'center' : 'side'"
       (closed)="drawer.set(false)"
     >
       @if (drawer()) {
@@ -286,7 +288,7 @@ type AssetFormRecord = DataGridRow & {
             <h2>History</h2>
             <ul>
               @for (item of history(); track item.id) {
-                <li>{{ item['action_type'] }} · {{ display(item['action_date']) }}
+                <li>{{ item['action_type'] }} · {{ display(item['action_date'], 'action_date') }}
                   @if (item['has_photo']) {
                     <button type="button" class="k-btn k-btn-secondary" (click)="downloadAudit(item)">Download photo</button>
                   }
@@ -343,7 +345,7 @@ type AssetFormRecord = DataGridRow & {
           </button>
           @if (mode() !== 'view') {
             <button
-              class="k-btn k-btn-primary"
+              [class]="mode() === 'delete' ? 'k-btn k-btn-danger' : 'k-btn k-btn-primary'"
               type="button"
               [disabled]="saving() || loadingFields() || fieldLoadFailed()"
               (click)="save()"
@@ -442,7 +444,7 @@ export class HardwarePageComponent implements OnInit {
   readonly permission = this.isHardware ? 'assets' : 'models';
   readonly columns: DataGridColumn[] = this.isHardware
     ? [
-        { key: 'asset_tag', label: 'Asset tag', mono: true },
+        { key: 'asset_tag', label: 'Asset tag', type: 'tag' },
         { key: 'name', label: 'Name' },
         { key: 'serial', label: 'Serial number' },
         { key: 'status_meta', label: 'Status', type: 'status', sortable: false },
@@ -579,7 +581,7 @@ export class HardwarePageComponent implements OnInit {
   subCell(row: DataGridRow, keys: string[]): string {
     for (const key of keys) {
       const val = row[key];
-      if (val !== null && val !== undefined && val !== '') return String(val);
+      if (val !== null && val !== undefined && val !== '') return this.display(val, key);
     }
     return '—';
   }
@@ -747,19 +749,21 @@ export class HardwarePageComponent implements OnInit {
       if (generation !== this.formSequence) return;
       if (mode === 'view') {
         const recordFields = this.isHardware ? assetFields : modelFields;
-        const custom = data['custom_fields'] as Record<string, { value: unknown }> | undefined;
+        const custom = data['custom_fields'] as Record<string, { element?: string; value: unknown }> | undefined;
         this.detailTag.set(String(data['asset_tag'] ?? ''));
         this.details.set([
           ...(this.isHardware ? [
             { label: 'Book value', value: this.display(data['book_value']) },
-            { label: 'Last audit', value: this.display(data['last_audit_date']) },
-            { label: 'Next audit', value: this.display(data['next_audit_date']) },
+            { label: 'Last audit', value: this.display(data['last_audit_date'], 'last_audit_date') },
+            { label: 'Next audit', value: this.display(data['next_audit_date'], 'next_audit_date') },
           ] : []),
-          ...recordFields.map(({ key, label }) => ({ label, value: this.display(data[key]) })),
-          ...Object.entries(custom ?? {}).map(([label, item]) => ({
-            label,
-            value: this.display(item.value),
-          })),
+          ...recordFields.map(({ key, label }) => ({ label, value: this.display(data[key], key) })),
+          ...Object.entries(custom ?? {}).map(([label, { element, value }]) => {
+            const date = element === 'date_picker' || element === 'datetime_picker'
+              ? formatDisplayDate(value, element === 'datetime_picker')
+              : null;
+            return { label, value: date ?? this.display(value) };
+          }),
         ]);
         this.history.set(
           (await this.api.records(`${this.path}/${id}/history`, { limit: 20 })).rows,
@@ -1023,6 +1027,8 @@ export class HardwarePageComponent implements OnInit {
       ['clone', 'edit', 'bulk_edit'].includes(mode) &&
       (this.form().invalid || this.customForm().invalid)
     ) {
+      this.form().markAllAsTouched();
+      this.customForm().markAllAsTouched();
       this.error.set('Enter all required values.');
       return;
     }
@@ -1065,7 +1071,12 @@ export class HardwarePageComponent implements OnInit {
     }
   }
 
-  display(value: unknown): string {
+  display(value: unknown, key?: string): string {
+    const type = key && datePresentationForKey(key);
+    if (type) {
+      const date = formatDisplayDate(value, type === 'datetime');
+      if (date) return date;
+    }
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
       return String(value);
     if (

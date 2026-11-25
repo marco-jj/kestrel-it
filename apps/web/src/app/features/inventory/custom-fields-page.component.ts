@@ -76,7 +76,8 @@ const fieldProperties: InventoryField[] = [
       (searchChanged)="search = $event; page.set(1); load()"
       (pageChanged)="page.set($event); load()"
     />
-    <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()" (closed)="drawer.set(false)">
+    <kestrel-slide-drawer [open]="drawer()" [title]="drawerTitle()"
+      [placement]="deleting() ? 'center' : 'side'" (closed)="drawer.set(false)">
       @if (drawer()) {
         @if (deleting()) {
           <p>Delete this {{ isField ? 'custom field' : 'fieldset' }}?</p>
@@ -136,7 +137,8 @@ const fieldProperties: InventoryField[] = [
           <button class="k-btn k-btn-secondary" type="button" (click)="drawer.set(false)">
             Cancel
           </button>
-          <button class="k-btn k-btn-primary" type="button" [disabled]="saving()" (click)="save()">
+          <button [class]="deleting() ? 'k-btn k-btn-danger' : 'k-btn k-btn-primary'"
+            type="button" [disabled]="saving()" (click)="save()">
             {{ deleting() ? 'Delete' : 'Save' }}
           </button>
         </div>

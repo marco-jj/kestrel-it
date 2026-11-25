@@ -150,6 +150,12 @@ export class AssetAuditFormComponent implements OnChanges {
 
   async save() {
     if (this.busy()) return;
+    if (this.form.invalid || this.custom.invalid) {
+      this.form.markAllAsTouched();
+      this.custom.markAllAsTouched();
+      this.error.set('Check the audit fields before recording.');
+      return;
+    }
     this.busy.set(true);
     this.error.set('');
     const bulk = !this.asset;

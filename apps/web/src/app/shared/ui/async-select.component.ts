@@ -1,7 +1,9 @@
 import { CommonModule } from '@angular/common';
 import {
   Component,
+  ElementRef,
   EventEmitter,
+  HostListener,
   Input,
   Output,
   computed,
@@ -76,8 +78,12 @@ function isVisibleInCompany(
             [value]="displayInputValue()"
             [disabled]="disabledSignal()"
             (focus)="openDropdown()"
+            (click)="openDropdown()"
+            (keydown.escape)="closeDropdown()"
             (input)="onSearchChange($any($event.target).value)"
             [attr.aria-expanded]="isOpen()"
+            [attr.aria-invalid]="errorId ? 'true' : null"
+            [attr.aria-describedby]="errorId ?? null"
             role="combobox"
           />
           @if (selectedOption() && !disabledSignal()) {
@@ -241,6 +247,7 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
   @Input() statusType?: string;
   @Input() allowQuickCreate = true;
   @Input() quickCreateLabel = 'New';
+  @Input() errorId?: string;
 
   @Input() set options(value: readonly AsyncSelectOption[]) {
     this.optionsSignal.set(value);
@@ -263,6 +270,8 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
 
   private onChangeCallback: (value: AsyncSelectValue) => void = () => undefined;
   private onTouchedCallback: () => void = () => undefined;
+
+  constructor(private readonly host?: ElementRef<HTMLElement>) {}
 
   private reconciliationScheduled = false;
 
@@ -307,12 +316,37 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
 
   setDisabledState(isDisabled: boolean): void {
     this.disabledSignal.set(isDisabled);
+    if (isDisabled) this.closeDropdown();
   }
 
   openDropdown(): void {
     if (!this.disabledSignal()) {
       this.isOpen.set(true);
     }
+  }
+
+  @HostListener('document:pointerdown', ['$event'])
+  onDocumentPointerDown(event: PointerEvent): void {
+    if (this.isOpen() && this.host && !event.composedPath().includes(this.host.nativeElement)) {
+      this.closeDropdown();
+    }
+  }
+
+  @HostListener('focusout', ['$event'])
+  onFocusOut(event: FocusEvent): void {
+    if (this.isOpen() && this.host && !this.host.nativeElement.contains(event.relatedTarget as Node | null)) {
+      this.closeDropdown();
+    }
+  }
+
+  closeDropdown(): void {
+    if (!this.isOpen()) return;
+    this.isOpen.set(false);
+    if (this.searchQuery()) {
+      this.searchQuery.set('');
+      this.searchChanged.emit('');
+    }
+    this.onTouchedCallback();
   }
 
   onSearchChange(value: string): void {
@@ -325,18 +359,16 @@ export class KestrelAsyncSelectComponent implements ControlValueAccessor {
     if (option.disabled) return;
     this.selectedId.set(option.id);
     this.rememberedSelection.set(option);
-    this.searchQuery.set('');
-    this.isOpen.set(false);
     this.onChangeCallback(option.id);
-    this.onTouchedCallback();
+    this.closeDropdown();
     this.selectionChanged.emit(option);
   }
 
   clearSelection(): void {
     this.writeValue(null);
-    this.searchQuery.set('');
     this.onChangeCallback(null);
-    this.onTouchedCallback();
+    if (this.isOpen()) this.closeDropdown();
+    else this.onTouchedCallback();
     this.selectionChanged.emit(null);
   }
 

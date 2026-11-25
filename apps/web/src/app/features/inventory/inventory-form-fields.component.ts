@@ -8,26 +8,52 @@ import {
 } from '../../shared/ui/async-select.component.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
 import type { InventoryField } from './directory-ui.js';
+import { AssetTagFieldComponent } from './asset-tag-field.component.js';
+import { FieldErrorComponent, fieldValidationMessage } from '../../shared/ui/field-validation.js';
+import { DateInputComponent } from '../../shared/ui/date-input.component.js';
 
 const companyScopedResources = new Set(['locations', 'departments', 'users', 'hardware']);
 
 @Component({
   selector: 'kestrel-inventory-form-fields',
   standalone: true,
-  imports: [ReactiveFormsModule, KestrelAsyncSelectComponent],
+  imports: [ReactiveFormsModule, KestrelAsyncSelectComponent, AssetTagFieldComponent, FieldErrorComponent, DateInputComponent],
   template: `
     <div [formGroup]="form" class="field-grid">
       @for (field of fields; track field.key) {
+        @let control = form.get(field.key);
         @switch (field.type) {
-          @case ('reference') {
-            <kestrel-async-select
+          @case ('date') {
+            <div>
+              <label [attr.for]="errorId(field.key) + '-input'">{{ field.label }}</label>
+              <kestrel-date-input [inputId]="errorId(field.key) + '-input'"
+                [label]="field.label" [formControlName]="field.key" />
+              @if (!control?.hasError('dateFormat')) {
+                <kestrel-field-error [control]="control" [errorId]="errorId(field.key)" />
+              }
+            </div>
+          }
+          @case ('tag') {
+            <kestrel-asset-tag-field
               [label]="field.label"
-              [options]="options()[field.key] ?? []"
+              [suggest]="field.suggestTags ?? false"
+              [companyId]="activeCompany() ?? undefined"
               [formControlName]="field.key"
-              [companyId]="companyFor(field)"
-              [allowQuickCreate]="false"
-              (searchChanged)="loadOptions(field, $event)"
             />
+          }
+          @case ('reference') {
+            <div>
+              <kestrel-async-select
+                [label]="field.label"
+                [options]="options()[field.key] ?? []"
+                [formControlName]="field.key"
+                [companyId]="companyFor(field)"
+                [allowQuickCreate]="false"
+                [errorId]="fieldMessage(control) ? errorId(field.key) : undefined"
+                (searchChanged)="loadOptions(field, $event)"
+              />
+              <kestrel-field-error [control]="control" [errorId]="errorId(field.key)" />
+            </div>
           }
           @case ('ids') {
             <div>
@@ -85,21 +111,25 @@ const companyScopedResources = new Set(['locations', 'departments', 'users', 'ha
                   <option [value]="option">{{ option }}</option>
                 }
               </select>
+              <kestrel-field-error [control]="control" />
             </label>
           }
           @default {
-            <label
-              >{{ field.label }}
-              <input
-                [type]="
-                  field.type === 'number' || field.type === 'password' || field.type === 'date'
-                    ? field.type
-                    : 'text'
-                "
-                [formControlName]="field.key"
-                [required]="field.required ?? false"
-              />
-            </label>
+            @let requiredLabel = field.type === 'password' && field.required ? field.label : undefined;
+            @let showError = fieldMessage(control, requiredLabel);
+            <div>
+              <label
+                >{{ field.label }}
+                <input
+                  [type]="field.type ?? 'text'"
+                  [formControlName]="field.key"
+                  [required]="field.required ?? false"
+                  [attr.aria-invalid]="showError ? 'true' : null"
+                  [attr.aria-describedby]="showError ? errorId(field.key) : null"
+                />
+              </label>
+              <kestrel-field-error [control]="control" [errorId]="errorId(field.key)" [requiredLabel]="requiredLabel" />
+            </div>
           }
         }
       }
@@ -143,6 +173,8 @@ const companyScopedResources = new Set(['locations', 'departments', 'users', 'ha
   ],
 })
 export class InventoryFormFieldsComponent implements OnChanges, OnDestroy {
+  private static nextId = 0;
+  private readonly id = InventoryFormFieldsComponent.nextId++;
   @Input({ required: true }) form!: FormGroup;
   @Input({ required: true }) fields: InventoryField[] = [];
   @Input() companyId?: number | null;
@@ -150,11 +182,16 @@ export class InventoryFormFieldsComponent implements OnChanges, OnDestroy {
   private readonly api = inject(InventoryApi);
   private readonly requests = new Map<string, number>();
   private readonly searches = new Map<string, string>();
-  private readonly activeCompany = signal<number | null | undefined>(undefined);
+  readonly activeCompany = signal<number | null | undefined>(undefined);
   private companyChanges?: Subscription;
   readonly options = signal<Record<string, AsyncSelectOption[]>>({});
   readonly optionsError = signal('');
   readonly permissions = ALL_PERMISSIONS;
+  readonly fieldMessage = fieldValidationMessage;
+
+  errorId(key: string): string {
+    return `inventory-field-${this.id}-${key}-error`;
+  }
 
   ngOnChanges(): void {
     this.companyChanges?.unsubscribe();

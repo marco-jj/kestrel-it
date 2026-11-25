@@ -94,7 +94,7 @@ export class AuditListComponent implements OnInit {
   readonly columns = [
     { key: 'asset_tag', label: 'Asset tag', sortable: false },
     { key: 'name', label: 'Name', sortable: false },
-    { key: 'next_audit_date', label: 'Next audit', sortable: false },
+    { key: 'next_audit_date', label: 'Next audit', sortable: false, type: 'date' },
   ];
   search = '';
   private revision = 0;

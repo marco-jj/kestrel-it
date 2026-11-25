@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, EventEmitter, Input, Output, computed, signal } from '@angular/core';
 import { KestrelStatusBadgeComponent } from './status-badge.component.js';
+import { datePresentationForKey, formatDisplayDate } from './display-date.js';
 
 export interface DataGridColumn<T = Record<string, unknown>> {
   key: string;
@@ -8,7 +9,7 @@ export interface DataGridColumn<T = Record<string, unknown>> {
   sortable?: boolean;
   mono?: boolean;
   align?: 'left' | 'right' | 'center';
-  type?: 'text' | 'mono' | 'status' | 'currency' | 'date';
+  type?: 'text' | 'mono' | 'status' | 'currency' | 'date' | 'datetime' | 'color' | 'tag';
   width?: string;
 }
 
@@ -243,11 +244,20 @@ export function toggleRowSelectionSet(
                       [class.k-mono]="isMonoColumn(col)"
                       [style.text-align]="col.align ?? 'left'"
                     >
+                      @let color = col.type === 'color' ? colorSwatch(row[col.key]) : null;
+                      @let tag = col.type === 'tag' ? asStringOrNull(row[col.key]) : null;
                       @if (col.type === 'status') {
                         <kestrel-status-badge
                           [statusMeta]="asStringOrNull(row[col.key])"
                           [label]="asStringOrNull(row[col.key + '_label']) ?? undefined"
                         />
+                      } @else if (color) {
+                        <span class="color-cell">
+                          <span class="color-swatch" [style.background-color]="color" aria-hidden="true"></span>
+                          {{ formatCell(row, col) }}
+                        </span>
+                      } @else if (tag) {
+                        <span class="k-tag k-mono">{{ tag }}</span>
                       } @else {
                         {{ formatCell(row, col) }}
                       }
@@ -312,6 +322,17 @@ export function toggleRowSelectionSet(
   `,
   styles: [
     `
+      .color-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+      .color-swatch {
+        width: 0.9rem;
+        height: 0.9rem;
+        border: 1px solid var(--kestrel-border-strong);
+        border-radius: 50%;
+      }
       .grid-shell {
         background: var(--kestrel-surface);
         border: 1px solid var(--kestrel-border);
@@ -627,14 +648,24 @@ export class KestrelDataGridComponent {
   }
 
   isMonoColumn(col: DataGridColumn): boolean {
-    return Boolean(col.mono || col.type === 'mono' || col.type === 'currency' || col.type === 'date');
+    return Boolean(col.mono || col.type === 'mono' || col.type === 'currency' ||
+      col.type === 'date' || col.type === 'datetime');
   }
 
   asStringOrNull(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
   }
 
+  colorSwatch(value: unknown): string | null {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const color = value.trim();
+    return /^(?:[\da-f]{3}|[\da-f]{6})$/i.test(color) ? '#' + color : color;
+  }
+
   formatCell(row: DataGridRow, col: DataGridColumn): string {
-    return cellText(row[col.key]) || '—';
+    const value = row[col.key];
+    const type = col.type ?? datePresentationForKey(col.key);
+    const date = type === 'date' || type === 'datetime' ? formatDisplayDate(value, type === 'datetime') : null;
+    return date || cellText(value) || '—';
   }
 }

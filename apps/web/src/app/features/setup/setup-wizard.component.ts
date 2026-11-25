@@ -1,10 +1,11 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, Inject, Optional, type OnInit, signal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
   CompleteSetupRequestSchema,
+  LOCAL_PASSWORD_MIN_LENGTH,
   type CompleteSetupRequest,
   type LoginResponse,
   type PreflightStatusResponse,
@@ -13,11 +14,15 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { AuthStore } from '../../core/auth/auth.store.js';
 import { ThemeStore } from '../../core/theme/theme.store.js';
+import { FieldErrorComponent, fieldValidationMessage, validateFieldSchema } from '../../shared/ui/field-validation.js';
+
+const setupField = <T>(key: keyof CompleteSetupRequest, value: T) =>
+  new FormControl(value, { nonNullable: true, validators: validateFieldSchema(CompleteSetupRequestSchema.shape[key]) });
 
 @Component({
   selector: 'kestrel-setup-wizard',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, FieldErrorComponent],
   template: `
     <section class="wizard-split">
       <aside class="rail-column">
@@ -148,15 +153,18 @@ import { ThemeStore } from '../../core/theme/theme.store.js';
               <label class="k-label">
                 <span>Site Name</span>
                 <input type="text" class="k-input" formControlName="siteName" />
+                <kestrel-field-error [control]="instanceForm.controls.siteName" />
               </label>
               <div class="field-pair">
                 <label class="k-label">
                   <span>Locale</span>
                   <input type="text" class="k-input k-mono" formControlName="locale" />
+                  <kestrel-field-error [control]="instanceForm.controls.locale" />
                 </label>
                 <label class="k-label">
                   <span>Default Currency</span>
                   <input type="text" class="k-input k-mono" formControlName="defaultCurrency" />
+                  <kestrel-field-error [control]="instanceForm.controls.defaultCurrency" />
                 </label>
               </div>
               <label class="checkbox-row">
@@ -171,10 +179,12 @@ import { ThemeStore } from '../../core/theme/theme.store.js';
                 <label class="k-label">
                   <span>Asset Tag Prefix</span>
                   <input type="text" class="k-input k-mono" formControlName="autoIncrementPrefix" />
+                  <kestrel-field-error [control]="instanceForm.controls.autoIncrementPrefix" />
                 </label>
                 <label class="k-label">
                   <span>Asset Tag Zerofill Length</span>
                   <input type="number" class="k-input k-mono" formControlName="zerofillCount" />
+                  <kestrel-field-error [control]="instanceForm.controls.zerofillCount" />
                 </label>
               </div>
 
@@ -201,25 +211,35 @@ import { ThemeStore } from '../../core/theme/theme.store.js';
                 <label class="k-label">
                   <span>First Name</span>
                   <input type="text" class="k-input" formControlName="firstName" />
+                  <kestrel-field-error [control]="adminForm.controls.firstName" />
                 </label>
                 <label class="k-label">
                   <span>Last Name</span>
                   <input type="text" class="k-input" formControlName="lastName" />
+                  <kestrel-field-error [control]="adminForm.controls.lastName" />
                 </label>
               </div>
               <label class="k-label">
                 <span>Username</span>
                 <input type="text" class="k-input" formControlName="username" />
+                <kestrel-field-error [control]="adminForm.controls.username" />
               </label>
               <label class="k-label">
                 <span>Email</span>
                 <input type="email" class="k-input" formControlName="email" />
+                <kestrel-field-error [control]="adminForm.controls.email" />
               </label>
-              <label class="k-label">
-                <span>Password</span>
-                <input type="password" class="k-input" formControlName="password" />
-                <span class="k-helper">Minimum 10 characters.</span>
-              </label>
+              <div class="k-label">
+                <label for="setup-password">Password</label>
+                <input id="setup-password" type="password" class="k-input" formControlName="password"
+                  autocomplete="new-password"
+                  [attr.aria-invalid]="fieldMessage(adminForm.controls.password) ? 'true' : null"
+                  [attr.aria-describedby]="fieldMessage(adminForm.controls.password) ? 'setup-password-error' : 'setup-password-help'" />
+                <kestrel-field-error [control]="adminForm.controls.password" errorId="setup-password-error" />
+                @if (!fieldMessage(adminForm.controls.password)) {
+                  <span class="k-helper" id="setup-password-help">Minimum {{ passwordMinLength }} characters.</span>
+                }
+              </div>
 
               <div class="actions">
                 <button type="button" class="k-btn k-btn-secondary" (click)="goToStep(2)">
@@ -228,7 +248,7 @@ import { ThemeStore } from '../../core/theme/theme.store.js';
                 <button
                   type="submit"
                   class="k-btn k-btn-primary"
-                  [disabled]="submitting()"
+                  [disabled]="submitting() || adminForm.invalid"
                 >
                   {{ submitting() ? 'Completing Setup...' : 'Complete Setup & Sign In' }}
                 </button>
@@ -450,28 +470,27 @@ export class SetupWizardComponent implements OnInit {
   readonly preflight = signal<PreflightStatusResponse | null>(null);
   readonly errorMessage = signal<string | null>(null);
   readonly submitting = signal<boolean>(false);
+  readonly fieldMessage = fieldValidationMessage;
+  readonly passwordMinLength = LOCAL_PASSWORD_MIN_LENGTH;
 
   readonly instanceForm = new FormGroup({
-    siteName: new FormControl('Kestrel-IT', { nonNullable: true, validators: [Validators.required] }),
-    locale: new FormControl('en-US', { nonNullable: true }),
-    defaultCurrency: new FormControl('USD', { nonNullable: true }),
+    siteName: setupField('siteName', 'Kestrel-IT'),
+    locale: setupField('locale', 'en-US'),
+    defaultCurrency: setupField('defaultCurrency', 'USD'),
     fullMultipleCompaniesSupport: new FormControl(false, { nonNullable: true }),
     autoIncrementAssets: new FormControl(true, { nonNullable: true }),
-    autoIncrementPrefix: new FormControl('KST-', { nonNullable: true }),
-    zerofillCount: new FormControl(5, { nonNullable: true }),
+    autoIncrementPrefix: setupField('autoIncrementPrefix', 'KST-'),
+    zerofillCount: setupField('zerofillCount', 5),
     emailDomain: new FormControl('', { nonNullable: true }),
     emailFormat: new FormControl('filastname', { nonNullable: true }),
   });
 
   readonly adminForm = new FormGroup({
-    firstName: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    lastName: new FormControl('', { nonNullable: true }),
-    username: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    email: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.email] }),
-    password: new FormControl('', {
-      nonNullable: true,
-      validators: [Validators.required, Validators.minLength(10)],
-    }),
+    firstName: setupField('firstName', ''),
+    lastName: setupField('lastName', ''),
+    username: setupField('username', ''),
+    email: setupField('email', ''),
+    password: setupField('password', ''),
   });
 
   constructor(
@@ -514,7 +533,7 @@ export class SetupWizardComponent implements OnInit {
   }
 
   canProceedFromStep2(): boolean {
-    return this.instanceForm.controls.siteName.value.trim().length > 0;
+    return this.instanceForm.valid;
   }
 
   goToStep(step: 1 | 2 | 3): void {
@@ -524,7 +543,7 @@ export class SetupWizardComponent implements OnInit {
       return;
     }
     if (step === 3 && !this.canProceedFromStep2()) {
-      this.errorMessage.set('Site name is required before creating the initial superuser.');
+      this.errorMessage.set('Check the instance settings before creating the initial superuser.');
       return;
     }
     this.currentStep.set(step);

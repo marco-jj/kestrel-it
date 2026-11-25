@@ -8,6 +8,8 @@ import {
   type StandardApiResponse,
 } from '@kestrel-it/shared';
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { formatDisplayDate } from '../../shared/ui/display-date.js';
+import { DateInputComponent } from '../../shared/ui/date-input.component.js';
 import {
   KestrelDataGridComponent,
   type DataGridColumn,
@@ -39,7 +41,7 @@ type FilterValue = string | number | boolean;
 
 @Component({
   selector: 'kestrel-reports-page',
-  imports: [FormsModule, RouterLink, KestrelDataGridComponent],
+  imports: [FormsModule, RouterLink, KestrelDataGridComponent, DateInputComponent],
   template: `
     <header><h1>Reports</h1></header>
     @if (canReports) {
@@ -56,9 +58,9 @@ type FilterValue = string | number | boolean;
       </nav>
     }
     <h2>{{ names[type()] }}</h2>
-    <form class="filters" (ngSubmit)="page = 1; load()">
-      <label>From <input type="date" name="from" [(ngModel)]="filters['from']" /></label>
-      <label>To <input type="date" name="to" [(ngModel)]="filters['to']" /></label>
+    <form class="filters" #filtersForm="ngForm" (ngSubmit)="filtersForm.valid && applyFilters()">
+      <label>From <kestrel-date-input label="From" name="from" [(ngModel)]="filters['from']" /></label>
+      <label>To <kestrel-date-input label="To" name="to" [(ngModel)]="filters['to']" /></label>
       @if (canReports && type() !== 'unaccepted-assets') {
         <label
           >Company ID
@@ -93,7 +95,7 @@ type FilterValue = string | number | boolean;
         >
       }
       @if (type() === 'depreciation') {
-        <label>Value as of <input type="date" name="asof" [(ngModel)]="filters['as_of']" /></label>
+        <label>Value as of <kestrel-date-input label="Value as of" name="asof" [(ngModel)]="filters['as_of']" /></label>
       }
       @if (custom()) {
         <label
@@ -127,7 +129,7 @@ type FilterValue = string | number | boolean;
           /></label>
         }
       }
-      <button class="k-btn k-btn-primary" type="submit">Apply filters</button>
+      <button class="k-btn k-btn-primary" type="submit" [disabled]="filtersForm.invalid">Apply filters</button>
     </form>
     @if (custom()) {
       <details class="builder">
@@ -172,22 +174,22 @@ type FilterValue = string | number | boolean;
       </details>
     }
     <div class="actions">
-      <button class="k-btn k-btn-secondary" (click)="download('csv')">Export CSV</button>
-      <button class="k-btn k-btn-secondary" (click)="download('xlsx')">Export Excel</button>
+      <button class="k-btn k-btn-secondary" [disabled]="filtersForm.invalid" (click)="download('csv')">Export CSV</button>
+      <button class="k-btn k-btn-secondary" [disabled]="filtersForm.invalid" (click)="download('xlsx')">Export Excel</button>
       @if (type() === 'unaccepted-assets' && canRemind()) {
         <button class="k-btn k-btn-secondary" [disabled]="!selected().length" (click)="remind()">
           Send reminders
         </button>
       }
       @if (type() === 'activity') {
-        <button class="k-btn k-btn-secondary" (click)="chart()">Activity by date</button>
+        <button class="k-btn k-btn-secondary" [disabled]="filtersForm.invalid" (click)="chart()">Activity by date</button>
       }
     </div>
     @if (chartRows().length) {
       <ul aria-label="Activity by date">
         @for (row of chartRows(); track row.date) {
           <li>
-            {{ row.date }} <meter [max]="chartMax()" [value]="row.count"></meter> {{ row.count }}
+            {{ formatDate(row.date) }} <meter [max]="chartMax()" [value]="row.count"></meter> {{ row.count }}
           </li>
         }
       </ul>
@@ -283,6 +285,12 @@ export class ReportsPageComponent implements OnInit {
   readonly selection = signal<string[]>([]);
   readonly selected = signal<number[]>([]);
   readonly chartRows = signal<{ date: string; count: number }[]>([]);
+  readonly formatDate = formatDisplayDate;
+
+  applyFilters(): void {
+    this.page = 1;
+    void this.load();
+  }
   readonly templates = signal<Template[]>([]);
   readonly error = signal('');
   readonly message = signal('');

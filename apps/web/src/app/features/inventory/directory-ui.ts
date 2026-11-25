@@ -18,7 +18,12 @@ export interface InventoryField {
     | 'ids'
     | 'permissions'
     | 'password'
+    | 'email'
+    | 'tel'
+    | 'url'
+    | 'tag'
     | 'date';
+  suggestTags?: boolean;
   options?: readonly string[];
   resource?: string;
   optionsPath?: string;
@@ -30,6 +35,14 @@ export interface InventoryPageDefinition {
   title: string;
   permission: string;
   fields: InventoryField[];
+}
+
+export function directoryFormField(
+  field: InventoryField, resource: CoreInventoryResource, editingUsers: boolean,
+): InventoryField {
+  return resource === 'users' && field.key === 'password' && !editingUsers
+    ? { ...field, required: true }
+    : field;
 }
 
 export const field = (
@@ -47,8 +60,8 @@ export const permissionFor = (resource: string, action: string) =>
   `${resource}.${action}` as PermissionKey;
 const name: InventoryField = { key: 'name', label: 'Name', required: true };
 const notes = field('notes', 'Notes', 'textarea');
-const phone = field('phone', 'Phone');
-const fax = field('fax', 'Fax');
+const phone = field('phone', 'Phone', 'tel');
+const fax = field('fax', 'Fax', 'tel');
 const address = [
   field('address', 'Address'),
   field('address2', 'Address line 2'),
@@ -73,10 +86,10 @@ export const DIRECTORY_UI: Record<CoreInventoryResource, InventoryPageDefinition
         options: WEBHOOK_PROVIDERS,
         superuserOnly: true,
       },
-      { ...field('webhook_endpoint', 'Webhook endpoint'), superuserOnly: true },
+      { ...field('webhook_endpoint', 'Webhook endpoint', 'url'), superuserOnly: true },
       { ...field('webhook_channel', 'Webhook channel'), superuserOnly: true },
       { ...field('webhook_botname', 'Webhook bot name'), superuserOnly: true },
-      field('email', 'Email'),
+      field('email', 'Email', 'email'),
       phone,
       fax,
       notes,
@@ -99,7 +112,7 @@ export const DIRECTORY_UI: Record<CoreInventoryResource, InventoryPageDefinition
       field('first_name', 'First name'),
       field('last_name', 'Last name'),
       field('display_name', 'Display name'),
-      field('email', 'Email'),
+      field('email', 'Email', 'email'),
       field('employee_num', 'Employee number'),
       field('jobtitle', 'Job title'),
       field('start_date', 'Start date', 'date'),
@@ -161,10 +174,10 @@ export const DIRECTORY_UI: Record<CoreInventoryResource, InventoryPageDefinition
     permission: 'manufacturers',
     fields: [
       name,
-      field('url', 'Website'),
-      field('support_url', 'Support website'),
-      field('support_email', 'Support email'),
-      field('support_phone', 'Support phone'),
+      field('url', 'Website', 'url'),
+      field('support_url', 'Support website', 'url'),
+      field('support_email', 'Support email', 'email'),
+      field('support_phone', 'Support phone', 'tel'),
       notes,
     ],
   },
@@ -174,8 +187,8 @@ export const DIRECTORY_UI: Record<CoreInventoryResource, InventoryPageDefinition
     fields: [
       name,
       field('contact', 'Contact'),
-      field('email', 'Email'),
-      field('url', 'Website'),
+      field('email', 'Email', 'email'),
+      field('url', 'Website', 'url'),
       ...address,
       phone,
       fax,

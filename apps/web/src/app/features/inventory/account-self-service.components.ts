@@ -8,8 +8,13 @@ import type {
   StandardApiResponse,
   TwoFactorEnrollResponse,
 } from '@kestrel-it/shared';
+import { LOCAL_PASSWORD_MAX_LENGTH } from '@kestrel-it/shared';
 import { AuthStore } from '../../core/auth/auth.store.js';
+import { formatDisplayDate } from '../../shared/ui/display-date.js';
+import { DateInputComponent } from '../../shared/ui/date-input.component.js';
 import { InventoryApi, inventoryError } from './inventory-api.js';
+import { inventoryFormatErrors, phonePattern } from './inventory-field-validation.js';
+import { FieldErrorComponent } from '../../shared/ui/field-validation.js';
 
 interface AccountProfilePayload {
   id: number;
@@ -119,7 +124,7 @@ const ACCOUNT_SHARED_STYLES = `
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, FieldErrorComponent],
   template: `
     <section class="account-head">
       <div>
@@ -146,7 +151,7 @@ const ACCOUNT_SHARED_STYLES = `
         @if (!canEditProfile(p)) {
           <p class="notice-banner">Self-service profile and password changes are disabled.</p>
         }
-        <form (ngSubmit)="saveProfile()" class="form-grid">
+        <form (ngSubmit)="profileForm.valid && saveProfile()" #profileForm="ngForm" class="form-grid">
           <label class="field">
             <span class="k-label">First name</span>
             <input class="k-input" name="first_name" [(ngModel)]="firstName" [disabled]="!canEditProfile(p)" />
@@ -159,20 +164,32 @@ const ACCOUNT_SHARED_STYLES = `
             <span class="k-label">Display name</span>
             <input class="k-input" name="display_name" [(ngModel)]="displayName" [disabled]="!canEditProfile(p)" />
           </label>
-          <label class="field">
-            <span class="k-label">Email</span>
-            <input class="k-input" name="email" type="email" [(ngModel)]="email" [disabled]="!canEditProfile(p)" />
-          </label>
-          <label class="field">
-            <span class="k-label">Phone</span>
-            <input class="k-input" name="phone" [(ngModel)]="phone" [disabled]="!canEditProfile(p)" />
-          </label>
+          <div class="field">
+            <label class="k-label" for="profile-email">Email</label>
+            <input id="profile-email" class="k-input" name="email" type="email" [email]="email !== (p.email ?? '')"
+              [(ngModel)]="email" #profileEmail="ngModel" [disabled]="!canEditProfile(p)"
+              [attr.aria-invalid]="profileEmail.dirty && profileEmail.invalid ? 'true' : null"
+              [attr.aria-describedby]="profileEmail.dirty && profileEmail.invalid ? 'profile-email-error' : null" />
+            @if (profileEmail.dirty && profileEmail.invalid) {
+              <small class="k-field-error" id="profile-email-error" aria-live="polite">{{ formatErrors.email }}</small>
+            }
+          </div>
+          <div class="field">
+            <label class="k-label" for="profile-phone">Phone</label>
+            <input id="profile-phone" class="k-input" name="phone" type="tel" [pattern]="phone === (p.phone ?? '') ? '' : phonePattern"
+              [(ngModel)]="phone" #profilePhone="ngModel" [disabled]="!canEditProfile(p)"
+              [attr.aria-invalid]="profilePhone.dirty && profilePhone.invalid ? 'true' : null"
+              [attr.aria-describedby]="profilePhone.dirty && profilePhone.invalid ? 'profile-phone-error' : null" />
+            @if (profilePhone.dirty && profilePhone.invalid) {
+              <small class="k-field-error" id="profile-phone-error" aria-live="polite">{{ formatErrors.tel }}</small>
+            }
+          </div>
           <label class="field">
             <span class="k-label">Locale</span>
             <input class="k-input" name="locale" [(ngModel)]="locale" [disabled]="!canEditProfile(p)" />
           </label>
           <div style="grid-column: 1 / -1; display: flex; gap: 0.6rem; align-items: center;">
-            <button type="submit" class="k-btn k-btn-primary" [disabled]="busy() || !canEditProfile(p)">
+            <button type="submit" class="k-btn k-btn-primary" [disabled]="busy() || !canEditProfile(p) || profileForm.invalid">
               Save Profile
             </button>
             <span class="k-helper">Signed in via <code class="k-mono">{{ p.auth_method }}</code></span>
@@ -183,21 +200,33 @@ const ACCOUNT_SHARED_STYLES = `
       @if (p.has_local_password && canEditProfile(p)) {
         <div class="k-card section-card">
           <h2>Change Password</h2>
-          <form (ngSubmit)="savePassword()" class="form-grid">
+          <form (ngSubmit)="passwordForm.valid && newPassword === confirmPassword && savePassword()" #passwordForm="ngForm" class="form-grid">
             <label class="field">
               <span class="k-label">Current password</span>
-              <input class="k-input" name="current_password" type="password" [(ngModel)]="currentPassword" autocomplete="current-password" />
+              <input class="k-input" name="current_password" type="password" [(ngModel)]="currentPassword"
+                #currentPasswordField="ngModel" required [maxlength]="passwordMaxLength" autocomplete="current-password" />
+              <kestrel-field-error [control]="currentPasswordField.control" />
             </label>
             <label class="field">
               <span class="k-label">New password (min {{ p.pwd_secure_min }} chars)</span>
-              <input class="k-input" name="new_password" type="password" [(ngModel)]="newPassword" autocomplete="new-password" />
+              <input class="k-input" name="new_password" type="password" [(ngModel)]="newPassword"
+                #newPasswordField="ngModel" required [minlength]="p.pwd_secure_min" [maxlength]="passwordMaxLength"
+                autocomplete="new-password" />
+              <kestrel-field-error [control]="newPasswordField.control" />
             </label>
             <label class="field">
               <span class="k-label">Confirm new password</span>
-              <input class="k-input" name="confirm_password" type="password" [(ngModel)]="confirmPassword" autocomplete="new-password" />
+              <input class="k-input" name="confirm_password" type="password" [(ngModel)]="confirmPassword"
+                #confirmPasswordField="ngModel" required autocomplete="new-password"
+                [attr.aria-invalid]="confirmPasswordField.dirty && newPassword !== confirmPassword ? 'true' : null"
+                [attr.aria-describedby]="confirmPasswordField.dirty && newPassword !== confirmPassword ? 'profile-password-match' : null" />
+              @if (confirmPasswordField.dirty && newPassword !== confirmPassword) {
+                <small class="k-field-error" id="profile-password-match" aria-live="polite">Passwords must match.</small>
+              }
             </label>
             <div style="grid-column: 1 / -1;">
-              <button type="submit" class="k-btn k-btn-secondary" [disabled]="busy()">Update Password</button>
+              <button type="submit" class="k-btn k-btn-secondary"
+                [disabled]="busy() || passwordForm.invalid || newPassword !== confirmPassword">Update Password</button>
             </div>
           </form>
         </div>
@@ -251,6 +280,9 @@ export class AccountProfileComponent implements OnInit {
   displayName = '';
   email = '';
   phone = '';
+  readonly phonePattern = phonePattern;
+  readonly passwordMaxLength = LOCAL_PASSWORD_MAX_LENGTH;
+  readonly formatErrors = inventoryFormatErrors;
   locale = 'en-US';
   currentPassword = '';
   newPassword = '';
@@ -458,7 +490,7 @@ export class AccountProfileComponent implements OnInit {
                   <td>{{ item['name'] }}</td>
                   <td class="k-mono">{{ item['seat_id'] || '—' }}</td>
                   <td class="k-mono">{{ item['serial'] || 'Redacted' }}</td>
-                  <td>{{ item['expiration_date'] || '—' }}</td>
+                  <td>{{ formatDate(item['expiration_date']) || '—' }}</td>
                 </tr>
               }
             </tbody>
@@ -481,7 +513,7 @@ export class AccountProfileComponent implements OnInit {
               @for (item of data.accessories; track item['assignment_id'] || $index) {
                 <tr>
                   <td>{{ item['name'] }}</td>
-                  <td>{{ item['checked_out_at'] || '—' }}</td>
+                  <td>{{ formatDate(item['checked_out_at'], true) || '—' }}</td>
                   <td>{{ item['note'] || '—' }}</td>
                 </tr>
               }
@@ -506,7 +538,7 @@ export class AccountProfileComponent implements OnInit {
                 <tr>
                   <td>{{ item['name'] }}</td>
                   <td class="k-mono">{{ item['item_no'] || '—' }}</td>
-                  <td>{{ item['checked_out_at'] || item['consumed_at'] || '—' }}</td>
+                  <td>{{ formatDate(item['checked_out_at'] || item['consumed_at'], true) || '—' }}</td>
                 </tr>
               }
             </tbody>
@@ -522,6 +554,7 @@ export class AccountProfileComponent implements OnInit {
   styles: [ACCOUNT_SHARED_STYLES],
 })
 export class AccountAssetsComponent implements OnInit {
+  readonly formatDate = formatDisplayDate;
   private readonly api = inject(InventoryApi);
   readonly summary = signal<AccountAssetsPayload | null>(null);
   readonly error = signal('');
@@ -559,7 +592,7 @@ export class AccountAssetsComponent implements OnInit {
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, DateInputComponent],
   template: `
     <section class="account-head">
       <div>
@@ -597,17 +630,17 @@ export class AccountAssetsComponent implements OnInit {
     } @else {
       <div class="k-card section-card">
         <h2>Create Token</h2>
-        <form (ngSubmit)="createToken()" class="form-grid">
+        <form #tokenForm="ngForm" (ngSubmit)="tokenForm.valid && createToken()" class="form-grid">
           <label class="field">
             <span class="k-label">Token name</span>
             <input class="k-input" name="token_name" placeholder="CI deploy bot" [(ngModel)]="tokenName" required />
           </label>
           <label class="field">
             <span class="k-label">Expiration date (optional)</span>
-            <input class="k-input" name="expires_date" type="date" [(ngModel)]="expiresDate" />
+            <kestrel-date-input label="Expiration date (optional)" name="expires_date" [(ngModel)]="expiresDate" />
           </label>
           <div style="display: flex; align-items: flex-end;">
-            <button type="submit" class="k-btn k-btn-primary" [disabled]="busy() || !tokenName.trim()">Generate Token</button>
+            <button type="submit" class="k-btn k-btn-primary" [disabled]="busy() || tokenForm.invalid || !tokenName.trim()">Generate Token</button>
           </div>
         </form>
       </div>
@@ -623,9 +656,9 @@ export class AccountAssetsComponent implements OnInit {
               @for (tok of tokens(); track tok.id) {
                 <tr>
                   <td>{{ tok.name }}</td>
-                  <td class="k-mono">{{ tok.createdAt }}</td>
-                  <td class="k-mono">{{ tok.lastUsedAt || 'Never' }}</td>
-                  <td class="k-mono">{{ tok.expiresAt || 'No expiry' }}</td>
+                  <td class="k-mono">{{ formatDate(tok.createdAt, true) || '—' }}</td>
+                  <td class="k-mono">{{ formatDate(tok.lastUsedAt, true) || 'Never' }}</td>
+                  <td class="k-mono">{{ formatDate(tok.expiresAt) || 'No expiry' }}</td>
                   <td>
                     <button type="button" class="k-btn k-btn-danger" [disabled]="busy()" (click)="revokeToken(tok.id)">
                       Revoke
@@ -644,6 +677,7 @@ export class AccountAssetsComponent implements OnInit {
   styles: [ACCOUNT_SHARED_STYLES],
 })
 export class AccountTokensComponent implements OnInit {
+  readonly formatDate = formatDisplayDate;
   private readonly api = inject(InventoryApi);
   readonly auth = inject(AuthStore);
 

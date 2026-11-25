@@ -8,7 +8,7 @@ import { Component, EventEmitter, HostListener, Input, Output } from '@angular/c
   imports: [CommonModule, A11yModule],
   template: `
     @if (open) {
-      <div class="drawer-backdrop" (click)="close()">
+      <div class="drawer-backdrop" [class.centered]="placement === 'center'" (click)="close()">
         <aside
           class="drawer-panel"
           [attr.data-size]="size"
@@ -30,7 +30,7 @@ import { Component, EventEmitter, HostListener, Input, Output } from '@angular/c
               type="button"
               class="k-btn k-btn-ghost close-btn"
               (click)="close()"
-              aria-label="Close drawer"
+              [attr.aria-label]="placement === 'center' ? 'Close dialog' : 'Close drawer'"
             >
               <span class="k-kbd">Esc</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -76,6 +76,23 @@ import { Component, EventEmitter, HostListener, Input, Output } from '@angular/c
       }
       .drawer-panel[data-size='xl'] {
         width: min(780px, 100vw);
+      }
+      .drawer-backdrop.centered {
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+      }
+      .centered .drawer-panel {
+        width: min(100%, 28rem);
+        height: auto;
+        max-height: calc(100dvh - 2rem);
+        border: 1px solid var(--kestrel-border);
+        border-radius: var(--kestrel-radius-lg);
+        animation: kestrel-dialog-in 150ms ease-out;
+      }
+      @keyframes kestrel-dialog-in {
+        from { opacity: 0; transform: scale(0.98); }
+        to { opacity: 1; transform: scale(1); }
       }
       .drawer-header {
         padding: 1rem 1.25rem;
@@ -134,6 +151,7 @@ export class KestrelSlideDrawerComponent {
   @Input() title = '';
   @Input() subtitle = '';
   @Input() size: 'md' | 'lg' | 'xl' = 'md';
+  @Input() placement: 'side' | 'center' = 'side';
 
   @Output() closed = new EventEmitter<void>();
 
