@@ -21,6 +21,12 @@ export class AuthStore {
   readonly selectedCompanyId = signal<number | null>(null);
   readonly twoFactorChallengeToken = signal<string | null>(null);
   readonly requiresTwoFactorEnrollment = signal<boolean>(false);
+  private pendingRefresh?: Promise<string | null>;
+  private sessionVersion = 0;
+
+  get sessionGeneration(): number {
+    return this.sessionVersion;
+  }
 
   readonly isAuthenticated = computed(() => this.currentUser() !== null);
   readonly isSetupCompleted = computed(() => this.setupStatus()?.setupCompleted ?? false);
@@ -55,17 +61,37 @@ export class AuthStore {
       ));
     } catch (error) {
       if (error instanceof HttpErrorResponse && error.status === 401) {
-        try {
-          const response = await firstValueFrom(http.post<LoginResponse>('/api/v1/auth/refresh', {}));
-          this.applyLoginResponse(response);
-        } catch {
-          this.clearSession();
-        }
+        await this.refreshSession(http);
       }
     }
   }
 
+  refreshSession(http: HttpClient): Promise<string | null> {
+    if (this.pendingRefresh) return this.pendingRefresh;
+
+    const version = this.sessionVersion;
+    const refresh = firstValueFrom(http.post<LoginResponse>('/api/v1/auth/refresh', {}))
+      .then((response) => {
+        if (version !== this.sessionVersion || response.status !== 'authenticated') return null;
+        this.setAuthenticatedSession(response);
+        return response.accessToken;
+      })
+      .catch((error: unknown) => {
+        if (version === this.sessionVersion && error instanceof HttpErrorResponse && error.status === 401) {
+          this.clearSession();
+        }
+        return null;
+      })
+      .finally(() => {
+        if (this.pendingRefresh === refresh) this.pendingRefresh = undefined;
+      });
+    this.pendingRefresh = refresh;
+    return refresh;
+  }
+
   applyLoginResponse(response: LoginResponse): void {
+    this.sessionVersion++;
+    this.pendingRefresh = undefined;
     if (response.status === '2fa_required') {
       this.twoFactorChallengeToken.set(response.challengeToken);
       this.requiresTwoFactorEnrollment.set(response.requiresEnrollment);
@@ -75,6 +101,10 @@ export class AuthStore {
       return;
     }
 
+    this.setAuthenticatedSession(response);
+  }
+
+  private setAuthenticatedSession(response: Extract<LoginResponse, { status: 'authenticated' }>): void {
     this.twoFactorChallengeToken.set(null);
     this.requiresTwoFactorEnrollment.set(false);
     this.setSessionUser(response.user);
@@ -92,6 +122,8 @@ export class AuthStore {
   }
 
   clearSession(): void {
+    this.sessionVersion++;
+    this.pendingRefresh = undefined;
     this.currentUser.set(null);
     this.accessToken.set(null);
     this.refreshToken.set(null);
