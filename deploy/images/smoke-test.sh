@@ -35,5 +35,10 @@ curl --retry 45 --retry-delay 2 --retry-all-errors --max-time 10 -fsS "$api/read
 docker run -d --name "$id-web" --network "$id" -p 127.0.0.1::80 \
   -e KESTREL_API_ORIGIN=http://api:3000 "$web_image" >/dev/null
 web="http://$(docker port "$id-web" 80/tcp)"
-curl --retry 15 --retry-delay 1 --retry-all-errors --max-time 10 -fsS "$web/login" | grep '<kestrel-root'
+page=$(curl --retry 15 --retry-delay 1 --retry-all-errors --max-time 10 -fsS "$web/login")
+grep '<kestrel-root' <<< "$page"
+grep -Eq 'src="main-[A-Z0-9]+\.js"' <<< "$page"
+grep -Eq 'href="styles-[A-Z0-9]+\.css"' <<< "$page"
+headers=$(curl --max-time 10 -fsSI "$web/users")
+grep -Eiq '^Cache-Control: no-cache[[:space:]]*$' <<< "$headers"
 curl --max-time 10 -fsS "$web/api/v1/setup/status" | jq -e '.setupCompleted == false and .checks.database == true and .checks.storageWritable == true'
