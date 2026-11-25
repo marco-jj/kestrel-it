@@ -41,7 +41,7 @@ type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 type Token =
   | 'root' | 'west' | 'east' | 'admin' | 'westPat'
   | 'componentOperator' | 'linkedUser' | 'limitedReader' | 'statusReader' | 'noAssetReader'
-  | 'firstEmailWriter' | 'secondEmailWriter';
+  | 'firstEmailWriter' | 'secondEmailWriter' | 'licenseOnlyReader';
 
 describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () => {
   const databaseName = `kestrel_inventory_test_${randomBytes(6).toString('hex')}`;
@@ -1117,6 +1117,9 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       target_type: 'user',
       target_id: west,
       seat_id: seat.id,
+    });
+    expect(await ok('GET', `/licenses/${data.id}/seats/${seat.id}`, 'root')).toMatchObject({
+      assigned_to: west, assigned_to_label: 'west@example.test',
     });
     expect(
       (
@@ -2974,6 +2977,8 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
       'components.view': 1,
       'licenses.view': 1,
     });
+    await fixtureActor('licenseOnlyReader', { 'licenses.view': 1 });
+    await db.update(tables.users).set({ displayName: 'Visible assignee' }).where(eq(tables.users.id, reader));
     const host = await create('HISTORY-WEST');
     const eastHost = await create('HISTORY-EAST', eastCompany);
     const [component] = await db.insert(tables.components).values({
@@ -3012,6 +3017,15 @@ describe.skipIf(!clusterUrl)('Inventory through Fastify and PostgreSQL 16', () =
     ]));
     const rootSeats = (await ok('GET', seatsPath, 'root')).rows;
     expect(rootSeats).toContainEqual(expect.objectContaining({ seat_id: crossCompanySeat!.id, assigned_to: east }));
+    const licenseSeatsPath = `/licenses/${license!.id}/seats`;
+    expect((await ok('GET', licenseSeatsPath, 'limitedReader')).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: localSeat!.id, assigned_to: reader, assigned_to_label: 'Visible assignee' }),
+      expect.objectContaining({ id: crossCompanySeat!.id, assigned_to: null, assigned_to_label: null }),
+      expect.objectContaining({ id: deletedSeat!.id, assigned_to: null, assigned_to_label: null }),
+    ]));
+    expect(await ok('GET', `${licenseSeatsPath}/${localSeat!.id}`, 'licenseOnlyReader')).toMatchObject({
+      assigned_to: null, assigned_to_label: null, occupied: true,
+    });
 
     const [westRepair, eastRepair] = await db.insert(tables.assetMaintenances).values([
       { itemId: host.id, name: 'West repair', startDate: '2030-01-01', assetMaintenanceType: 'Repair' },

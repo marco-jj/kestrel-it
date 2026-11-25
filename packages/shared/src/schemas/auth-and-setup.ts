@@ -15,6 +15,13 @@ export const PreflightStatusResponseSchema = z.object({
 });
 export type PreflightStatusResponse = z.infer<typeof PreflightStatusResponseSchema>;
 
+export const LOCAL_PASSWORD_MIN_LENGTH = 10;
+export const LOCAL_PASSWORD_MAX_LENGTH = 255;
+export const LocalPasswordSchema = z
+  .string({ error: ({ input }) => input == null ? 'Password is required.' : 'Enter a valid password.' })
+  .min(LOCAL_PASSWORD_MIN_LENGTH, `Use at least ${LOCAL_PASSWORD_MIN_LENGTH} characters.`)
+  .max(LOCAL_PASSWORD_MAX_LENGTH, `Use at most ${LOCAL_PASSWORD_MAX_LENGTH} characters.`);
+
 export const CompleteSetupRequestSchema = z.object({
   siteName: z.string().trim().min(1).max(255),
   locale: z.string().trim().min(2).max(20).default('en-US'),
@@ -29,7 +36,7 @@ export const CompleteSetupRequestSchema = z.object({
   lastName: z.string().trim().max(255).default(''),
   username: z.string().trim().min(1).max(255),
   email: z.string().trim().email().max(255),
-  password: z.string().min(10).max(255),
+  password: LocalPasswordSchema,
 });
 export type CompleteSetupRequest = z.infer<typeof CompleteSetupRequestSchema>;
 

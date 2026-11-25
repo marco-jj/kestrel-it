@@ -81,10 +81,36 @@ export function scopedAssignmentTarget(
   const resource = kind === 'user' ? 'users' : kind === 'asset' ? 'assets' : 'locations';
   if (!permitsEntity(actor, `${resource}.view`)) return sql<number | null>`null`;
   const table = kind === 'user' ? users : kind === 'asset' ? assets : locations;
-  const allowed = and(
+  const allowed = assignmentTargetPredicate(fmcs, scope, resource, table, field);
+  return sql<number | null>`case when exists (select 1 from ${table} where ${allowed}) then ${field} end`;
+}
+
+export function scopedAssignmentUserLabel(
+  fmcs: FmcsScopeService,
+  scope: FmcsScope,
+  actor: AuthenticatedUserContext,
+  field: SQLWrapper,
+) {
+  if (!permitsEntity(actor, 'users.view')) return sql<string | null>`null`;
+  const allowed = assignmentTargetPredicate(fmcs, scope, 'users', users, field);
+  return sql<string | null>`(select coalesce(
+    nullif(btrim(${users.displayName}), ''),
+    nullif(btrim(concat_ws(' ', ${users.firstName}, ${users.lastName})), ''),
+    nullif(btrim(${users.email}), ''),
+    ${users.username}
+  ) from ${users} where ${allowed})`;
+}
+
+function assignmentTargetPredicate(
+  fmcs: FmcsScopeService,
+  scope: FmcsScope,
+  resource: 'users' | 'assets' | 'locations',
+  table: typeof users | typeof assets | typeof locations,
+  field: SQLWrapper,
+) {
+  return and(
     sql`${table.id} = ${field}`,
     isNull(table.deletedAt),
     fmcs.predicate(scope, resource, table.id, 'companyId' in table ? table.companyId : undefined),
   );
-  return sql<number | null>`case when exists (select 1 from ${table} where ${allowed}) then ${field} end`;
 }

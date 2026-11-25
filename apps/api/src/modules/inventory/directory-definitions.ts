@@ -1,6 +1,7 @@
 import {
   CATEGORY_TYPES,
   InventoryIdSchema,
+  LocalPasswordSchema,
   WEBHOOK_PROVIDERS,
   type CoreInventoryResource,
 } from '@kestrel-it/shared';
@@ -108,7 +109,7 @@ export const directoryDefinitions: Record<CoreInventoryResource, DirectoryDefini
       permissions,
       company_ids: ids,
       group_ids: ids,
-      password: z.string().min(10).max(255).optional(),
+      password: LocalPasswordSchema.optional(),
       send_welcome: z.boolean().optional(),
     },
     references: { manager_id: 'users', location_id: 'locations', department_id: 'departments' },

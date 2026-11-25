@@ -34,7 +34,7 @@ import {
 import { recordAcquisition } from './acquisitions.js';
 import { fieldIssue } from './custom-fields-validation.service.js';
 import { FmcsScopeService, type FmcsScope } from './fmcs-scope.service.js';
-import { scopedAssignmentTarget } from './inventory-visibility.js';
+import { scopedAssignmentTarget, scopedAssignmentUserLabel } from './inventory-visibility.js';
 import { InventoryMailService } from './inventory-mail.service.js';
 import {
   inventoryWrite,
@@ -102,6 +102,7 @@ export class SecondaryAssignmentsService {
         {
           id: licenseSeats.id,
           assigned_to: scopedAssignmentTarget(this.fmcs, scope, user, 'user', licenseSeats.assignedTo),
+          assigned_to_label: scopedAssignmentUserLabel(this.fmcs, scope, user, licenseSeats.assignedTo),
           asset_id: scopedAssignmentTarget(this.fmcs, scope, user, 'asset', licenseSeats.assetId),
           occupied: sql<boolean>`(${licenseSeats.assignedTo} is not null or ${licenseSeats.assetId} is not null)`,
           unreassignable_seat: licenseSeats.unreassignableSeat,
@@ -173,6 +174,7 @@ export class SecondaryAssignmentsService {
       .select({
         id: licenseSeats.id,
         assignedTo: scopedAssignmentTarget(this.fmcs, scope, user, 'user', licenseSeats.assignedTo),
+        assignedToLabel: scopedAssignmentUserLabel(this.fmcs, scope, user, licenseSeats.assignedTo),
         assetId: scopedAssignmentTarget(this.fmcs, scope, user, 'asset', licenseSeats.assetId),
         occupied: sql<boolean>`(${licenseSeats.assignedTo} is not null or ${licenseSeats.assetId} is not null)`,
         unreassignableSeat: licenseSeats.unreassignableSeat,
@@ -191,6 +193,7 @@ export class SecondaryAssignmentsService {
       id: seat.id,
       license_id: licenseId,
       assigned_to: seat.assignedTo,
+      assigned_to_label: seat.assignedToLabel,
       asset_id: seat.assetId,
       occupied: seat.occupied,
       unreassignable_seat: seat.unreassignableSeat,
