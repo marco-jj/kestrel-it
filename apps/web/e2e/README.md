@@ -25,3 +25,5 @@ Per usare Chromium già installato, impostare `KESTREL_E2E_CHROMIUM` sul percors
 Lo scenario della Fase 3 verifica il checkout di un kit, un rifornimento con riga d’ordine, un audit con upload e download della foto, la navigazione dal calendario e il completamento di una manutenzione.
 
 I casi dei Piani 3.3 e 3.4 verificano upload, download e rimozione degli allegati, anteprima e stampa PDF, salvataggio ed export dei report, import CSV con esito misto, solleciti di accettazione e salvataggio della configurazione delle notifiche. Lo scenario accoda una mail di prova. Usare un sink SMTP locale.
+
+`node --test apps/web/e2e/ui-regressions.mjs` esegue soltanto le regressioni dell'interfaccia con le stesse variabili. Il caso di sessione forza un rifiuto del token da parte dell'API e verifica la rotazione dei due cookie e il recupero della richiesta nel browser. Con `KESTREL_E2E_REAL_EXPIRY=1` e un'istanza di prova configurata con `JWT_ACCESS_EXPIRES_IN=8s`, il caso attende la scadenza effettiva del token.

@@ -313,6 +313,7 @@ test(
 
     await t.test('records an audit photo and shows the audit in the calendar', async () => {
       const date = new Date().toISOString().slice(0, 10);
+      const displayDate = date.split('-').reverse().join('/');
       await page.goto('/hardware');
       await page.getByLabel('Search table records').fill(asset.asset_tag);
       await page
@@ -320,7 +321,7 @@ test(
         .filter({ hasText: asset.asset_tag })
         .getByRole('button', { name: 'audit', exact: true })
         .click();
-      await dialog.getByLabel('Next audit date', { exact: true }).fill(date);
+      await dialog.getByLabel('Next audit date', { exact: true }).fill(displayDate);
       const png = Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACklEQVR4AWPAAAAAEgABKPhxBgAAAABJRU5ErkJggg==',
         'base64',
@@ -531,7 +532,11 @@ test('Phase 3.3 and 3.4 operational workflows through Angular and Chromium', { t
 
       await page.goto('/account/profile');
       await page.getByRole('heading', { name: 'My Profile' }).waitFor();
-      await page.getByLabel('Phone', { exact: true }).fill('+39 02 998877');
+      const phone = page.getByLabel('Phone', { exact: true });
+      await phone.fill('+39 02 998877');
+      await page.getByText('Enter digits with an optional leading +.', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Save Profile', exact: true }).isDisabled(), true);
+      await phone.fill('+3902998877');
       await page.getByRole('button', { name: 'Save Profile', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Profile details updated' }).waitFor();
 

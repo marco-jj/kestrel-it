@@ -7,7 +7,7 @@
     "build": "node scripts/build.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:e2e": "node --test e2e/phase-2.mjs"
+    "test:e2e": "node --test --test-concurrency=1 e2e/phase-2.mjs e2e/ui-regressions.mjs"
   },
   "dependencies": {
     "@angular/cdk": "^21.2.14",

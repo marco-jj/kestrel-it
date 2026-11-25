@@ -1,5 +1,7 @@
 import '@angular/compiler';
-import type { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpRequest, HttpResponse } from '@angular/common/http';
+import { ElementRef, Injector, runInInjectionContext } from '@angular/core';
+import { FormControl } from '@angular/forms';
 import { convertToParamMap, type ActivatedRoute, type Router } from '@angular/router';
 import {
   ALL_PERMISSIONS,
@@ -8,10 +10,10 @@ import {
   type AuthProvidersStatusResponse,
   type PreflightStatusResponse,
 } from '@kestrel-it/shared';
-import { of } from 'rxjs';
+import { firstValueFrom, of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { appRoutes } from '../app/app.routes.js';
-import { buildAuthHeaders } from '../app/core/auth/auth.interceptor.js';
+import { authInterceptor, buildAuthHeaders } from '../app/core/auth/auth.interceptor.js';
 import { AuthStore } from '../app/core/auth/auth.store.js';
 import {
   evaluateAuthGuard,
@@ -27,6 +29,14 @@ import { ThemeStore } from '../app/core/theme/theme.store.js';
 import { DashboardComponent } from '../app/features/dashboard/dashboard.component.js';
 import { LoginComponent } from '../app/features/auth/login.component.js';
 import { SetupWizardComponent } from '../app/features/setup/setup-wizard.component.js';
+import { DIRECTORY_UI, directoryFormField, field } from '../app/features/inventory/directory-ui.js';
+import { assignmentRecipient } from '../app/features/inventory/phase-three-page.component.js';
+import { inventoryFieldValidators } from '../app/features/inventory/inventory-field-validation.js';
+import { AssetTagFieldComponent, suggestAssetTags } from '../app/features/inventory/asset-tag-field.component.js';
+import { InventoryApi } from '../app/features/inventory/inventory-api.js';
+import { fieldValidationMessage } from '../app/shared/ui/field-validation.js';
+import { DateInputComponent } from '../app/shared/ui/date-input.component.js';
+import { formatDisplayDate, parseDisplayDate } from '../app/shared/ui/display-date.js';
 import {
   DEFAULT_COMMAND_ITEMS,
   KestrelAsyncSelectComponent,
@@ -68,7 +78,224 @@ function makeUser(overrides: Partial<AuthenticatedUserContext> = {}): Authentica
   };
 }
 
+describe('Inventory field and table regressions', () => {
+  it('requires a password when creating a local user and leaves an existing password optional', () => {
+    const password = DIRECTORY_UI.users.fields.find(({ key }) => key === 'password')!;
+    const creating = directoryFormField(password, 'users', false);
+    const control = new FormControl<string | null>(null, inventoryFieldValidators(creating));
+    expect(control.invalid).toBe(true);
+    expect(fieldValidationMessage(control, creating.label)).toBe('Password is required.');
+    control.setValue('correct-password');
+    expect(control.valid).toBe(true);
+    const editing = directoryFormField(password, 'users', true);
+    expect(new FormControl('', inventoryFieldValidators(editing)).valid).toBe(true);
+  });
+
+  it('dismisses the centered confirmation on Escape only while it is open', () => {
+    const confirmation = new KestrelSlideDrawerComponent();
+    confirmation.placement = 'center';
+    const closed = vi.fn();
+    confirmation.closed.subscribe(closed);
+    confirmation.onKeydown({ key: 'Escape' } as KeyboardEvent);
+    expect(closed).not.toHaveBeenCalled();
+    confirmation.open = true;
+    confirmation.onKeydown({ key: 'Escape' } as KeyboardEvent);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  it('uses the readable seat recipient and supports API responses without a label', () => {
+    expect(assignmentRecipient({ assigned_to: 1, assigned_to_label: 'Ada Lovelace' })).toBe('Ada Lovelace');
+    expect(assignmentRecipient({ assigned_to: 1, assigned_to_label: 'ada@example.test' })).toBe('ada@example.test');
+    expect(assignmentRecipient({ assigned_to: 1 })).toBe('User #1');
+    expect(assignmentRecipient({ occupied: true })).toBe('');
+  });
+  it('dismisses empty and populated select menus outside the component and resets the query', () => {
+    const host = {};
+    const select = new KestrelAsyncSelectComponent(new ElementRef(host as HTMLElement));
+    const pointer = (path: unknown[]) => ({ composedPath: () => path }) as PointerEvent;
+    select.options = [{ id: 1, text: 'London' }];
+    select.writeValue(1);
+    select.onSearchChange('missing');
+    expect(select.filteredOptions()).toEqual([]);
+    select.onDocumentPointerDown(pointer([host]));
+    expect(select.isOpen()).toBe(true);
+    select.onDocumentPointerDown(pointer([]));
+    expect(select.isOpen()).toBe(false);
+    expect(select.displayInputValue()).toBe('London');
+    select.openDropdown();
+    expect(select.filteredOptions()).toHaveLength(1);
+    select.onDocumentPointerDown(pointer([]));
+    expect(select.isOpen()).toBe(false);
+  });
+
+  it('formats expiry dates in day/month/year order and keeps empty values readable', () => {
+    const grid = new KestrelDataGridComponent();
+    const expiry = { key: 'expires', label: 'Expires', type: 'date' as const };
+    expect(grid.formatCell({ expires: '2026-11-25' }, expiry)).toBe('25/11/2026');
+    expect(grid.formatCell({ expires: '2026-11-25T00:01:00+02:00' }, expiry)).toBe('25/11/2026');
+    expect(grid.formatCell({}, expiry)).toBe('—');
+  });
+
+  it('formats inventory dates and timestamps without changing ISO-looking identifiers', () => {
+    const grid = new KestrelDataGridComponent();
+    expect(formatDisplayDate({ date: '2026-12-11', formatted: '2026-12-11' })).toBe('11/12/2026');
+    expect(formatDisplayDate({ datetime: '2026-11-26 09:14:27' }, true)).toBe('26/11/2026 09:14:27');
+    expect(formatDisplayDate('2026-11-11T00:05:00+02:00')).toBe('11/11/2026');
+    expect(grid.formatCell({ purchase_date: '2026-11-11' }, { key: 'purchase_date', label: 'Purchased' })).toBe('11/11/2026');
+    expect(grid.formatCell({ serial: '2026-11-11' }, { key: 'serial', label: 'Serial' })).toBe('2026-11-11');
+  });
+
+  it('accepts display dates in edit controls and emits calendar dates and times in ISO form', () => {
+    const input = new DateInputComponent();
+    const changed = vi.fn();
+    input.registerOnChange(changed);
+    input.writeValue('2026-12-11');
+    expect(input.text()).toBe('11/12/2026');
+    input.edit('31/02/2026');
+    expect(input.validate()).toEqual({ dateFormat: true });
+    input.edit('29/02/2028');
+    expect(input.validate()).toBeNull();
+    expect(changed).toHaveBeenLastCalledWith('2028-02-29');
+    input.choose('2026-11-11');
+    expect(input.text()).toBe('11/11/2026');
+    expect(changed).toHaveBeenLastCalledWith('2026-11-11');
+    expect(parseDisplayDate('26/11/2026 09:14:27', true)).toBe('2026-11-26T09:14:27');
+    expect(parseDisplayDate('26/11/2026 24:00', true)).toBeNull();
+  });
+
+  it('updates phone, email and URL validation messages as the value changes', () => {
+    for (const [type, invalid, valid] of [
+      ['tel', '12+3', '+3908123456'],
+      ['email', 'missing-domain', 'operator@example.test'],
+      ['url', 'example.test', 'https://example.test'],
+    ] as const) {
+      const control = new FormControl('', inventoryFieldValidators(field(type, type, type)));
+      control.markAsDirty();
+      control.setValue(invalid);
+      expect(fieldValidationMessage(control)).toBeTruthy();
+      control.setValue(valid);
+      expect(control.valid).toBe(true);
+      expect(fieldValidationMessage(control)).toBeNull();
+    }
+  });
+
+  it('shows the same password limit in user creation and setup before submit', () => {
+    const password = DIRECTORY_UI.users.fields.find(({ key }) => key === 'password')!;
+    const setup = new SetupWizardComponent(new AuthStore());
+    const userPassword = new FormControl('', inventoryFieldValidators(password));
+    expect(userPassword.valid).toBe(true);
+    for (const control of [userPassword, setup.adminForm.controls.password]) {
+      control.markAsDirty();
+      control.setValue('123456789');
+      expect(fieldValidationMessage(control)).toBe('Use at least 10 characters.');
+      control.setValue('1234567890');
+      expect(fieldValidationMessage(control)).toBeNull();
+    }
+  });
+
+  it('validates the configured phone field in the user form as it changes', () => {
+    const phone = DIRECTORY_UI.users.fields.find(({ key }) => key === 'phone')!;
+    const control = new FormControl('', inventoryFieldValidators(phone));
+    expect(phone.type).toBe('tel');
+    control.markAsDirty();
+    control.setValue('ff3');
+    expect(fieldValidationMessage(control)).toBe('Enter digits with an optional leading +.');
+    control.setValue('+3908123456');
+    expect(fieldValidationMessage(control)).toBeNull();
+  });
+
+  it('commits an asset tag as a single removable value and suggests unique matching tags', () => {
+    const injector = Injector.create({ providers: [
+      { provide: ElementRef, useValue: new ElementRef({}) },
+      { provide: InventoryApi, useValue: {} },
+    ] });
+    const editor = runInInjectionContext(injector, () => new AssetTagFieldComponent());
+    const changed = vi.fn();
+    editor.registerOnChange(changed);
+    editor.edit(' kst ');
+    editor.commit('KST-42');
+    expect(editor.committed()).toBe(true);
+    expect(changed).toHaveBeenLastCalledWith('KST-42');
+    editor.remove();
+    expect(editor.committed()).toBe(false);
+    expect(changed).toHaveBeenLastCalledWith(null);
+    expect(suggestAssetTags([
+      { asset_tag: 'KST-42' }, { asset_tag: 'KST-42' }, { asset_tag: 'other' }, {},
+    ], 'kst')).toEqual(['KST-42']);
+  });
+
+  it('renders saved status colors including hex values without the prefix', () => {
+    const grid = new KestrelDataGridComponent();
+    expect(grid.colorSwatch('#2f6d78')).toBe('#2f6d78');
+    expect(grid.colorSwatch('2f6d78')).toBe('#2f6d78');
+    expect(grid.colorSwatch('')).toBeNull();
+  });
+});
+
 describe('AuthStore Signals, RBAC & FMCS', () => {
+  it('rotates both tokens once for concurrent 401s and retries the original requests', async () => {
+    const store = new AuthStore();
+    const initial = {
+      status: 'authenticated' as const, accessToken: 'access-old', refreshToken: 'refresh-old', user: makeUser(),
+    };
+    store.applyLoginResponse(initial);
+    const response = new Subject<typeof initial>();
+    const post = vi.fn(() => response);
+    const injector = Injector.create({ providers: [
+      { provide: AuthStore, useValue: store },
+      { provide: HttpClient, useValue: { post } },
+    ] });
+    const unauthorized = new HttpErrorResponse({
+      status: 401, error: { message: 'Invalid or expired token' },
+    });
+    const next = vi.fn((request: HttpRequest<unknown>) =>
+      request.headers.get('Authorization') === 'Bearer access-new'
+        ? of(new HttpResponse({ body: request.body }))
+        : throwError(() => unauthorized),
+    );
+    const mutation = new HttpRequest('POST', '/api/v1/users', { username: 'test' });
+    const read = new HttpRequest('GET', '/api/v1/users');
+    const result = Promise.all(
+      [mutation, read].map((request) => runInInjectionContext(injector, () =>
+        firstValueFrom(authInterceptor(request, next)),
+      )),
+    );
+    expect(post).toHaveBeenCalledExactlyOnceWith('/api/v1/auth/refresh', {});
+    response.next({ ...initial, accessToken: 'access-new', refreshToken: 'refresh-new' });
+    await result;
+    expect(store.refreshToken()).toBe('refresh-new');
+    expect(next.mock.calls.map(([request]) => [
+      request.method, request.body, request.headers.get('Authorization'),
+    ])).toEqual([
+      ['POST', mutation.body, 'Bearer access-old'],
+      ['GET', null, 'Bearer access-old'],
+      ['POST', mutation.body, 'Bearer access-new'],
+      ['GET', null, 'Bearer access-new'],
+    ]);
+  });
+
+  it('does not loop on a rejected refresh or retry login failures', async () => {
+    const store = new AuthStore();
+    store.applyLoginResponse({
+      status: 'authenticated', accessToken: 'access', refreshToken: 'refresh', user: makeUser(),
+    });
+    const error = new HttpErrorResponse({ status: 401, error: { message: 'Invalid or expired token' } });
+    const post = vi.fn(() => throwError(() => error));
+    const next = vi.fn(() => throwError(() => error));
+    const injector = Injector.create({ providers: [
+      { provide: AuthStore, useValue: store },
+      { provide: HttpClient, useValue: { post } },
+    ] });
+    const request = (url: string) => runInInjectionContext(injector, () =>
+      firstValueFrom(authInterceptor(new HttpRequest('POST', url, {}), next)),
+    );
+    await expect(request('/api/v1/auth/login')).rejects.toBe(error);
+    expect(post).not.toHaveBeenCalled();
+    await expect(request('/api/v1/users')).rejects.toBe(error);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(store.isAuthenticated()).toBe(false);
+  });
   it('restores the cookie-backed user before checking dashboard access', async () => {
     const store = new AuthStore();
     const user = makeUser({ userCompanyIds: [12] });
